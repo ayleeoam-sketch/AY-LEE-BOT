@@ -36,6 +36,8 @@ export const config = {
   pairNumber: (process.env.PAIR_NUMBER || '').replace(/[^0-9]/g, ''),
   pairCustomCode: (process.env.PAIR_CUSTOM_CODE || '').toUpperCase().trim(),
   sessionStore: (process.env.SESSION_STORE || 'file').toLowerCase(),
+  // base64 creds.json from the session generator site
+  sessionId: (process.env.SESSION_ID || '').trim(),
   sessionDir: path.join(ROOT, 'session'),
 
   // database
