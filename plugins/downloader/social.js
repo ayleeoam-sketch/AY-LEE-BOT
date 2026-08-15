@@ -201,19 +201,41 @@ export default [
     usage: '.dlstatus',
     owner: true,
     async run({ m }) {
+      await m.react('🔍')
+
+      // actually test YouTube rather than claiming it works
+      let yt = '⚠️ untested'
+      try {
+        const { probe } = await import('../../src/lib/downloader.js')
+        await probe('https://www.youtube.com/watch?v=jNQXAC9IVRw')
+        yt = '✅ working'
+      } catch (e) {
+        yt = /bot check|not a bot/i.test(e.message)
+          ? '❌ blocked (needs cookies.txt)'
+          : `⚠️ ${String(e.message).split('\n')[0].slice(0, 40)}`
+      }
+
       await m.reply(
         `📥 *DOWNLOADER STATUS*\n\n` +
           `${hasYtdlp() ? '✅' : '❌'} yt-dlp engine\n` +
           `${hasCookies() ? '✅' : '⚠️'} cookies.txt ${hasCookies() ? '(loaded)' : '(not set)'}\n\n` +
           `*Platform support:*\n` +
-          `✅ YouTube — audio + video, keyless\n` +
+          `${yt} YouTube\n` +
           `✅ TikTok — no watermark via tikwm\n` +
           `${hasCookies() ? '✅' : '⚠️'} Instagram — ${hasCookies() ? 'cookies loaded' : 'needs cookies.txt'}\n` +
           `✅ Twitter/X, Facebook, and 1800+ other sites\n\n` +
           (hasCookies()
-            ? ''
-            : `_To enable Instagram: export cookies with the "Get cookies.txt LOCALLY" browser extension and save as *cookies.txt* in the bot folder._`)
+            ? '_cookies.txt is loaded, so YouTube and Instagram should both work._'
+            : `⚠️ *No cookies.txt.*\n\n` +
+              `YouTube now bot-checks datacenter IPs, so hosted bots get blocked. ` +
+              `Fix it once and it stays fixed:\n\n` +
+              `1. Install "Get cookies.txt LOCALLY" (Chrome/Firefox extension)\n` +
+              `2. Open youtube.com while signed in\n` +
+              `3. Export and save as *cookies.txt* in the bot folder\n` +
+              `4. Run *.dlstatus* again\n\n` +
+              `_This also enables Instagram._`)
       )
+      await m.react('✅')
     }
   }
 ]

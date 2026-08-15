@@ -134,10 +134,61 @@ export async function probe(url, extraArgs = []) {
   if (!hasYtdlp()) throw new Error('yt-dlp is not installed. Run: npm run setup')
   const args = [
     '--no-warnings', '--dump-single-json', '--no-playlist',
-    '--socket-timeout', '20', ...extraArgs, url
+    '--socket-timeout', '20', ...extraArgs
   ]
-  const { stdout } = await execFileAsync(YTDLP, args, { maxBuffer: 40 * 1024 * 1024, timeout: 90_000 })
-  return JSON.parse(stdout)
+  // cookies help everywhere, not just Instagram - YouTube now bot-checks
+  // datacenter IPs, and a cookies.txt clears it instantly.
+  if (hasCookies() && !extraArgs.includes('--cookies')) args.push('--cookies', COOKIE_FILE)
+  args.push(url)
+  try {
+    const { stdout } = await execFileAsync(YTDLP, args, { maxBuffer: 40 * 1024 * 1024, timeout: 90_000 })
+    return JSON.parse(stdout)
+  } catch (e) {
+    throw new Error(explainYtError(e.stderr || e.message || ''))
+  }
+}
+
+/**
+ * Turn yt-dlp's stderr into something a WhatsApp user can act on.
+ *
+ * The raw output is a full command line plus a stack of extractor noise -
+ * useless in a chat and alarming to read. These are the failures that
+ * actually happen in production.
+ */
+export function explainYtError(raw) {
+  const t = String(raw)
+
+  if (/Sign in to confirm|not a bot|confirm you.?re not a bot/i.test(t)) {
+    return (
+      'YouTube is blocking this server with a bot check.\n\n' +
+      'This is an IP-level block on the host, not a fault in the bot - the same ' +
+      'link works from a home connection.\n\n' +
+      '*Fix (2 minutes, permanent):*\n' +
+      '1. Install the "Get cookies.txt LOCALLY" browser extension\n' +
+      '2. Open youtube.com while signed in\n' +
+      '3. Export cookies and save the file as *cookies.txt* in the bot folder\n' +
+      '4. Run *.dlstatus* to confirm it was picked up\n\n' +
+      '_TikTok, Twitter and Facebook downloads are unaffected._'
+    )
+  }
+  if (/Private video|members-only|Join this channel/i.test(t))
+    return 'That video is private or members-only, so it cannot be downloaded.'
+  if (/Video unavailable/i.test(t))
+    return 'That video is unavailable - it may be deleted, region-locked or age-restricted.'
+  if (/This live event|is live/i.test(t))
+    return 'That is a live stream. Wait until it ends, then download the recording.'
+  if (/DRM|protected/i.test(t))
+    return 'That video is DRM protected and cannot be downloaded.'
+  if (/Requested format is not available/i.test(t))
+    return 'No downloadable format was offered for that video. Try a different quality.'
+  if (/HTTP Error 429|Too Many Requests/i.test(t))
+    return 'Rate limited by the site. Wait a minute and try again.'
+  if (/Unsupported URL/i.test(t))
+    return 'That link is not supported.'
+
+  // unknown: return the last meaningful ERROR line, never the command line
+  const line = t.split('\n').reverse().find((l) => /ERROR/i.test(l))
+  return line ? line.replace(/^ERROR:\s*/i, '').slice(0, 300) : String(raw).slice(0, 200)
 }
 
 /**
@@ -197,8 +248,8 @@ export function ytdlpDownload(url, { format, audio = false, maxMb = 64, extraArg
 
       if (code !== 0 || !produced.length) {
         produced.forEach(rm)
-        const clean = stderr.split('\n').filter((l) => l.includes('ERROR')).join(' ').replace(/ERROR:\s*/g, '').trim()
-        return reject(new Error(clean || `yt-dlp exited with code ${code}`))
+        // same translation as probe() - users should never see a command line
+        return reject(new Error(explainYtError(stderr) || `yt-dlp exited with code ${code}`))
       }
 
       // prefer the merged/converted output
