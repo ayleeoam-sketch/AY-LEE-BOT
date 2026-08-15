@@ -1,7 +1,7 @@
 import os from 'os'
 import { uptime, formatBytes } from '../../src/lib/utils.js'
 import { pluginCount } from '../../src/lib/pluginLoader.js'
-import { isMongo } from '../../src/lib/database.js'
+import { backend } from '../../src/lib/database.js'
 
 export default [
   {
@@ -35,7 +35,7 @@ export default [
           `┃ ⚙️ CPU: ${os.cpus()[0]?.model?.slice(0, 28) || 'unknown'}\n` +
           `┃ 🔢 Cores: ${os.cpus().length}\n` +
           `┃ 🟢 Node: ${process.version}\n` +
-          `┃ 🗄️ Database: ${isMongo() ? 'MongoDB' : 'Local JSON'}\n` +
+          `┃ 🗄️ Database: ${backend()}\n` +
           `┃ 👑 Owner: ${config.ownerName}\n` +
           `╰━━━━━━━━━━━━━━━━━━━━╯`
       )
