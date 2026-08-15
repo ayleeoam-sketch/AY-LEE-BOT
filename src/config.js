@@ -53,7 +53,7 @@ export const config = {
   rejectCall: bool(process.env.REJECT_CALL),
   antiDelete: bool(process.env.ANTI_DELETE, true),
   startupMessage: bool(process.env.STARTUP_MESSAGE, true),
-  cmdReact: bool(process.env.CMD_REACT),
+  cmdReact: bool(process.env.CMD_REACT, true),
   cmdReactEmoji: process.env.CMD_REACT_EMOJI || '⚡',
 
   // api keys

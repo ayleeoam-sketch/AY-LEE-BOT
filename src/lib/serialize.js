@@ -146,8 +146,17 @@ export async function serialize(sock, raw, store) {
     return sock.sendMessage(options.jid || m.chat, content, options)
   }
 
-  /** React to this message with an emoji. */
-  m.react = (emoji) => sock.sendMessage(m.chat, { react: { text: emoji, key: m.key } })
+  /**
+   * React to this message with an emoji.
+   *
+   * Sets m.reacted so the handler knows the plugin is managing its own
+   * feedback and should not append an automatic ✅/❌ on top.
+   */
+  m.reacted = false
+  m.react = (emoji) => {
+    m.reacted = true
+    return sock.sendMessage(m.chat, { react: { text: emoji, key: m.key } })
+  }
 
   /** The jid this command targets: mention > quoted author > argument. */
   m.target = (() => {

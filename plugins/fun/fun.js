@@ -353,20 +353,55 @@ export default [
     async run({ m, text, config }) {
       if (!text.includes('+')) return m.reply('📝 Usage: *.emojimix 😂+🥰*')
       const [a, b] = text.split('+').map((s) => s.trim())
+      if (!a || !b) return m.reply('📝 Usage: *.emojimix 😂+🥰*')
+
+      await m.react('🎨')
       try {
-        // Google's public Emoji Kitchen key - published by Google for this
-        // endpoint, not a private credential. Safe to commit.
-        const TENOR_PUBLIC_KEY = 'AIzaSyAyimkuYQYF_FXVALexPuGQctUWRURdCYQ'
-        const d = await getJson(
-          `https://tenor.googleapis.com/v2/featured?key=${TENOR_PUBLIC_KEY}&contentfilter=high&media_filter=png_transparent&component=proactive&collection=emoji_kitchen_v5&q=${encodeURIComponent(a)}_${encodeURIComponent(b)}`
-        )
-        const url = d?.results?.[0]?.url
-        if (!url) return m.reply('❌ That emoji combination is not supported.')
+        /*
+         * Tenor's API was discontinued by Google (403 "Tenor API is
+         * discontinued"), which killed the old approach. Emoji Kitchen
+         * tiles are still served straight off gstatic with no key, so
+         * build the URL ourselves.
+         *
+         * Filenames are the emoji codepoints as u1f602 style, and the
+         * date-stamped folder differs per pair - so try the known
+         * revisions and both orderings before giving up.
+         */
+        const cp = (e) => [...e].map((c) => 'u' + c.codePointAt(0).toString(16)).join('-u')
+        const [ca, cb] = [cp(a), cp(b)]
+        const REVS = ['20201001', '20210521', '20210831', '20220203', '20220506', '20220815', '20230301', '20230418', '20230803']
+
+        const candidates = []
+        for (const rev of REVS) {
+          candidates.push(`https://www.gstatic.com/android/keyboard/emojikitchen/${rev}/${ca}/${ca}_${cb}.png`)
+          candidates.push(`https://www.gstatic.com/android/keyboard/emojikitchen/${rev}/${cb}/${cb}_${ca}.png`)
+        }
+        // community mirror that resolves the revision for us
+        const plain = (e) => [...e].map((c) => c.codePointAt(0).toString(16)).join('-')
+        candidates.push(`https://emojik.vercel.app/s/${plain(a)}_${plain(b)}?size=512`)
+
+        let buffer = null
+        for (const url of candidates) {
+          try {
+            const got = await getBuffer(url, { timeout: 12_000 })
+            if (got?.length > 2000) { buffer = got; break }
+          } catch {}
+        }
+        if (!buffer) {
+          await m.react('❌')
+          return m.reply(
+            `❌ Emoji Kitchen has no blend for ${a} + ${b}.\n\n` +
+              `_Not every pair exists. Try common faces like 😂+🥰 or 😭+😡._`
+          )
+        }
+
         const { toSticker, addExif } = await import('../../src/lib/media.js')
-        let webp = await toSticker(await getBuffer(url))
+        let webp = await toSticker(buffer)
         webp = await addExif(webp, config.botName, config.ownerName)
         await m.reply({ sticker: webp })
+        await m.react('✅')
       } catch (e) {
+        await m.react('❌')
         await m.reply(`❌ ${e.message}`)
       }
     }

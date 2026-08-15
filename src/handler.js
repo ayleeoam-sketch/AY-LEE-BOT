@@ -103,13 +103,18 @@ export async function handleMessage(sock, raw, ctx = {}) {
     if (mode === 'group' && !m.isGroup && !m.isSudo) return
     if (mode === 'inbox' && m.isGroup && !m.isSudo) return
 
-    if (plugin.owner && !m.isSudo) return m.reply('🚫 This command is for the owner only.')
-    if (plugin.group && !m.isGroup) return m.reply('🚫 This command only works in groups.')
-    if (plugin.private && m.isGroup) return m.reply('🚫 This command only works in DM.')
+    /* a refusal is still an answer - react so the user sees it registered */
+    const deny = async (why) => {
+      if (getVar('CMD_REACT')) await m.react('🚫').catch(() => {})
+      return m.reply(why)
+    }
+    if (plugin.owner && !m.isSudo) return deny('🚫 This command is for the owner only.')
+    if (plugin.group && !m.isGroup) return deny('🚫 This command only works in groups.')
+    if (plugin.private && m.isGroup) return deny('🚫 This command only works in DM.')
     if (plugin.admin && m.isGroup && !m.isAdmin && !m.isSudo)
-      return m.reply('🚫 You need to be a group admin to use this.')
+      return deny('🚫 You need to be a group admin to use this.')
     if (plugin.botAdmin && m.isGroup && !m.isBotAdmin)
-      return m.reply('🚫 I need to be a group admin to do that.')
+      return deny('🚫 I need to be a group admin to do that.')
 
     /* ------------------------ cooldown ------------------------ */
     if (plugin.cooldown && !m.isSudo) {
@@ -117,6 +122,7 @@ export async function handleMessage(sock, raw, ctx = {}) {
       const until = cooldowns.get(key) || 0
       if (Date.now() < until) {
         const left = Math.ceil((until - Date.now()) / 1000)
+        if (getVar('CMD_REACT')) await m.react('⏳').catch(() => {})
         return m.reply(`⏳ Slow down - wait ${left}s before using *${plugin.name}* again.`)
       }
       cooldowns.set(key, Date.now() + plugin.cooldown * 1000)
@@ -129,29 +135,83 @@ export async function handleMessage(sock, raw, ctx = {}) {
       m.isGroup ? `| ${m.groupName}` : '| DM'
     )
 
-    if (getVar('CMD_REACT')) m.react(getVar('CMD_REACT_EMOJI')).catch(() => {})
     if (getVar('AUTO_TYPING')) sock.sendPresenceUpdate('composing', m.chat).catch(() => {})
 
-    await plugin.run({
-      sock,
-      m,
-      args,
-      text,
-      command,
-      prefix,
-      config,
-      DB,
-      getVar,
-      commands,
-      pluginCount,
-      ...ctx
-    })
-  } catch (e) {
-    log.error('Handler error:', e?.stack || e?.message || e)
+    /*
+     * Command feedback reactions.
+     *
+     * Plugins may react themselves (⏳ then ✅/❌ for slow work like
+     * downloads). For the ~60% that do not, react centrally so every
+     * command visibly acknowledges the user instead of appearing dead:
+     * the trigger emoji immediately, then ✅ on success or ❌ on failure.
+     *
+     * m.reacted is set by m.react(), so a plugin that manages its own
+     * reactions is never overridden here.
+     */
+    const wantReact = getVar('CMD_REACT')
+    if (wantReact) {
+      await m.react(getVar('CMD_REACT_EMOJI') || '⚡').catch(() => {})
+      m.reacted = false // the trigger emoji does not count as the plugin reacting
+    }
+
+    let failed = false
     try {
-      await sock.sendMessage(raw.key.remoteJid, {
-        text: `⚠️ Something went wrong:\n\`\`\`${String(e?.message || e).slice(0, 400)}\`\`\``
+      await plugin.run({
+        sock,
+        m,
+        args,
+        text,
+        command,
+        prefix,
+        config,
+        DB,
+        getVar,
+        commands,
+        pluginCount,
+        ...ctx
       })
+    } catch (e) {
+      failed = true
+      throw e
+    } finally {
+      // only close the loop if the plugin did not react on its own
+      if (wantReact && !m.reacted) {
+        await m.react(failed ? '❌' : '✅').catch(() => {})
+      }
+    }
+  } catch (e) {
+    // full detail to the console for the operator
+    log.error('Handler error:', e?.stack || e?.message || e)
+
+    /*
+     * Users should never see a stack trace or an internal symbol name.
+     * Translate the failures that actually happen in practice into
+     * something a person can act on, and keep the raw text only for
+     * genuinely unknown errors.
+     */
+    const raw_msg = String(e?.message || e)
+    let friendly
+
+    if (/is not a function/.test(raw_msg)) {
+      friendly =
+        '⚠️ I could not complete that — WhatsApp did not accept the request.\n\n' +
+        '_This usually means I am missing admin rights, or the feature is not available for this chat._'
+    } else if (/forbidden|not-authorized|401|403/i.test(raw_msg)) {
+      friendly = '🚫 WhatsApp refused that action. I probably need to be a group admin.'
+    } else if (/timed? ?out|ETIMEDOUT|ESOCKETTIMEDOUT/i.test(raw_msg)) {
+      friendly = '⏱️ That took too long and timed out. Please try again.'
+    } else if (/ENOTFOUND|ECONNREFUSED|ECONNRESET|EAI_AGAIN|network/i.test(raw_msg)) {
+      friendly = '🌐 A service I rely on is unreachable right now. Try again shortly.'
+    } else if (/rate.?limit|429|too many/i.test(raw_msg)) {
+      friendly = '🐢 Rate limited. Please wait a moment and try again.'
+    } else if (/not-acceptable|item-not-found|404/i.test(raw_msg)) {
+      friendly = '❓ WhatsApp could not find that chat, user or message.'
+    } else {
+      friendly = `⚠️ Something went wrong:\n_${raw_msg.slice(0, 200)}_`
+    }
+
+    try {
+      await sock.sendMessage(raw.key.remoteJid, { text: friendly })
     } catch {}
   }
 }

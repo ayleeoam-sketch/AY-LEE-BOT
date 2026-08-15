@@ -199,36 +199,50 @@ export default [
       if (!text) return m.reply('📱 Usage: *.apk whatsapp*')
       await m.react('📱')
       try {
-        const { getJson } = await import('../../src/lib/api.js')
-        // iTunes-style lookup is not available for Android, so use the
-        // public F-Droid index, which is open and needs no key.
-        const d = await getJson('https://f-droid.org/repo/index-v2.json', { timeout: 60_000 })
-        const q = text.toLowerCase()
-        const hits = Object.entries(d.packages || {})
-          .filter(([id, p]) => {
-            const name = p.metadata?.name?.en_US || id
-            return name.toLowerCase().includes(q) || id.toLowerCase().includes(q)
+        const { http } = await import('../../src/lib/api.js')
+
+        /*
+         * The full F-Droid index (index-v2.json) is hundreds of megabytes
+         * and reliably times out. The search page returns the same data
+         * in a few KB, so scrape that instead.
+         */
+        const { data } = await http.get(
+          `https://search.f-droid.org/?q=${encodeURIComponent(text)}&lang=en`,
+          { timeout: 25_000, responseType: 'text' }
+        )
+        const html = String(data)
+
+        const hits = [...html.matchAll(/<a[^>]+class="package-header"[^>]+href="(https:\/\/f-droid\.org\/[a-z]{2}\/packages\/([\w.]+)\/?)"[\s\S]{0,900}?<\/a>/g)]
+          .map((mt) => {
+            const block = mt[0]
+            const name = block.match(/class="package-name"[^>]*>([\s\S]*?)</)?.[1]?.trim()
+            const summary = block.match(/class="package-summary"[^>]*>([\s\S]*?)</)?.[1]?.trim()
+            return { url: mt[1], id: mt[2], name: name || mt[2], summary: summary || '' }
           })
-          .slice(0, 5)
+          // the same app appears once per locale link - keep one each
+          .filter((v, i, arr) => arr.findIndex((x) => x.id === v.id) === i)
+          .slice(0, 6)
 
         if (!hits.length) {
           await m.react('❌')
           return m.reply(
-            `❌ No open-source app matching "${text}" on F-Droid.\n\n` +
-              `_Only F-Droid apps can be searched — Play Store scraping is blocked and mirror sites are unsafe._`
+            `❌ No app matching "${text}" on F-Droid.\n\n` +
+              `_F-Droid only carries open-source apps. Play Store scraping is blocked and APK mirror sites are unsafe, so I do not use them._`
           )
         }
 
         await m.reply(
           `📱 *F-DROID APPS*\n_${text}_\n\n` +
             hits
-              .map(([id, p], i) => {
-                const meta = p.metadata || {}
-                const name = meta.name?.en_US || id
-                const summary = meta.summary?.en_US || ''
-                return `*${i + 1}.* ${name}\n   📦 ${id}\n   📝 ${String(summary).slice(0, 80)}\n   🔗 https://f-droid.org/packages/${id}/`
-              })
-              .join('\n\n')
+              .map(
+                (h, i) =>
+                  `*${i + 1}.* ${h.name}\n` +
+                  `   📦 \`${h.id}\`\n` +
+                  (h.summary ? `   📝 ${h.summary.slice(0, 80)}\n` : '') +
+                  `   🔗 ${h.url}`
+              )
+              .join('\n\n') +
+            `\n\n_Open a link to download the APK directly from F-Droid._`
         )
         await m.react('✅')
       } catch (e) {
