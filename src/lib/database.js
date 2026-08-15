@@ -5,14 +5,21 @@ import config, { ROOT } from '../config.js'
 import log from './logger.js'
 
 /**
- * Thin storage layer.
- * Uses MongoDB when MONGO_URI is set, otherwise transparently falls back to
- * JSON files in ./data so the bot still boots on a fresh machine.
+ * Thin storage layer with three interchangeable backends.
+ *
+ *   MONGO_URI     -> MongoDB          (recommended: schemaless, no migrations)
+ *   SUPABASE_URL  -> Supabase/Postgres (each collection is a jsonb table)
+ *   neither       -> JSON files in ./data so a fresh clone still boots
+ *
+ * Every backend implements the same seven methods, so plugins never know
+ * or care which one is active.
  */
 
 let client = null
 let db = null
 let usingMongo = false
+let supa = null
+let usingSupabase = false
 
 const FILE_DIR = path.join(ROOT, 'data')
 
@@ -46,6 +53,31 @@ const matches = (row, query) =>
 /* ------------------------------ connect ------------------------------ */
 
 export async function connectDB() {
+  /* ---- Supabase (Postgres) ---- */
+  if (!config.mongoUri && config.supabaseUrl && config.supabaseKey) {
+    try {
+      const { createClient } = await import('@supabase/supabase-js')
+      supa = createClient(config.supabaseUrl, config.supabaseKey, {
+        auth: { persistSession: false }
+      })
+      // a trivial read proves both the URL and the key are valid
+      const { error } = await supa.from('vars').select('key').limit(1)
+      if (error) throw new Error(error.message)
+      usingSupabase = true
+      log.ok('Supabase connected')
+      return supa
+    } catch (e) {
+      log.error('Supabase connection failed:', e.message)
+      if (/does not exist|schema cache|relation/i.test(e.message)) {
+        log.warn('Run the SQL in docs/supabase-schema.sql to create the tables.')
+      }
+      log.warn('Falling back to local JSON storage in ./data')
+      usingSupabase = false
+      supa = null
+      return null
+    }
+  }
+
   if (!config.mongoUri) {
     log.warn('No MONGO_URI set - falling back to local JSON storage in ./data')
     usingMongo = false
@@ -73,9 +105,57 @@ export async function connectDB() {
 }
 
 export const isMongo = () => usingMongo
+export const isSupabase = () => usingSupabase
+/** Human-readable name of the active backend, for .stats and boot logs. */
+export const backend = () => (usingMongo ? 'MongoDB' : usingSupabase ? 'Supabase' : 'JSON files')
 
 export async function closeDB() {
   if (client) await client.close().catch(() => {})
+}
+
+/* --------------------------- supabase helpers ------------------------ *
+ *
+ * Every collection is one table: id text primary key, doc jsonb.
+ * Keeping the document in jsonb preserves Mongo's schemaless behaviour, so
+ * a plugin adding a new field never needs a Postgres migration.
+ */
+
+/** Deterministic primary key derived from the query that identifies a doc. */
+const supaKey = (query) =>
+  Object.keys(query).length
+    ? Object.entries(query)
+        .filter(([, v]) => typeof v !== 'object')
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([k, v]) => `${k}=${v}`)
+        .join('|')
+    : '__singleton__'
+
+async function supaFind(name, query = {}) {
+  const { data, error } = await supa.from(name).select('doc')
+  if (error) {
+    log.error(`Supabase read (${name}):`, error.message)
+    return []
+  }
+  return (data || []).map((r) => r.doc).filter((d) => d && matches(d, query))
+}
+
+async function supaSet(name, query, patch) {
+  const existing = (await supaFind(name, query))[0] || {}
+  const doc = { ...existing, ...query, ...patch }
+  const { error } = await supa.from(name).upsert({ id: supaKey(query), doc }, { onConflict: 'id' })
+  if (error) log.error(`Supabase write (${name}):`, error.message)
+}
+
+async function supaDelete(name, query) {
+  // delete by primary key when the query fully identifies a row
+  const key = supaKey(query)
+  const { error } = await supa.from(name).delete().eq('id', key)
+  if (!error) return
+  // otherwise fall back to matching in memory
+  const rows = await supaFind(name, query)
+  for (const r of rows) {
+    await supa.from(name).delete().eq('id', supaKey(r)).catch?.(() => {})
+  }
 }
 
 /* ---------------------------- collections ---------------------------- */
@@ -88,11 +168,13 @@ export function collection(name) {
   return {
     async find(query = {}) {
       if (usingMongo) return db.collection(name).find(query).toArray()
+      if (usingSupabase) return supaFind(name, query)
       return fileRead(name).filter((r) => matches(r, query))
     },
 
     async findOne(query = {}) {
       if (usingMongo) return db.collection(name).findOne(query)
+      if (usingSupabase) return (await supaFind(name, query))[0] || null
       return fileRead(name).find((r) => matches(r, query)) || null
     },
 
@@ -102,6 +184,7 @@ export function collection(name) {
         await db.collection(name).updateOne(query, { $set: { ...query, ...data } }, { upsert: true })
         return
       }
+      if (usingSupabase) return supaSet(name, query, data)
       const rows = fileRead(name)
       const i = rows.findIndex((r) => matches(r, query))
       if (i === -1) rows.push({ ...query, ...data })
@@ -115,6 +198,10 @@ export function collection(name) {
         await db.collection(name).updateOne(query, { $inc: { [field]: amount }, $setOnInsert: query }, { upsert: true })
         return
       }
+      if (usingSupabase) {
+        const row = (await supaFind(name, query))[0]
+        return supaSet(name, query, { [field]: (row?.[field] || 0) + amount })
+      }
       const rows = fileRead(name)
       const i = rows.findIndex((r) => matches(r, query))
       if (i === -1) rows.push({ ...query, [field]: amount })
@@ -127,16 +214,19 @@ export function collection(name) {
         await db.collection(name).deleteMany(query)
         return
       }
+      if (usingSupabase) return supaDelete(name, query)
       fileWrite(name, fileRead(name).filter((r) => !matches(r, query)))
     },
 
     async all() {
       if (usingMongo) return db.collection(name).find({}).toArray()
+      if (usingSupabase) return supaFind(name, {})
       return fileRead(name)
     },
 
     async count(query = {}) {
       if (usingMongo) return db.collection(name).countDocuments(query)
+      if (usingSupabase) return (await supaFind(name, query)).length
       return fileRead(name).filter((r) => matches(r, query)).length
     }
   }

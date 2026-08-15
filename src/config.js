@@ -56,6 +56,10 @@ export const config = {
   cmdReact: bool(process.env.CMD_REACT, true),
   cmdReactEmoji: process.env.CMD_REACT_EMOJI || '⚡',
 
+  // storage: Supabase is an alternative to Mongo (see README)
+  supabaseUrl: (process.env.SUPABASE_URL || '').trim(),
+  supabaseKey: (process.env.SUPABASE_KEY || process.env.SUPABASE_SERVICE_KEY || '').trim(),
+
   // api keys
   keys: {
     openai: process.env.OPENAI_API_KEY || '',

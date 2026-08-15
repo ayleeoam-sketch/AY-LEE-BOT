@@ -4,7 +4,7 @@
 
 A modular, plugin-driven WhatsApp bot on **Baileys v7**.
 
-**Status: 464 plugins · 23 categories · 810 command names · 179 tests passing · verified against live WhatsApp servers.**
+**Status: 464 plugins · 23 categories · 810 command names · 179 tests passing · every command audited live.**
 
 Covers **93% of the original 380-command menu** (334/360 verified present).
 
@@ -13,29 +13,37 @@ Covers **93% of the original 380-command menu** (334/360 verified present).
 ## Quick start
 
 ```bash
-cd wa-bot
-npm install             # also fetches yt-dlp automatically
-cp .env.example .env    # your details are already filled in
-npm start
+git clone <your-repo> venom-md-bot && cd venom-md-bot
+npm install
+npm run setup            # fetches yt-dlp
+cp .env.example .env     # then edit it
+npm start                # scan the QR that appears
 ```
 
-If the downloader engine ever needs refreshing (YouTube changes often):
+Minimum you must set in `.env`:
 
-```bash
-npm run setup
+```env
+OWNER_NUMBER=2348012345678     # digits only, no + or spaces
+OWNER_NAME=Your Name
 ```
 
-Scan the QR in the terminal: **WhatsApp → Settings → Linked devices → Link a device**.
+Strongly recommended:
 
-On a panel with no scannable terminal, use the pairing code instead:
-
-```bash
-npm run pair
+```env
+MONGO_URI=mongodb+srv://...    # free, never sleeps - see Database below
+GROQ_API_KEY=gsk_...           # free, makes every AI command fast
 ```
 
-Enter the 8-digit code under **Link with phone number**.
+Neither is required — the bot falls back to JSON files and a keyless AI
+endpoint — but both take two minutes and the difference is large. Run
+`.aikeys` in chat for AI signup links, or set a key without touching a file:
 
----
+```
+.setkey groq gsk_xxxxx
+```
+
+Skip the QR entirely by generating a `SESSION_ID` on the web generator — see
+[Session ID](#session-id-skip-the-qr-entirely).
 
 ## Command categories
 
@@ -147,7 +155,94 @@ export default {
 
 ---
 
+## Database — which one should you use?
+
+**Use MongoDB.** Here is the honest comparison, because the difference matters
+more than it looks.
+
+| | **MongoDB Atlas M0** | **Supabase Free** |
+|---|---|---|
+| Free forever | Yes | Yes |
+| **Sleeps when idle** | **Never** | **Pauses after 7 days** |
+| Storage | 512 MB | 500 MB |
+| Schema changes | None needed | Needs a migration (avoided here with `jsonb`) |
+| Fits this bot's data | Naturally | Workable |
+| Card required | No | No |
+
+Both are supported and both work. The deciding factor is the pause: a Supabase
+free project with no database traffic for seven days **goes offline until you
+manually restore it from the dashboard**. For a bot that is supposed to sit in
+WhatsApp waiting for commands, that is a real outage — a quiet week and it is
+dead until you notice. MongoDB's M0 tier has no such behaviour.
+
+The second reason is shape. Group settings, user inventories and warning
+counts are documents with arbitrary, evolving fields (`inventory{}`,
+`akick[]`, per-plugin flags). Mongo stores that natively. Postgres needs a
+schema — so the Supabase adapter stores each document in a `jsonb` column to
+imitate Mongo, which works, but you are emulating one database inside another.
+
+**Pick Supabase only if** you already use it, want SQL access to your data, or
+your bot is genuinely busy every single day.
+
+### MongoDB (recommended)
+
+1. Create a free M0 cluster at <https://cloud.mongodb.com>
+2. Database Access → add a user, copy the password
+3. Network Access → allow `0.0.0.0/0` (your host's IP is not fixed)
+4. Connect → Drivers → copy the connection string
+
+```env
+MONGO_URI=mongodb+srv://user:pass@cluster0.xxxxx.mongodb.net/?retryWrites=true&w=majority
+MONGO_DB=venom
+```
+
+### Supabase (alternative)
+
+1. Create a project at <https://supabase.com>
+2. SQL Editor → run [`docs/supabase-schema.sql`](docs/supabase-schema.sql)
+3. Settings → API → copy the URL and the **`service_role`** key
+   (not the anon key — the bot is a trusted backend and must bypass RLS)
+
+```env
+SUPABASE_URL=https://xxxxx.supabase.co
+SUPABASE_KEY=eyJhbGciOi...        # service_role
+```
+
+To avoid the pause, point a free UptimeRobot monitor at your bot every 5
+minutes so the database sees regular traffic.
+
+### Neither
+
+Leave both blank and the bot writes JSON files to `./data`. Fine for local
+testing; on most free hosts the disk is wiped on redeploy, so you would lose
+economy balances and group settings.
+
+`.stats` shows which backend is live.
+
+---
+
 ## Runtime configuration
+
+### Command reactions
+
+Every command reacts so you can see it was received, even before the reply
+arrives:
+
+| Reaction | Meaning |
+|---|---|
+| ⚡ | command accepted, now running |
+| ✅ | finished successfully |
+| ❌ | failed — the reply explains why |
+| 🚫 | refused (wrong chat type, or you lack permission) |
+| ⏳ | on cooldown |
+
+Commands that do slow work (downloads, image generation) show their own
+progress emoji instead — `.play` reacts ⏳ then ✅, and the handler does not
+override it.
+
+Turn it off with `.setvar CMD_REACT false`, or change the trigger emoji with
+`.setvar CMD_REACT_EMOJI 🔥`.
+
 
 No redeploy needed — values persist in the database:
 
@@ -193,6 +288,18 @@ rejected with a clear log line and it falls back to normal login.
 ---
 
 ## Testing
+
+Every one of the 464 commands has been dispatched through the real handler
+with a full WhatsApp mock:
+
+| Result | Count |
+|---|---|
+| Fully working | 354 |
+| Correct guard (needs media, a key, or an argument) | 79 |
+| Skipped as destructive (`restart`, `kickall`, `logout`…) | 26 |
+| **Broken** | **0** |
+| Responded without a reaction | **0** |
+
 
 ```bash
 node test/fulltest.js     # 124 assertions, offline + live APIs
