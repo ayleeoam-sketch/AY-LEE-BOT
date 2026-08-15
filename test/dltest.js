@@ -7,6 +7,7 @@
  * Real downloads are opt-in because YouTube rate-limits repeated hits from
  * one IP; running them on every commit would produce misleading failures.
  */
+import './_isolate.js'   // MUST be first: keeps tests off the live DB
 import '../src/config.js'
 import config from '../src/config.js'
 import { connectDB } from '../src/lib/database.js'

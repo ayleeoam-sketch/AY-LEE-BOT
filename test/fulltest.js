@@ -7,6 +7,7 @@
  * commands through the real handler. External-API commands are reported
  * separately so a third-party outage never looks like a bug in the bot.
  */
+import './_isolate.js'   // MUST be first: keeps tests off the live DB
 import '../src/config.js'
 import config from '../src/config.js'
 import { connectDB } from '../src/lib/database.js'

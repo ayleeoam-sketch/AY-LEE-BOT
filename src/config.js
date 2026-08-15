@@ -1,4 +1,11 @@
 import 'dotenv/config'
+
+/*
+ * Test isolation: test/_isolate.js sets VENOM_TEST_ISOLATE before importing
+ * this file. dotenv above has just (re)loaded .env, so strip the production
+ * database here - after it is read, before anything uses it.
+ */
+if (process.env.VENOM_TEST_ISOLATE === '1') delete process.env.MONGO_URI
 import { fileURLToPath } from 'url'
 import path from 'path'
 
@@ -55,10 +62,6 @@ export const config = {
   startupMessage: bool(process.env.STARTUP_MESSAGE, true),
   cmdReact: bool(process.env.CMD_REACT, true),
   cmdReactEmoji: process.env.CMD_REACT_EMOJI || '⚡',
-
-  // storage: Supabase is an alternative to Mongo (see README)
-  supabaseUrl: (process.env.SUPABASE_URL || '').trim(),
-  supabaseKey: (process.env.SUPABASE_KEY || process.env.SUPABASE_SERVICE_KEY || '').trim(),
 
   // api keys
   keys: {

@@ -30,7 +30,7 @@ OWNER_NAME=Your Name
 Strongly recommended:
 
 ```env
-MONGO_URI=mongodb+srv://...    # free, never sleeps - see Database below
+MONGO_URI=mongodb+srv://...    # free tier, never sleeps - see Database
 GROQ_API_KEY=gsk_...           # free, makes every AI command fast
 ```
 
@@ -155,67 +155,29 @@ export default {
 
 ---
 
-## Database — which one should you use?
+## Database
 
-**Use MongoDB.** Here is the honest comparison, because the difference matters
-more than it looks.
+The bot uses **MongoDB**. Your data is document-shaped — nested inventories,
+per-group flag sets that plugins extend freely — which Mongo stores natively
+with no migrations. Atlas's free M0 tier never sleeps, so a quiet bot stays
+reachable.
 
-| | **MongoDB Atlas M0** | **Supabase Free** |
-|---|---|---|
-| Free forever | Yes | Yes |
-| **Sleeps when idle** | **Never** | **Pauses after 7 days** |
-| Storage | 512 MB | 500 MB |
-| Schema changes | None needed | Needs a migration (avoided here with `jsonb`) |
-| Fits this bot's data | Naturally | Workable |
-| Card required | No | No |
-
-Both are supported and both work. The deciding factor is the pause: a Supabase
-free project with no database traffic for seven days **goes offline until you
-manually restore it from the dashboard**. For a bot that is supposed to sit in
-WhatsApp waiting for commands, that is a real outage — a quiet week and it is
-dead until you notice. MongoDB's M0 tier has no such behaviour.
-
-The second reason is shape. Group settings, user inventories and warning
-counts are documents with arbitrary, evolving fields (`inventory{}`,
-`akick[]`, per-plugin flags). Mongo stores that natively. Postgres needs a
-schema — so the Supabase adapter stores each document in a `jsonb` column to
-imitate Mongo, which works, but you are emulating one database inside another.
-
-**Pick Supabase only if** you already use it, want SQL access to your data, or
-your bot is genuinely busy every single day.
-
-### MongoDB (recommended)
-
-1. Create a free M0 cluster at <https://cloud.mongodb.com>
-2. Database Access → add a user, copy the password
-3. Network Access → allow `0.0.0.0/0` (your host's IP is not fixed)
-4. Connect → Drivers → copy the connection string
+1. Create a free **M0** cluster at <https://cloud.mongodb.com>
+2. **Database Access** → add a user, copy the password
+3. **Network Access** → allow `0.0.0.0/0` (your host's IP is not fixed)
+4. **Connect → Drivers** → copy the connection string
 
 ```env
-MONGO_URI=mongodb+srv://user:pass@cluster0.xxxxx.mongodb.net/?retryWrites=true&w=majority
+MONGO_URI=mongodb+srv://user:pass@cluster0.xxxxx.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0
 MONGO_DB=venom
 ```
 
-### Supabase (alternative)
+If the password contains `@ : / ? # [ ] %`, URL-encode it — otherwise the
+driver misreads the URI.
 
-1. Create a project at <https://supabase.com>
-2. SQL Editor → run [`docs/supabase-schema.sql`](docs/supabase-schema.sql)
-3. Settings → API → copy the URL and the **`service_role`** key
-   (not the anon key — the bot is a trusted backend and must bypass RLS)
-
-```env
-SUPABASE_URL=https://xxxxx.supabase.co
-SUPABASE_KEY=eyJhbGciOi...        # service_role
-```
-
-To avoid the pause, point a free UptimeRobot monitor at your bot every 5
-minutes so the database sees regular traffic.
-
-### Neither
-
-Leave both blank and the bot writes JSON files to `./data`. Fine for local
-testing; on most free hosts the disk is wiped on redeploy, so you would lose
-economy balances and group settings.
+**No `MONGO_URI`?** The bot writes JSON files to `./data` instead and boots
+fine. That is good for local testing, but most free hosts wipe the disk on
+redeploy, so you would lose economy balances and group settings.
 
 `.stats` shows which backend is live.
 
@@ -288,6 +250,12 @@ rejected with a clear log line and it falls back to normal login.
 ---
 
 ## Testing
+
+Tests never touch your production database. `test/_isolate.js` is imported
+first by every suite and strips `MONGO_URI`, so fixtures are written to JSON
+files in `./data` instead. Run against the real cluster deliberately with
+`--live-db`.
+
 
 Every one of the 464 commands has been dispatched through the real handler
 with a full WhatsApp mock:
