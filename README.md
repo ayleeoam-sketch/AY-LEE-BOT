@@ -4,7 +4,9 @@
 
 A modular, plugin-driven WhatsApp bot on **Baileys v7**.
 
-**Status: 394 plugins · 23 categories · 644 command names · 176 tests passing · verified against live WhatsApp servers.**
+**Status: 457 plugins · 23 categories · 788 command names · 176 tests passing · verified against live WhatsApp servers.**
+
+Covers **93% of the original 380-command menu** (334/360 verified present).
 
 ---
 
@@ -37,24 +39,32 @@ Enter the 8-digit code under **Link with phone number**.
 
 ## Command categories
 
-| Category | Count | Highlights |
+| Category | Commands | Highlights |
 |---|---|---|
-| **FUN** | 60 | 43 anime reaction GIFs (`hug` `slap` `kiss` `dance`…), `ship`, `truth`, `dare`, `emojimix`, `pokemon`, animal pics |
-| **ECONOMY** | 36 | `daily` `work` `mine` `fish` `hunt` `crime` `rob` `heist`, banking, loans, shop + inventory, `slots` `blackjack` `dice` `rps`, leaderboards |
-| **CONVERTER** | 26 | `sticker` `take` `photo` `mp4` `gif` `tomp3` `tovn` `ptv` + 18 audio effects (`bass` `nightcore` `8d` `reverse`…) |
+| **FUN** | 58 | 43 anime reaction GIFs (`hug` `slap` `kiss` `dance`…), `ship`, `truth`, `dare`, `emojimix`, `pokemon`, animal pics |
 | **TEXTMAKER** | 48 | 47 text effects rendered locally — `neonlight` `hacker` `glitch` `galaxy` `fire` `gaming` `zodiac`… |
-| **IMAGE / IMAGE-MEME** | 33 | `wanted` `jail` `drip` `drake` `pooh` `oogway` + 11 local sharp filters |
-| **PRIVACY** | 7 | `lastseen` `online` `mypp` `mystatus` `read` `allow-gcadd` `privacy` |
-| **AUTOREPLY** | 5 | `pfilter` `pstop` `gfilter` `gstop` `listfilters` |
-| **DOWNLOADER** | 11 | `play` `video` `ytsearch` `ytinfo` `tiktok` `ttmp3` `instagram` `facebook` `twitter` `autodl` `dlstatus` |
-| **GROUP** | 25 | `kick` `add` `promote` `demote` `mute` `tagall` `warn` `antilink` `antiword` `antispam` `welcome` `goodbye` `kickall` |
-| **UTILITIES** | 16 | `weather` `wiki` `define` `bible` `calc` `tts` `crypto` `currency` `ip` `tinyurl`, notes system |
-| **USER** | 12 | `pp` `setpp` `setname` `bio` `block` `blocklist` `forward` `archive` |
-| **AI** | 10 | `ai` `gpt` `gemini` `coder` `translate` `summarize` `grammar` `imagine` |
-| **CONFIG** | 9 | `setvar` `getvar` `allvar` `mode` `setsudo` `antidelete` |
-| **MISC** | 9 | `quote` `fact` `advice` `8ball` `choose` `ebinary` |
+| **GROUP** | 40 | `kick` `add` `promote` `demote` `mute` `tagall` `warn` `antilink` `antiword` `antispam` `welcome` `goodbye` |
+| **ECONOMY** | 38 | `daily` `work` `mine` `fish` `hunt` `crime` `rob` `heist`, banking, loans, shop, `slots` `blackjack` `dice`, `tax` |
+| **CONVERTER** | 34 | `sticker` `take` `photo` `mp4` `gif` `tomp3` `ptv` `circlestk` `black` `exif` `doc` `aitts` + 18 audio effects |
+| **UTILITIES** | 32 | `weather` `wiki` `define` `bible` `calc` `tts` `ip` `tinyurl` `ss` `qrcode` `readqr` `wm` `pdf` `url` `font` `ngl`, notes |
+| **CONFIG** | 28 | `setvar` `getvar` `allvar` `mode` `setsudo` `antidelete` `antiedit` `readstatus` `savecmd` `vvcmd` |
+| **IMAGE-MEME** | 28 | `wanted` `jail` `drip` `drake` `pooh` `oogway` `wasted` `rip-meme` `triggered` `rainbow` `stonks` `carbon` |
+| **DOWNLOADER** | 19 | `play` `video` `tiktok` `instagram` `facebook` `twitter` `autodl` `playdoc` `gitclone` `mediafire` `gdrive` `apk` |
+| **USER** | 18 | `pp` `setpp` `setname` `bio` `block` `blocklist` `forward` `archive` `pinchat` `jid` |
+| **AI** | 15 | `ai` `gpt` `gemini` `coder` `mistral` `deepseek` `llama` `bidara` `aisearch` `imagine` `translate` `grammar` |
+| **TOOLS** | 15 | `afk` `msgs` `listonline` `listoffline` `setcmd` `delcmd` `permit` `areact` `element` |
+| **BOT** | 14 | `ping` `stats` `owner` `uptime` `ban` `unban` `banlist` `repo` `ignore` |
+| **SEARCH** | 11 | `websearch` `img` `wallpaper` `github` `npm` `lyrics` `country` `book` `urban` `subtitle` `shazam` |
+| **ANIME** | 10 | `anime` `manga` `character` `airing` `animerec` `animequote` `animegif` `reactions` `waifu` `animenews` |
+| **IMAGE** | 10 | 11 local sharp filters — `grey` `sepia` `sharpen` `flipv` `negate` `pixelate` `blur2` `compress` `imageinfo` |
+| **MISC** | 10 | `quote` `fact` `advice` `8ball` `choose` `ebinary` `dbinary` `q` |
 | **GAME** | 8 | `ttt` `hangman` `wcg` `trivia` `guess` |
-| **BOT / SEARCH / TOOLS / PLUGINS / PROCESS / ANIME / HELP / PRIVACY** | 24 | `ping` `stats` `owner` `ban`, `github` `npm` `lyrics` `country` `book` `urban`, `afk` `vv` `hidetag`, `plugin` `reload` |
+| **PRIVACY** | 8 | `lastseen` `online` `mypp` `mystatus` `read` `allow-gcadd` `privacy` |
+| **AUTOREPLY** | 5 | `pfilter` `pstop` `gfilter` `gstop` `listfilters` |
+| **PLUGINS** | 4 | `plugin` `plugins` `reload` `remove` |
+| **PROCESS** | 3 | `restart` `shutdown` `pstatus` |
+| **HELP** | 1 | `menu` — the full styled command list |
+| **Total** | **457** | across 23 categories, 788 names including aliases |
 
 Type `.menu` for the full list, `.menu <category>` for one section, `.menu <command>` for a help card.
 
@@ -236,9 +246,16 @@ Without it, `.instagram` fails with that exact instruction rather than a vague e
   `{"success":false,"code":-1}`. Rather than ship 45 dead commands, the 47
   effects are drawn with SVG + sharp: instant, offline, and impossible to break
   from outside.
-- **Still missing (~79 of the original 380):** the `gfx1-12` photo templates and
-  `remini` upscaler (need paid AI services), screenshot commands, `apk`/
-  `mediafire`/`gdrive` downloaders, and most ANIME lookups. Each is a ~30-line
-  plugin once a working provider is found.
+- **Still missing (26 of the original 380, ~7%):** the `gfx1-12` photo
+  templates, `remini` upscaler and `naturewlp` all need paid AI image services
+  (Replicate, Picsart or similar) — there is no free provider left that works.
+  `shazam` needs an AudD/ACRCloud key, `audio2text` needs an OpenAI key, and
+  `subtitle` returns search links because every subtitle site blocks automated
+  downloads. Each becomes a ~30-line plugin the moment you supply a key.
+- **Screenshots, QR, memes and PDF are all local or keyless.** `.ss` uses
+  thum.io with a microlink fallback and refuses private/internal addresses
+  (SSRF guard). `.qrcode`/`.readqr` run entirely offline. The meme overlays and
+  `.carbon` are drawn with sharp + SVG. `.pdf` hand-builds a valid PDF —
+  verified with a real parser (single A4 page, embedded DCTDecode JPEG).
 - Keep `.env` out of Git — `.gitignore` covers it plus `session/`, `data/`, `tmp/`.
 - This is an unofficial library. Don't spam; WhatsApp bans numbers for bulk unsolicited messaging. Test with a spare SIM first.
