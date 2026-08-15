@@ -4,7 +4,7 @@
 
 A modular, plugin-driven WhatsApp bot on **Baileys v7**.
 
-**Status: 457 plugins · 23 categories · 788 command names · 176 tests passing · verified against live WhatsApp servers.**
+**Status: 464 plugins · 23 categories · 810 command names · 179 tests passing · verified against live WhatsApp servers.**
 
 Covers **93% of the original 380-command menu** (334/360 verified present).
 
@@ -51,7 +51,7 @@ Enter the 8-digit code under **Link with phone number**.
 | **IMAGE-MEME** | 28 | `wanted` `jail` `drip` `drake` `pooh` `oogway` `wasted` `rip-meme` `triggered` `rainbow` `stonks` `carbon` |
 | **DOWNLOADER** | 19 | `play` `video` `tiktok` `instagram` `facebook` `twitter` `autodl` `playdoc` `gitclone` `mediafire` `gdrive` `apk` |
 | **USER** | 18 | `pp` `setpp` `setname` `bio` `block` `blocklist` `forward` `archive` `pinchat` `jid` |
-| **AI** | 15 | `ai` `gpt` `gemini` `coder` `mistral` `deepseek` `llama` `bidara` `aisearch` `imagine` `translate` `grammar` |
+| **AI** | 22 | 8 providers with failover — `ai` `gpt` `gemini` `groq` `deepseek` `cerebras` `openrouter` `mistral` `cohere`, plus `coder` `reasoning` `chatbot` `aikeys` `setkey` `aistatus` `imagine` |
 | **TOOLS** | 15 | `afk` `msgs` `listonline` `listoffline` `setcmd` `delcmd` `permit` `areact` `element` |
 | **BOT** | 14 | `ping` `stats` `owner` `uptime` `ban` `unban` `banlist` `repo` `ignore` |
 | **SEARCH** | 11 | `websearch` `img` `wallpaper` `github` `npm` `lyrics` `country` `book` `urban` `subtitle` `shazam` |
@@ -64,7 +64,7 @@ Enter the 8-digit code under **Link with phone number**.
 | **PLUGINS** | 4 | `plugin` `plugins` `reload` `remove` |
 | **PROCESS** | 3 | `restart` `shutdown` `pstatus` |
 | **HELP** | 1 | `menu` — the full styled command list |
-| **Total** | **457** | across 23 categories, 788 names including aliases |
+| **Total** | **464** | across 23 categories, 810 names including aliases |
 
 Type `.menu` for the full list, `.menu <category>` for one section, `.menu <command>` for a help card.
 
@@ -239,7 +239,28 @@ Without it, `.instagram` fails with that exact instruction rather than a vague e
 ## Notes & honest limitations
 
 - **Baileys v7 is ESM-only** — use `import`, not `require`. `printQRInTerminal` was removed; the QR is rendered from the `connection.update` event.
-- **AI commands** work keyless through a free fallback, but it rate-limits. Add `OPENAI_API_KEY` or `GEMINI_API_KEY` to `.env` for reliable results (`.aistatus` shows what's configured).
+- **AI needs a key now.** The bot ships with 8 providers and automatic
+  failover, but the keyless fallback it used to rely on (Pollinations' legacy
+  text API) started returning `402 Payment Required` in 2026, and DuckDuckGo's
+  free chat endpoint now demands a browser challenge. Free keyless AI is
+  effectively over. The good news: **Groq and Gemini are both genuinely free**
+  and take two minutes to set up.
+
+  | Provider | Free tier | Get a key |
+  |---|---|---|
+  | **Groq** | Yes, generous — fastest | https://console.groq.com/keys |
+  | **Gemini** | Yes, very capable | https://aistudio.google.com/apikey |
+  | **Cerebras** | Yes, fastest inference | https://cloud.cerebras.ai |
+  | **OpenRouter** | Yes, many `:free` models | https://openrouter.ai/keys |
+  | **Mistral** | Free experiment tier | https://console.mistral.ai/api-keys |
+  | **Cohere** | Free trial | https://dashboard.cohere.com/api-keys |
+  | **DeepSeek** | Paid, very cheap | https://platform.deepseek.com/api_keys |
+  | **OpenAI** | Paid | https://platform.openai.com/api-keys |
+
+  Add keys to `.env`, or set them from WhatsApp with `.setkey groq gsk_xxx` —
+  that command deletes your message immediately and verifies the key with a
+  real call before confirming. `.aikeys` lists every provider, `.aistatus`
+  latency-tests the ones you have configured.
 - **Third-party APIs rot.** Every network command has multi-source failover and a clear error message instead of a crash, but expect to swap an endpoint occasionally. `restcountries` was already dead during the build and was replaced with World Bank + countriesnow.
 - **Textmaker is rendered locally, not scraped.** ephoto360 and textpro.me both
   now block automated form submission — every request returns
