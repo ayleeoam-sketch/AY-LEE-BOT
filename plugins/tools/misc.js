@@ -26,7 +26,7 @@ export default [
   },
   {
     name: 'quoted',
-    alias: ['q'],
+    alias: ['requote'],
     category: 'TOOLS',
     desc: 'Re-send the message you replied to',
     usage: '.quoted (reply to a message)',

@@ -56,7 +56,7 @@ export default [
   },
   {
     name: 'tovn',
-    alias: ['toptt', 'tovv', 'voice'],
+    alias: ['toptt', 'voice', 'tovoice'],
     category: 'CONVERTER',
     desc: 'Convert audio into a voice note',
     usage: '.tovn (reply to audio)',

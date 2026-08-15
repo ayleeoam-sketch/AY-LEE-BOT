@@ -123,7 +123,12 @@ const textCommand = (name, { fields, label, usage }) => ({
       await m.react('✅')
     } catch (e) {
       await m.react('❌')
-      await m.reply(`❌ ${e.message}`)
+      const noImage = /profile|404|not.?found|protocol|ENOTFOUND|not a media message|download/i.test(e.message)
+      await m.reply(
+        noImage
+          ? '🖼️ I need an image.\n\nReply to a photo, or tag someone whose profile picture is visible to me.'
+          : `❌ ${e.message}`
+      )
     }
   }
 })
