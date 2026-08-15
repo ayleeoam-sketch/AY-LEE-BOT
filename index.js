@@ -4,6 +4,7 @@ import log from './src/lib/logger.js'
 import { connectDB, closeDB } from './src/lib/database.js'
 import { loadVars } from './src/lib/vars.js'
 import { loadPlugins } from './src/lib/pluginLoader.js'
+import { loadKeys } from './src/lib/ai.js'
 import { startSocket } from './src/connection.js'
 
 /* CLI flags override .env: node index.js --pair | --qr */
@@ -24,6 +25,7 @@ async function main() {
 
   await connectDB()
   await loadVars()
+  await loadKeys()   // AI keys saved via .setkey
   await loadPlugins()
   await startSocket()
 }

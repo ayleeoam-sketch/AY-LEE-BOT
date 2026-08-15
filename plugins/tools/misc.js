@@ -210,7 +210,7 @@ export default [
   },
   {
     name: '8ball',
-    alias: ['ask'],
+    alias: ['magic8', '8b'],
     category: 'MISC',
     desc: 'Ask the magic 8-ball',
     usage: '.8ball will I be rich?',

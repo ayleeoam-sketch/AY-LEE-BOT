@@ -2,6 +2,50 @@ import { getJson, getBuffer, race, http } from '../../src/lib/api.js'
 
 export default [
   {
+    name: 'aisearch',
+    alias: ['searchai', 'askweb'],
+    category: 'AI',
+    desc: 'Search the web and have AI summarise the results',
+    usage: '.aisearch who won the last AFCON',
+    cooldown: 12,
+    async run({ m, text }) {
+      const q = text || m.quoted?.text
+      if (!q) return m.reply('🔎 Usage: *.aisearch who won the last world cup*')
+      await m.react('🔎')
+      try {
+        const { chat } = await import('../../src/lib/ai.js')
+        let context = ''
+        try {
+          const d = await getJson(
+            `https://api.duckduckgo.com/?q=${encodeURIComponent(q)}&format=json&no_html=1&skip_disambig=1`
+          )
+          if (d.AbstractText) context += `${d.AbstractText}\n`
+          for (const t of (d.RelatedTopics || []).slice(0, 5)) if (t.Text) context += `- ${t.Text}\n`
+        } catch {}
+        try {
+          const w = await getJson(
+            `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(q.replace(/\s+/g, '_'))}`
+          )
+          if (w.extract) context += `\n${w.extract}\n`
+        } catch {}
+
+        const res = await chat(
+          context
+            ? `Answer the question using these search results. Say clearly if they do not contain the answer.\n\nResults:\n${context.slice(0, 3000)}\n\nQuestion: ${q}`
+            : q,
+          { system: 'Answer concisely and factually.' }
+        )
+        await m.reply(
+          `🔎 *AI SEARCH*\n_${q}_\n\n${res.text.slice(0, 3400)}\n\n╰─ _${res.provider}${context ? '' : ' · no web results, answered from model knowledge'}_`
+        )
+        await m.react('✅')
+      } catch (e) {
+        await m.react('❌')
+        await m.reply(`❌ ${e.message}`)
+      }
+    }
+  },
+  {
     name: 'websearch',
     alias: ['google', 'search', 'ddg'],
     category: 'SEARCH',
