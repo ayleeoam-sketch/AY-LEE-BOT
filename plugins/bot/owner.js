@@ -1,3 +1,4 @@
+import { spawn } from 'child_process'
 import { toJid } from '../../src/lib/utils.js'
 import DB from '../../src/lib/database.js'
 import { invalidateCaches } from '../../src/handler.js'
@@ -104,8 +105,46 @@ export default [
     usage: '.restart',
     owner: true,
     async run({ m }) {
-      await m.reply('♻️ Restarting... I will be back in a few seconds.')
-      setTimeout(() => process.exit(0), 1500) // Pterodactyl/pm2 restarts it
+      /*
+       * Restart safely whether or not a supervisor is present.
+       *
+       * process.exit() alone assumes something (pm2, Pterodactyl, Docker
+       * restart policy, systemd) will bring the bot back. Run with a plain
+       * `node index.js` and the bot simply dies - which is exactly what
+       * happened in testing. Detect that case and re-spawn ourselves.
+       */
+      const managed =
+        !!process.env.PM2_HOME ||
+        !!process.env.pm_id ||
+        !!process.env.P_SERVER_UUID || // Pterodactyl
+        !!process.env.KUBERNETES_SERVICE_HOST ||
+        process.env.RESTART_POLICY === 'supervisor'
+
+      await m.reply(
+        managed
+          ? '♻️ Restarting... I will be back in a few seconds.'
+          : '♻️ Restarting myself (no process manager detected)...'
+      )
+
+      setTimeout(() => {
+        if (managed) {
+          // the supervisor sees the exit and starts a fresh process
+          process.exit(0)
+        } else {
+          // no supervisor: detach a replacement before we go
+          try {
+            spawn(process.argv[0], process.argv.slice(1), {
+              cwd: process.cwd(),
+              detached: true,
+              stdio: 'ignore',
+              env: process.env
+            }).unref()
+          } catch (e) {
+            console.error('Self-restart failed:', e.message)
+          }
+          process.exit(0)
+        }
+      }, 1500)
     }
   },
   {
