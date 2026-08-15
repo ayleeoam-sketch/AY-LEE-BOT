@@ -1,0 +1,40 @@
+# ---- secrets: never commit ----
+.env
+.env.*
+!.env.example
+cookies.txt
+*.pem
+*.key
+credentials.json
+
+# ---- WhatsApp session (contains your login!) ----
+session/
+sessions/
+auth_info*/
+*.session
+
+# ---- runtime data ----
+data/
+tmp/
+temp/
+downloads/
+
+# ---- binaries fetched by `npm run setup` ----
+bin/yt-dlp
+bin/yt-dlp.exe
+bin/yt-dlp_macos
+bin/ffmpeg
+
+# ---- node ----
+node_modules/
+package-lock.json.bak
+npm-debug.log*
+yarn-error.log
+*.log
+
+# ---- os / editor ----
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp

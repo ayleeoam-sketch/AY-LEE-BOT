@@ -1,0 +1,46 @@
+import fs from 'fs'
+import config from './src/config.js'
+import log from './src/lib/logger.js'
+import { connectDB, closeDB } from './src/lib/database.js'
+import { loadVars } from './src/lib/vars.js'
+import { loadPlugins } from './src/lib/pluginLoader.js'
+import { startSocket } from './src/connection.js'
+
+/* CLI flags override .env: node index.js --pair | --qr */
+if (process.argv.includes('--pair')) config.authMethod = 'pair'
+if (process.argv.includes('--qr')) config.authMethod = 'qr'
+
+const banner = `
+╔══════════════════════════════════════════════╗
+║        ${config.botName.toUpperCase().padEnd(38)}║
+║        WhatsApp Bot ${config.version.padEnd(25)}║
+║        Baileys v7 · Node ${process.version.padEnd(20)}║
+╚══════════════════════════════════════════════╝`
+
+async function main() {
+  log.banner(banner)
+
+  if (!fs.existsSync(config.tmpDir)) fs.mkdirSync(config.tmpDir, { recursive: true })
+
+  await connectDB()
+  await loadVars()
+  await loadPlugins()
+  await startSocket()
+}
+
+/* keep the process alive on unexpected errors - a bot must not die */
+process.on('uncaughtException', (e) => log.error('Uncaught exception:', e?.stack || e))
+process.on('unhandledRejection', (e) => log.error('Unhandled rejection:', e?.stack || e))
+
+const shutdown = async (signal) => {
+  log.warn(`${signal} received - shutting down cleanly`)
+  await closeDB()
+  process.exit(0)
+}
+process.on('SIGINT', () => shutdown('SIGINT'))
+process.on('SIGTERM', () => shutdown('SIGTERM'))
+
+main().catch((e) => {
+  log.error('Fatal startup error:', e?.stack || e)
+  process.exit(1)
+})
