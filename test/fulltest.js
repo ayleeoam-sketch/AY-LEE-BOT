@@ -14,6 +14,7 @@ import { loadVars } from '../src/lib/vars.js'
 import { loadPlugins, pluginCount, categories, commands } from '../src/lib/pluginLoader.js'
 import { handleMessage } from '../src/handler.js'
 import { getUser, saveUser } from '../src/lib/economy.js'
+import DB from '../src/lib/database.js'
 
 const OWNER = '2340000000001'
 const MEMBER = '2348022222222'
@@ -88,6 +89,13 @@ config.ownerNumbers = [OWNER]
 
 console.log(`\n═══ VENOM MD BOT — full test ═══`)
 console.log(`${pluginCount()} plugins · ${categories.size} categories · ${commands.size} names+aliases\n`)
+
+/* start from a clean slate so repeated runs are deterministic */
+await DB.warns.delete({ chat: '120363000000000000@g.us' })
+await DB.groups.delete({ id: '120363000000000000@g.us' })
+await DB.filters.delete({ scope: '120363000000000000@g.us' })
+await DB.customcmd.delete({ scope: '120363000000000000@g.us' })
+await DB.afk.delete({ id: `${OWNER}@s.whatsapp.net` })
 
 const seed = await getUser(`${OWNER}@s.whatsapp.net`)
 Object.assign(seed, { wallet: 50000, bank: 0, inventory: {}, lastDaily: 0, lastWork: 0, lastBeg: 0, lastMine: 0, lastFish: 0, lastHunt: 0, lastCrime: 0, lastHeist: 0, loan: 0 })

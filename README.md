@@ -4,7 +4,7 @@
 
 A modular, plugin-driven WhatsApp bot on **Baileys v7**.
 
-**Status: 246 plugins · 19 categories · 400+ commands+aliases · 151 tests passing · verified against live WhatsApp servers.**
+**Status: 394 plugins · 23 categories · 644 command names · 176 tests passing · verified against live WhatsApp servers.**
 
 ---
 
@@ -42,6 +42,10 @@ Enter the 8-digit code under **Link with phone number**.
 | **FUN** | 60 | 43 anime reaction GIFs (`hug` `slap` `kiss` `dance`…), `ship`, `truth`, `dare`, `emojimix`, `pokemon`, animal pics |
 | **ECONOMY** | 36 | `daily` `work` `mine` `fish` `hunt` `crime` `rob` `heist`, banking, loans, shop + inventory, `slots` `blackjack` `dice` `rps`, leaderboards |
 | **CONVERTER** | 26 | `sticker` `take` `photo` `mp4` `gif` `tomp3` `tovn` `ptv` + 18 audio effects (`bass` `nightcore` `8d` `reverse`…) |
+| **TEXTMAKER** | 48 | 47 text effects rendered locally — `neonlight` `hacker` `glitch` `galaxy` `fire` `gaming` `zodiac`… |
+| **IMAGE / IMAGE-MEME** | 33 | `wanted` `jail` `drip` `drake` `pooh` `oogway` + 11 local sharp filters |
+| **PRIVACY** | 7 | `lastseen` `online` `mypp` `mystatus` `read` `allow-gcadd` `privacy` |
+| **AUTOREPLY** | 5 | `pfilter` `pstop` `gfilter` `gstop` `listfilters` |
 | **DOWNLOADER** | 11 | `play` `video` `ytsearch` `ytinfo` `tiktok` `ttmp3` `instagram` `facebook` `twitter` `autodl` `dlstatus` |
 | **GROUP** | 25 | `kick` `add` `promote` `demote` `mute` `tagall` `warn` `antilink` `antiword` `antispam` `welcome` `goodbye` `kickall` |
 | **UTILITIES** | 16 | `weather` `wiki` `define` `bible` `calc` `tts` `crypto` `currency` `ip` `tinyurl`, notes system |
@@ -160,6 +164,24 @@ ffmpeg is bundled via `ffmpeg-static` — no system install needed for stickers 
 
 ---
 
+## Session ID (skip the QR entirely)
+
+A companion web app generates session IDs so the bot can start already
+authenticated — useful on Render, Pterodactyl, or anywhere without a terminal.
+
+1. Deploy `session-site/` (see its README — one click on Render).
+2. Open it, link with QR or a pairing code.
+3. Copy the session ID into `.env`:
+
+```env
+SESSION_ID=eyJub2lzZUtleSI6...
+```
+
+The bot decodes it at boot and connects with no QR. Invalid values are
+rejected with a clear log line and it falls back to normal login.
+
+---
+
 ## Testing
 
 ```bash
@@ -168,6 +190,9 @@ node test/selftest.js     # quick 31-assertion smoke test
 node test/dltest.js       # 21 downloader assertions (fast)
 node test/dltest.js --full  # + real YouTube/TikTok downloads (~3 min)
 ```
+
+All three are deterministic — the suites reset their own DB state, so repeated
+runs give identical results.
 
 The suite drives real commands through the real handler against a mock socket, and reports third-party API outages separately so an external failure never looks like a bug in your code. Run it after adding plugins.
 
@@ -206,6 +231,14 @@ Without it, `.instagram` fails with that exact instruction rather than a vague e
 - **Baileys v7 is ESM-only** — use `import`, not `require`. `printQRInTerminal` was removed; the QR is rendered from the `connection.update` event.
 - **AI commands** work keyless through a free fallback, but it rate-limits. Add `OPENAI_API_KEY` or `GEMINI_API_KEY` to `.env` for reliable results (`.aistatus` shows what's configured).
 - **Third-party APIs rot.** Every network command has multi-source failover and a clear error message instead of a crash, but expect to swap an endpoint occasionally. `restcountries` was already dead during the build and was replaced with World Bank + countriesnow.
-- **Not yet built**: textmaker image effects and screenshot tools. The plugin template makes each a ~30-line file when you find a working provider.
+- **Textmaker is rendered locally, not scraped.** ephoto360 and textpro.me both
+  now block automated form submission — every request returns
+  `{"success":false,"code":-1}`. Rather than ship 45 dead commands, the 47
+  effects are drawn with SVG + sharp: instant, offline, and impossible to break
+  from outside.
+- **Still missing (~79 of the original 380):** the `gfx1-12` photo templates and
+  `remini` upscaler (need paid AI services), screenshot commands, `apk`/
+  `mediafire`/`gdrive` downloaders, and most ANIME lookups. Each is a ~30-line
+  plugin once a working provider is found.
 - Keep `.env` out of Git — `.gitignore` covers it plus `session/`, `data/`, `tmp/`.
 - This is an unofficial library. Don't spam; WhatsApp bans numbers for bulk unsolicited messaging. Test with a spare SIM first.
