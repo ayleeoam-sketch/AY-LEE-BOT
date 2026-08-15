@@ -67,8 +67,12 @@ const run = async (body, opts) => {
   return sent
 }
 
+// media messages carry their text in `caption`, not `text` (e.g. the menu,
+// which is sent as an image), so read both.
 const textOf = (out) =>
-  out.map((s) => s.content?.text || JSON.stringify(s.content).slice(0, 80)).join('\n---\n')
+  out
+    .map((s) => s.content?.text || s.content?.caption || JSON.stringify(s.content).slice(0, 80))
+    .join('\n---\n')
 
 /* ---------------------------- tests ---------------------------- */
 console.log('\n═══ WhatsApp Bot Self-Test ═══\n')
@@ -106,6 +110,12 @@ out = await run('.menu')
 const menu = textOf(out)
 check('.menu replies', out.length > 0)
 check('.menu shows the header box', menu.includes('┌────═━┈'))
+// reactions are sent first, so find the real message rather than assuming index 0
+check(
+  '.menu is sent as an image with a caption',
+  out.some((s) => s.content?.image && s.content?.caption)
+)
+check('.menu header shows the owner number', /Number: \d{6,}/.test(menu))
 check('.menu shows plugin count', /Plugins: \d+/.test(menu))
 check('.menu shows uptime', /Uptime: /.test(menu))
 check('.menu renders category blocks', menu.includes('┏') && menu.includes('┕'))

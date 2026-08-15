@@ -62,6 +62,8 @@ export const config = {
   startupMessage: bool(process.env.STARTUP_MESSAGE, true),
   cmdReact: bool(process.env.CMD_REACT, true),
   cmdReactEmoji: process.env.CMD_REACT_EMOJI || '⚡',
+  // image shown above the menu - URL or local path; blank uses assets/menu.jpg
+  menuImage: (process.env.MENU_IMAGE || '').trim(),
 
   // api keys
   keys: {

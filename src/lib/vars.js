@@ -27,6 +27,7 @@ export const SCHEMA = {
   BOT_NAME: { type: 'string', get: () => config.botName },
   OWNER_NAME: { type: 'string', get: () => config.ownerName },
   USER_TAG: { type: 'string', get: () => config.userTag },
+  MENU_IMAGE: { type: 'string', get: () => config.menuImage },
 
   /* status / presence automation */
   READ_STATUS: { type: 'bool', get: () => false },
