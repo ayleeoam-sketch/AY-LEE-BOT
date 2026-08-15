@@ -92,7 +92,7 @@ const aiCommand = ({ name, alias, desc, prefer, system }) => ({
 })
 
 export default [
-  aiCommand({ name: 'ai', alias: ['chat', 'bot'], desc: 'Ask the AI anything' }),
+  aiCommand({ name: 'ai', alias: ['chat', 'chatbot', 'askai'], desc: 'Ask the AI anything' }),
   aiCommand({ name: 'gpt', alias: ['openai', 'chatgpt'], desc: 'Ask ChatGPT', prefer: 'openai' }),
   aiCommand({ name: 'gemini', desc: 'Ask Google Gemini', prefer: 'gemini' }),
   aiCommand({

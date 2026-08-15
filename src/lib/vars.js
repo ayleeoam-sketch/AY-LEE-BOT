@@ -26,7 +26,22 @@ export const SCHEMA = {
   CMD_REACT_EMOJI: { type: 'string', get: () => config.cmdReactEmoji },
   BOT_NAME: { type: 'string', get: () => config.botName },
   OWNER_NAME: { type: 'string', get: () => config.ownerName },
-  USER_TAG: { type: 'string', get: () => config.userTag }
+  USER_TAG: { type: 'string', get: () => config.userTag },
+
+  /* status / presence automation */
+  READ_STATUS: { type: 'bool', get: () => false },
+  LIKE_STATUS: { type: 'bool', get: () => false },
+  STATUS_EMOJI: { type: 'string', get: () => '💚' },
+  SAVE_STATUS: { type: 'bool', get: () => false },
+  READ_MSG: { type: 'bool', get: () => false },
+
+  /* anti-edit */
+  ANTI_EDIT: { type: 'bool', get: () => false },
+  ANTI_EDIT_CHAT: { type: 'enum', values: ['same', 'owner'], get: () => 'same' },
+
+  /* misc automation */
+  AUTO_BIO: { type: 'bool', get: () => false },
+  ANTI_CALL_BLOCK: { type: 'bool', get: () => false }
 }
 
 const coerce = (type, raw) => {

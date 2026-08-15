@@ -206,10 +206,25 @@ WhatsApp > Settings > Linked devices > Link with phone number
   sock.ev.on('messages.update', async (updates) => {
     for (const { key, update } of updates) {
       const isRevoke = update?.message === null || update?.messageStubType === 1
-      if (!isRevoke) continue
-      for (const mw of middlewares) {
-        if (typeof mw.onDelete === 'function') {
-          await mw.onDelete({ sock, key, messageStore }).catch(() => {})
+
+      if (isRevoke) {
+        for (const mw of middlewares) {
+          if (typeof mw.onDelete === 'function') {
+            await mw.onDelete({ sock, key, messageStore }).catch(() => {})
+          }
+        }
+        continue
+      }
+
+      /* edited messages arrive as an editedMessage payload */
+      const edited =
+        update?.message?.editedMessage?.message ||
+        update?.message?.protocolMessage?.editedMessage
+      if (edited) {
+        for (const mw of middlewares) {
+          if (typeof mw.onEdit === 'function') {
+            await mw.onEdit({ sock, key, edited, messageStore }).catch(() => {})
+          }
         }
       }
     }

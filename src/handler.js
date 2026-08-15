@@ -56,9 +56,13 @@ export async function handleMessage(sock, raw, ctx = {}) {
     const m = await serialize(sock, raw)
     if (!m) return
 
-    // status broadcasts: optionally auto-read, never run commands
+    // status broadcasts never run commands, but plugins may act on them
     if (m.isStatus) {
-      if (getVar('AUTO_READ_STATUS')) await sock.readMessages([m.key]).catch(() => {})
+      for (const mw of middlewares) {
+        if (typeof mw.onStatus === 'function') {
+          await mw.onStatus({ sock, m }).catch((e) => log.error('onStatus failed:', e.message))
+        }
+      }
       return
     }
 

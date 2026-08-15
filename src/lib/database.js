@@ -153,7 +153,10 @@ export const DB = {
   sudo: collection('sudo'),
   afk: collection('afk'),
   antidelete: collection('antidelete'),
-  session: collection('session')     // baileys auth keys
+  session: collection('session'),    // baileys auth keys
+  mods: collection('mods'),          // moderator tier below sudo
+  filters: collection('filters'),    // autoreply keyword -> response
+  customcmd: collection('customcmd') // user defined commands (.setcmd)
 }
 
 export default DB
