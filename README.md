@@ -138,20 +138,20 @@ The bot decodes it at boot and connects with no QR. Invalid values are rejected 
 |:---|:---:|:---|
 | **FUN** | 58 | 43 anime reaction GIFs (`hug` `slap` `kiss` `dance`…), `ship`, `truth`, `dare`, `emojimix`, `pokemon` |
 | **TEXTMAKER** | 48 | 47 text effects rendered locally — `neonlight` `hacker` `glitch` `galaxy` `fire` `gaming` `zodiac` |
-| **GROUP** | 40 | `kick` `add` `promote` `demote` `mute` `tagall` `warn` `antilink` `antiword` `antispam` `welcome` |
+| **GROUP** | 42 | `poll` `vcf` `kick` `add` `promote` `demote` `mute` `tagall` `warn` `antilink` `antiword` `welcome` |
 | **ECONOMY** | 38 | `daily` `work` `mine` `fish` `hunt` `crime` `rob` `heist`, banking, loans, shop, `slots` `blackjack` |
 | **CONVERTER** | 39 | `sticker` `take` `photo` `mp4` `gif` `tomp3` `ptv` `circlestk` `exif` `doc` + 17 audio effects + `boomerang` `vidfast` `vidslow` `vidreverse` `smooth` |
-| **UTILITIES** | 32 | `weather` `wiki` `define` `bible` `calc` `tts` `ip` `tinyurl` `ss` `qrcode` `readqr` `pdf` `font` |
+| **UTILITIES** | 35 | `tempmail` `tempinbox` `quran` `praytimes` `weather` `wiki` `define` `bible` `calc` `tts` `tinyurl` `ss` `pdf` |
 | **CONFIG** | 29 | `setvar` `getvar` `allvar` `mode` `forcejoin` `setsudo` `antidelete` `antiedit` `readstatus` `savecmd` |
-| **IMAGE-MEME** | 28 | `wanted` `jail` `drip` `drake` `pooh` `oogway` `wasted` `triggered` `stonks` `carbon` |
+| **IMAGE-MEME** | 29 | `fakechat` `wanted` `jail` `drip` `drake` `pooh` `oogway` `wasted` `triggered` `stonks` `carbon` |
 | **AI** | 22 | 8 providers with failover — `ai` `gpt` `gemini` `groq` `deepseek` `cerebras` `imagine` |
 | **DOWNLOADER** | 24 | `play` `music` `sc` `audiomack` `video` `spotify` `spotifyinfo` `tiktok` `instagram` `facebook` `twitter` `autodl` `gitclone` `mediafire` `apk` |
 | **USER** | 20 | `pp` `setpp` `setname` `bio` `block` `blocklist` `forward` `archive` `pinchat` `jid` `rank` `topranks` |
-| **TOOLS** | 15 | `afk` `msgs` `listonline` `listoffline` `setcmd` `delcmd` `permit` `areact` `element` |
+| **TOOLS** | 17 | `snipe` `editsnipe` `afk` `msgs` `listonline` `listoffline` `setcmd` `permit` `areact` `element` |
 | **BOT** | 14 | `ping` `stats` `owner` `uptime` `ban` `unban` `banlist` `repo` `ignore` |
-| **SEARCH** | 11 | `websearch` `img` `wallpaper` `github` `npm` `lyrics` `country` `book` `urban` `shazam` |
+| **SEARCH** | 13 | `news` `tvshow` `websearch` `img` `wallpaper` `github` `npm` `lyrics` `country` `urban` `shazam` |
 | **ANIME** | 10 | `anime` `manga` `character` `airing` `animerec` `animequote` `waifu` `animenews` |
-| **IMAGE** | 10 | Local sharp filters — `grey` `sepia` `sharpen` `flipv` `negate` `pixelate` `blur2` `compress` |
+| **IMAGE** | 12 | `enhance` `couple` + local sharp filters — `grey` `sepia` `sharpen` `negate` `pixelate` `compress` |
 | **MISC** | 10 | `quote` `fact` `advice` `8ball` `choose` `ebinary` `dbinary` `q` |
 | **GAME** | 8 | `ttt` `hangman` `wcg` `trivia` `guess` |
 | **PRIVACY** | 8 | `lastseen` `online` `mypp` `mystatus` `read` `allow-gcadd` `privacy` |

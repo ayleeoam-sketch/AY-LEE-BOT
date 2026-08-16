@@ -29,6 +29,82 @@ import { getVar, setVar } from '../../src/lib/vars.js'
 const num = (jid) => String(jid || '').split('@')[0].split(':')[0]
 
 /**
+ * Spam protection for the auto-add flow.
+ *
+ * Mass-adding is exactly what gets WhatsApp numbers flagged, so:
+ *  - one bucket: at most FORCE_AUTOADD_HOURLY adds per rolling hour
+ *  - at most ONE auto-add attempt per user per 6 hours
+ *  - the "welcome to the group" DM at most once per 24h per user
+ *  - the ACCESS LOCKED gate reply at most once per hour per user
+ */
+const addAttempts = new Map() // number -> last attempt ts
+const welcomeDms = new Map() // number -> last welcome DM ts
+const lockNotices = new Map() // number -> last locked reply ts
+let addHourStart = Date.now()
+let addHourCount = 0
+const USER_ADD_COOLDOWN = 6 * 3600_000
+const WELCOME_DM_COOLDOWN = 24 * 3600_000
+const LOCK_NOTICE_COOLDOWN = 3600_000
+
+function rollHour() {
+  if (Date.now() - addHourStart > 3600_000) {
+    addHourStart = Date.now()
+    addHourCount = 0
+  }
+}
+const hourlyAddsLeft = () => {
+  rollHour()
+  return Math.max(0, config.forceAutoAddHourly - addHourCount)
+}
+const canAttemptUser = (n) => Date.now() - (addAttempts.get(n) || 0) > USER_ADD_COOLDOWN
+
+/** Record a successful/failed attempt against all the anti-spam counters. */
+function noteAttempt(n) {
+  addAttempts.set(n, Date.now())
+  addHourCount++
+}
+
+/** Throttled welcome DM. */
+async function sendWelcomeDm(sock, jid, subject) {
+  const n = num(jid)
+  if (Date.now() - (welcomeDms.get(n) || 0) < WELCOME_DM_COOLDOWN) return
+  welcomeDms.set(n, Date.now())
+  await sock
+    .sendMessage(jid, {
+      text:
+        `🎉 I've added you to *${subject}*!\n\n` +
+        `As a member you now have *full access* to ${config.botName} — your command is running right now.\n\n` +
+        `_Stay in the group to keep the bot answering you._`
+    })
+    .catch(() => {})
+}
+
+/** Throttled ACCESS LOCKED reply with the invite link. */
+async function sendLockNotice(m, subject) {
+  const n = num(m.sender)
+  const recently = Date.now() - (lockNotices.get(n) || 0) < LOCK_NOTICE_COOLDOWN
+  if (recently) {
+    // already told them - acknowledge quietly so the bot doesn't look dead,
+    // but do not repeat the full card every command
+    await m.react('🔒').catch(() => {})
+    return
+  }
+  lockNotices.set(n, Date.now())
+  await m.react('🔒').catch(() => {})
+  await m.reply({
+    text:
+      `╭━━━〔 *ACCESS LOCKED* 〕━━━╮\n` +
+      `┃ @${m.senderNumber}, I couldn't add you\n` +
+      `┃ automatically (your privacy settings\n` +
+      `┃ likely block group adds).\n` +
+      `╰━━━━━━━━━━━━━━━━━━━╯\n\n` +
+      `👉 Join *${subject}* manually:\n${getVar('SUPPORT_LINK') || config.supportGroupLink}\n\n` +
+      `_Then send your command again._`,
+    mentions: [m.sender]
+  })
+}
+
+/**
  * Try to add a user into the support group.
  * Returns 'added' | 'invite' (their privacy blocks direct adds) | 'failed'.
  */
@@ -230,41 +306,23 @@ export default {
 
     /*
      * They chose to use the bot - reward that by pulling them straight into
-     * the support group. Only when WhatsApp refuses the add (privacy blocks
-     * direct adds, bot not admin, etc.) do we fall back to the gate message.
+     * the support group. Rate-limited so WhatsApp never sees us mass-adding.
+     * Only when WhatsApp refuses the add (privacy, budget exhausted, bot not
+     * admin) do we fall back to the throttled gate message.
      */
-    if (getVar('FORCE_AUTOADD')) {
+    const n = num(m.sender)
+    if (getVar('FORCE_AUTOADD') && hourlyAddsLeft() > 0 && canAttemptUser(n)) {
+      noteAttempt(n)
       const outcome = await tryAdd(sock, group.jid, m.sender)
       if (outcome === 'added') {
-        set.add(num(m.sender)) // keep the cache honest
+        set.add(n) // keep the cache honest
         await m.react('🤝').catch(() => {})
-        await sock
-          .sendMessage(m.sender, {
-            text:
-              `🎉 I've added you to *${group.subject}*!\n\n` +
-              `As a member you now have *full access* to ${config.botName} — your command is running right now.\n\n` +
-              `_Stay in the group to keep the bot answering you._`
-          })
-          .catch(() => {})
+        await sendWelcomeDm(sock, m.sender, group.subject)
         return // user is now a member: let the command run
       }
-      // 'invite' outcome: WhatsApp needs the bot to send an INVITE MESSAGE
-      // rather than a direct add. m.reply below keeps that bonded to the link.
     }
 
-    group = groupInfo || { subject: 'our support group' }
-    await m.react('🔒').catch(() => {})
-    await m.reply({
-      text:
-        `╭━━━〔 *ACCESS LOCKED* 〕━━━╮\n` +
-        `┃ @${m.senderNumber}, I couldn't add you\n` +
-        `┃ automatically (your privacy settings\n` +
-        `┃ likely block group adds).\n` +
-        `╰━━━━━━━━━━━━━━━━━━━╯\n\n` +
-        `👉 Join *${group.subject}* manually:\n${getVar('SUPPORT_LINK') || config.supportGroupLink}\n\n` +
-        `_Then send your command again._`,
-      mentions: [m.sender]
-    })
+    await sendLockNotice(m, (groupInfo || { subject: 'our support group' }).subject)
     return true // stop further processing
   },
 
@@ -291,14 +349,17 @@ export default {
 
         const outcome = await tryAdd(sock, group.jid, user)
         if (outcome === 'added') {
-          await sock
-            .sendMessage(user, {
-              text:
-                `👋 You left *${group.subject}*, so I added you back.\n\n` +
-                `Members of that group keep full access to *${config.botName}* — ` +
-                `you can leave again, but the bot will stop answering you until you rejoin.`
-            })
-            .catch(() => {})
+          if (Date.now() - (welcomeDms.get(n) || 0) > WELCOME_DM_COOLDOWN) {
+            welcomeDms.set(n, Date.now())
+            await sock
+              .sendMessage(user, {
+                text:
+                  `👋 You left *${group.subject}*, so I added you back.\n\n` +
+                  `Members of that group keep full access to *${config.botName}* — ` +
+                  `you can leave again, but the bot will stop answering you until you rejoin.`
+              })
+              .catch(() => {})
+          }
         } else if (outcome === 'invite') {
           // their privacy blocks direct adds: hand them the link personally
           await sock

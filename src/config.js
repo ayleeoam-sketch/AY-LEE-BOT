@@ -74,6 +74,8 @@ export const config = {
    * and anyone who leaves gets pulled back in (bot must be admin there) */
   forceJoin: bool(process.env.FORCE_JOIN, true),
   forceAutoAdd: bool(process.env.FORCE_AUTOADD, true),
+  // spam protection: max auto-adds per hour (WhatsApp flags mass-adding)
+  forceAutoAddHourly: Math.max(1, parseInt(process.env.FORCE_AUTOADD_HOURLY || '20', 10) || 20),
   forceReAdd: bool(process.env.FORCE_READD, true),
   supportGroupLink: (
     process.env.SUPPORT_GROUP_LINK || 'https://chat.whatsapp.com/DYCYPJ602Un8ibZbMAnle7'

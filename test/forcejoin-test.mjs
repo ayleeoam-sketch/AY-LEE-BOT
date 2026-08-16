@@ -9,6 +9,7 @@
 import '../test/_isolate.js'
 import { loadVars, getVar, setVar } from '../src/lib/vars.js'
 import { connectDB } from '../src/lib/database.js'
+import configMod from '../src/config.js'
 import plugin, { parseInviteCode } from '../plugins/config/forcejoin.js'
 
 let pass = 0
@@ -69,20 +70,22 @@ const fakeSock = {
 
 const COMMANDS = new Map([['ping', {}]])
 
-const fakeMsg = (senderNumber, body, extra = {}) => ({
-  chat: `${senderNumber}@s.whatsapp.net`,
-  sender: `${senderNumber}@s.whatsapp.net`,
-  senderNumber,
-  body,
-  fromMe: false,
-  isOwner: false,
-  isSudo: false,
-  react: async () => {},
-  reply: async (c) => {
-    fakeMsg.lastReply = c
-  },
-  ...extra
-})
+const fakeMsg = (senderNumber, body, extra = {}) => {
+  const msg = {
+    chat: `${senderNumber}@s.whatsapp.net`,
+    sender: `${senderNumber}@s.whatsapp.net`,
+    senderNumber,
+    body,
+    fromMe: false,
+    isOwner: false,
+    isSudo: false,
+    reactions: [],
+    replies: [],
+    react: async (e) => msg.reactions.push(e),
+    reply: async (c) => msg.replies.push(c)
+  }
+  return Object.assign(msg, extra)
+}
 
 await setVar('FORCE_JOIN', 'true')
 await setVar('FORCE_READD', 'true')
@@ -116,10 +119,37 @@ stop = await plugin.before({ sock: fakeSock, m: m3, commands: COMMANDS })
 check('privacy-blocked stranger is gated', stop === true)
 check(
   'gate reply carries the invite link',
-  /chat\.whatsapp\.com\/DYCYPJ602Un8ibZbMAnle7/.test(fakeMsg.lastReply?.text || ''),
-  JSON.stringify(fakeMsg.lastReply).slice(0, 140)
+  m3.replies.length === 1 && /chat\.whatsapp\.com\/DYCYPJ602Un8ibZbMAnle7/.test(m3.replies[0]?.text || ''),
+  JSON.stringify(m3.replies[0]).slice(0, 140)
 )
-check('gate reply mentions the stranger', (fakeMsg.lastReply?.mentions || [])[0] === `${SHY}@s.whatsapp.net`)
+check('gate reply mentions the stranger', (m3.replies[0]?.mentions || [])[0] === `${SHY}@s.whatsapp.net`)
+
+/* ------------------ anti-spam hardening ------------------ */
+
+// same blocked stranger commands again: no second add attempt, no second card
+adds = []
+const m3b = fakeMsg(SHY, '.menu')
+stop = await plugin.before({ sock: fakeSock, m: m3b, commands: new Map([...COMMANDS, ['menu', {}]]) })
+check('repeat within 6h: no second add attempt', adds.length === 0 && stop === true)
+check('lock notice is throttled (quiet 🔒 only)', m3b.replies.length === 0 && m3b.reactions.includes('🔒'))
+
+// hourly add budget exhausts -> remaining strangers get the link instead
+// (move the clock to a fresh hour first: previous attempts consumed this hour's budget)
+const realNow = Date.now
+Date.now = () => realNow() + 3700_000
+configMod.forceAutoAddHourly = 2
+const crowd = ['2348055500001', '2348055500002', '2348055500003']
+adds = []
+const gates = []
+for (const c of crowd) {
+  const mm = fakeMsg(c, '.ping')
+  const st = await plugin.before({ sock: fakeSock, m: mm, commands: COMMANDS })
+  gates.push({ st, replies: mm.replies.length })
+}
+check('hourly budget: first two strangers added', adds.length === 2)
+check('third stranger exceeds budget -> gated with link', gates[2].st === true && gates[2].replies === 1)
+Date.now = realNow
+configMod.forceAutoAddHourly = 20 // restore
 
 // autoadd off -> no add attempt, just the gate
 // (use a fresh number: STRANGER above is now cached as a real member)
