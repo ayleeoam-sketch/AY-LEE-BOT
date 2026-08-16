@@ -7,8 +7,13 @@ const audioSource = (m) => {
   return null
 }
 
-/** One plugin object per ffmpeg effect - keeps the menu identical to spec. */
-const effectPlugins = Object.keys(AUDIO_FX).map((fx) => ({
+/**
+ * One plugin object per ffmpeg effect - keeps the menu identical to spec.
+ * "smooth" is excluded on purpose: its filter is a VIDEO filter
+ * (minterpolate), so as an audio command it always failed. It now lives in
+ * videofx.js where it works on replied videos.
+ */
+const effectPlugins = Object.keys(AUDIO_FX).filter((fx) => fx !== 'smooth').map((fx) => ({
   name: fx,
   category: 'CONVERTER',
   desc: `Apply the "${fx}" audio effect`,

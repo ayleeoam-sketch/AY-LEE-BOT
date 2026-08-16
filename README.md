@@ -138,20 +138,20 @@ The bot decodes it at boot and connects with no QR. Invalid values are rejected 
 |:---|:---:|:---|
 | **FUN** | 58 | 43 anime reaction GIFs (`hug` `slap` `kiss` `dance`…), `ship`, `truth`, `dare`, `emojimix`, `pokemon` |
 | **TEXTMAKER** | 48 | 47 text effects rendered locally — `neonlight` `hacker` `glitch` `galaxy` `fire` `gaming` `zodiac` |
-| **GROUP** | 40 | `kick` `add` `promote` `demote` `mute` `tagall` `warn` `antilink` `antiword` `antispam` `welcome` |
+| **GROUP** | 42 | `poll` `vcf` `kick` `add` `promote` `demote` `mute` `tagall` `warn` `antilink` `antiword` `welcome` |
 | **ECONOMY** | 38 | `daily` `work` `mine` `fish` `hunt` `crime` `rob` `heist`, banking, loans, shop, `slots` `blackjack` |
-| **CONVERTER** | 34 | `sticker` `take` `photo` `mp4` `gif` `tomp3` `ptv` `circlestk` `exif` `doc` + 18 audio effects |
-| **UTILITIES** | 32 | `weather` `wiki` `define` `bible` `calc` `tts` `ip` `tinyurl` `ss` `qrcode` `readqr` `pdf` `font` |
-| **CONFIG** | 28 | `setvar` `getvar` `allvar` `mode` `setsudo` `antidelete` `antiedit` `readstatus` `savecmd` |
-| **IMAGE-MEME** | 28 | `wanted` `jail` `drip` `drake` `pooh` `oogway` `wasted` `triggered` `stonks` `carbon` |
+| **CONVERTER** | 39 | `sticker` `take` `photo` `mp4` `gif` `tomp3` `ptv` `circlestk` `exif` `doc` + 17 audio effects + `boomerang` `vidfast` `vidslow` `vidreverse` `smooth` |
+| **UTILITIES** | 35 | `tempmail` `tempinbox` `quran` `praytimes` `weather` `wiki` `define` `bible` `calc` `tts` `tinyurl` `ss` `pdf` |
+| **CONFIG** | 29 | `setvar` `getvar` `allvar` `mode` `forcejoin` `setsudo` `antidelete` `antiedit` `readstatus` `savecmd` |
+| **IMAGE-MEME** | 29 | `fakechat` `wanted` `jail` `drip` `drake` `pooh` `oogway` `wasted` `triggered` `stonks` `carbon` |
 | **AI** | 22 | 8 providers with failover — `ai` `gpt` `gemini` `groq` `deepseek` `cerebras` `imagine` |
-| **DOWNLOADER** | 19 | `play` `video` `tiktok` `instagram` `facebook` `twitter` `autodl` `gitclone` `mediafire` `apk` |
-| **USER** | 18 | `pp` `setpp` `setname` `bio` `block` `blocklist` `forward` `archive` `pinchat` `jid` |
-| **TOOLS** | 15 | `afk` `msgs` `listonline` `listoffline` `setcmd` `delcmd` `permit` `areact` `element` |
+| **DOWNLOADER** | 24 | `play` `music` `sc` `audiomack` `video` `spotify` `spotifyinfo` `tiktok` `instagram` `facebook` `twitter` `autodl` `gitclone` `mediafire` `apk` |
+| **USER** | 20 | `pp` `setpp` `setname` `bio` `block` `blocklist` `forward` `archive` `pinchat` `jid` `rank` `topranks` |
+| **TOOLS** | 17 | `snipe` `editsnipe` `afk` `msgs` `listonline` `listoffline` `setcmd` `permit` `areact` `element` |
 | **BOT** | 14 | `ping` `stats` `owner` `uptime` `ban` `unban` `banlist` `repo` `ignore` |
-| **SEARCH** | 11 | `websearch` `img` `wallpaper` `github` `npm` `lyrics` `country` `book` `urban` `shazam` |
+| **SEARCH** | 13 | `news` `tvshow` `websearch` `img` `wallpaper` `github` `npm` `lyrics` `country` `urban` `shazam` |
 | **ANIME** | 10 | `anime` `manga` `character` `airing` `animerec` `animequote` `waifu` `animenews` |
-| **IMAGE** | 10 | Local sharp filters — `grey` `sepia` `sharpen` `flipv` `negate` `pixelate` `blur2` `compress` |
+| **IMAGE** | 12 | `enhance` `couple` + local sharp filters — `grey` `sepia` `sharpen` `negate` `pixelate` `compress` |
 | **MISC** | 10 | `quote` `fact` `advice` `8ball` `choose` `ebinary` `dbinary` `q` |
 | **GAME** | 8 | `ttt` `hangman` `wcg` `trivia` `guess` |
 | **PRIVACY** | 8 | `lastseen` `online` `mypp` `mystatus` `read` `allow-gcadd` `privacy` |
@@ -328,6 +328,27 @@ Turn it off with `.setvar CMD_REACT false`, or change the trigger emoji with `.s
 
 ---
 
+## 🔒 Support-Group Gate (`.forcejoin`)
+
+Users must join your WhatsApp support group before the bot will answer their commands — and if they leave, the bot pulls them back in.
+
+| Behaviour | What happens |
+|:---|:---|
+| **Gate on** (`FORCE_JOIN=true`, default) | Commands only answer support-group members. Only real commands are intercepted — plain chat passes through. Owner + sudo are always exempt. |
+| **Auto-add** (`FORCE_AUTOADD=true`, default) | The moment a non-member runs a command, the bot **adds them into the group** and the command runs normally. If WhatsApp refuses the add (their privacy blocks it, bot not admin…), they get an *ACCESS LOCKED* card with the invite link instead. |
+| **Auto re-add** (`FORCE_READD=true`, default) | Anyone who leaves the support group is pulled back (10-minute per-user cooldown so it never wars) with a DM explaining why. If their privacy blocks adds, they're DMed the link instead. |
+| **Fail-open** | If the invite link breaks or the bot can't read the group, commands keep working — check the state with `.forcejoin`. |
+
+**Setup (3 steps):**
+
+1. Add the **bot's number** to the support group and make it an **admin** (admin is required for re-add).
+2. Set `SUPPORT_GROUP_LINK` in `.env` (or live: `.forcejoin link https://chat.whatsapp.com/XXXX`).
+3. `.forcejoin` shows the status card: gate state, member count, and whether the bot is admin enough to re-add.
+
+Manage everything from WhatsApp: `.forcejoin on | off`, `.forcejoin autoadd on | off`, `.forcejoin readd on | off`, `.forcejoin link <url>`, `.forcejoin check @user`.
+
+---
+
 ## 🚀 Hosting
 
 <details>
@@ -415,6 +436,9 @@ All suites are deterministic — they reset their own DB state, so repeated runs
 | Platform | Status | How |
 |:---|:---:|:---|
 | **YouTube** | ✅ Keyless | `yt-dlp` with the `android_vr` player client |
+| **SoundCloud** | ✅ Keyless | `.music` / `.sc` - no bot-check, works from server IPs |
+| **Audiomack** | ✅ Keyless | `.music` / `.audiomack` - search + track links |
+| **Spotify** | ✅ Keyless | metadata via oEmbed/JSON-LD, audio matched on any source |
 | **TikTok** | ✅ No watermark | tikwm JSON API, `yt-dlp` fallback |
 | **Twitter/X, Facebook** | ✅ Working | `yt-dlp` (public posts) |
 | **1800+ other sites** | ✅ Working | `.autodl <link>` |
@@ -433,9 +457,43 @@ All suites are deterministic — they reset their own DB state, so repeated runs
 
 3. **Instagram genuinely requires a login session.** yt-dlp returns "empty media response", the GraphQL endpoint 403s, `?__a=1` is dead, and public scraper sites are IP-blocked. I tested nine routes — none work anonymously from a server.
 
+4. **A YouTube bot-check should not kill a song request.** When YouTube refuses, `.play` now falls back automatically: the same song is searched on **SoundCloud** and **Audiomack**, which don't bot-check server IPs. `.music <name>` does the same with SoundCloud first, plus source-specific `.sc` and `.audiomack`. Music keeps arriving even on hosts where YouTube alone would fail.
+
 **To enable Instagram:** install the *Get cookies.txt LOCALLY* browser extension, log into Instagram, export cookies, save as `cookies.txt` in the bot folder. The bot picks it up automatically (`.dlstatus` confirms). The same file unlocks private/age-restricted YouTube and Facebook content.
 
 **Size limits:** audio capped at 30 min, video at 15 min and 64MB (WhatsApp's ceiling). Use `.video <link> 240` for a smaller file.
+
+</details>
+
+<details>
+<summary><b>😤 ".play is not working" — read this first</b></summary>
+
+<br/>
+
+**There is no YouTube API key in this bot.** `.play`, `.video`, `.ytsearch` and the new
+`.spotify` all run on `yt-dlp`, a free keyless downloader. The official YouTube Data
+API v3 cannot download media at all (it only returns metadata), so no API key from any
+website will ever fix `.play`. If a video "fails even with an API key", the key was
+never the problem.
+
+`.play` fails for exactly three reasons — check them in order:
+
+1. **yt-dlp is not installed** (fresh clone / fresh panel).
+   **Fix:** `npm run setup` — verify with `.dlstatus`. The bot says this plainly in chat.
+2. **yt-dlp is outdated.** YouTube changes its internals regularly and an old binary
+   is the most common cause of "it worked yesterday".
+   **Fix:** `npm run update-dl` (run it weekly; many hosts auto-restart anyway).
+3. **YouTube is bot-checking your server.** Datacenter/Hostinger/Pterodactyl IPs get
+   the "Sign in to confirm you're not a bot" screen.
+   **Fix (permanent):** install the *Get cookies.txt LOCALLY* browser extension, open
+   youtube.com **while signed in**, export the file as `cookies.txt` into the bot
+   folder. The downloader picks it up automatically — `.dlstatus` confirms it.
+   TikTok/Twitter/Facebook are unaffected by this.
+
+Optional: if you *still* want a YouTube Data API key for other projects —
+[console.cloud.google.com](https://console.cloud.google.com) → new project →
+APIs & Services → Enable **YouTube Data API v3** → Credentials → **Create API key**.
+Just know it has zero effect on this bot's downloads.
 
 </details>
 
