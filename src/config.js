@@ -30,8 +30,8 @@ const list = (v) =>
  */
 export const config = {
   // identity
-  botName: process.env.BOT_NAME || 'Kenny',
-  ownerName: process.env.OWNER_NAME || 'Kenny',
+  botName: process.env.BOT_NAME || 'VENOM MD BOT',
+  ownerName: process.env.OWNER_NAME || 'Owner',
   ownerNumbers: list(process.env.OWNER_NUMBER),
   userTag: process.env.USER_TAG || 'USER',
   version: process.env.BOT_VERSION || 'v2.0.0',
