@@ -93,6 +93,7 @@ Type `.menu` for the full list, `.menu <category>` for one section, `.menu <comm
 | `src/lib/api.js` | HTTP helper with multi-source failover. |
 | `src/lib/economy.js` | Shared economy state, items, cooldowns, XP. |
 | `src/lib/vars.js` | Runtime config persisted to DB. |
+| `src/lib/keepalive.js` | Tiny HTTP health server — lets UptimeRobot keep Render awake. |
 | `test/fulltest.js` | 124 assertions across every subsystem. |
 
 ---
@@ -217,6 +218,61 @@ Keys: `PREFIX` `MODE` `AUTO_READ` `AUTO_READ_STATUS` `AUTO_TYPING` `ALWAYS_ONLIN
 
 **Modes:** `public` · `private` (owner only) · `group` · `inbox`
 **Prefix:** one character, `multi` (`. / ! # $ ,`), or `none`.
+
+---
+
+## Deploying on Render (and keeping it awake 24/7)
+
+Render's free tier puts a service to sleep after ~15 minutes with no inbound
+traffic. A WhatsApp bot never receives HTTP traffic on its own, so it naps —
+and while it naps it can't answer messages. The fix is two parts:
+
+1. **Run as a Web Service, not a background worker.** Workers have no public
+   URL, so nothing can ever ping them. A Web Service gets a public HTTPS URL
+   (`https://your-bot.onrender.com`) and Render injects a `PORT`.
+
+2. **This bot already runs a keep-alive HTTP server** (`src/lib/keepalive.js`),
+   enabled by default. It answers `200 OK` on `/` with a small JSON status, so
+   any free "uptime" pinger can keep it awake.
+
+### Step by step
+
+1. On Render: **New → Web Service**, connect the Git repo.
+   - **Build command:** `npm install`
+   - **Start command:** `npm start`
+   - **Runtime:** Node 20+
+2. Add the environment variables — at minimum `OWNER_NUMBER`. To skip the QR,
+   set a `SESSION_ID` (see [Session ID](#session-id-skip-the-qr-entirely)).
+   Set `MONGO_URI` so your data and session survive redeploys. `KEEP_ALIVE` is
+   `true` by default; leave it. Leave `PORT` alone — Render sets it.
+3. Deploy, then open `https://your-bot.onrender.com` — you should see JSON like:
+   ```json
+   { "ok": true, "name": "VENOM MD BOT", "connected": true, ... }
+   ```
+4. Create a free **UptimeRobot** account → **New monitor**:
+   - **Monitor type:** HTTP(s)
+   - **URL:** `https://your-bot.onrender.com`
+   - **Monitoring interval:** every 5 minutes
+   That ping counts as traffic, so Render never puts the instance to sleep.
+
+UptimeRobot works because it only needs a URL that returns 200 — which the
+keep-alive server provides. Alternatives that do the same thing:
+[cron-job.org](https://cron-job.org), [Better Uptime](https://betterstack.com),
+or a free GitHub Actions workflow that curls the URL every 5 minutes.
+
+If you'd rather not use a pinger at all, upgrade Render to a paid instance
+(the `$7`/mo Starter is always-on), or host on a platform that doesn't sleep
+(see [Pterodactyl](#deploying-on-pterodactyl) below).
+
+### Troubleshooting
+
+- **"Deploy failed, port not listening"** — the bot must bind the port Render
+  gives it. It does (`0.0.0.0:$PORT`). If you see this, check the logs for a
+  keep-alive bind error.
+- **Bot disconnects right after waking** — a sleeping instance takes a few
+  seconds to resume and re-open the WhatsApp socket. The 5-minute UptimeRobot
+  interval prevents this entirely; if it still happens, drop the interval to
+  1 minute (UptimeRobot free tier minimum).
 
 ---
 

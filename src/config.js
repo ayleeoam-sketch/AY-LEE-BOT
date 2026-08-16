@@ -51,6 +51,13 @@ export const config = {
   mongoUri: process.env.MONGO_URI || '',
   mongoDb: process.env.MONGO_DB || 'whatsappbot',
 
+  // keep-alive HTTP server - stops Render free tier sleeping
+  keepAlive: bool(process.env.KEEP_ALIVE, true),
+  keepAlivePort: (() => {
+    const p = parseInt(process.env.PORT || process.env.KEEP_ALIVE_PORT || '8000', 10)
+    return Number.isFinite(p) && p > 0 ? p : 8000
+  })(),
+
   // behaviour
   mode: (process.env.MODE || 'public').toLowerCase(),
   autoRead: bool(process.env.AUTO_READ),

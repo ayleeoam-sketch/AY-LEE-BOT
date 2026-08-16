@@ -15,6 +15,7 @@ import path from 'path'
 
 import config from './config.js'
 import log, { waLogger } from './lib/logger.js'
+import { setConnected, touchMessage } from './lib/keepalive.js'
 import { useMongoAuthState } from './lib/mongoAuth.js'
 import { getVar } from './lib/vars.js'
 import { handleMessage } from './handler.js'
@@ -144,6 +145,7 @@ WhatsApp > Settings > Linked devices > Link with phone number
 
     if (connection === 'open') {
       reconnectAttempts = 0
+      setConnected(true)
       const me = jidNormalizedUser(sock.user?.id || '')
       log.ok(`Connected as ${sock.user?.name || 'bot'} (${me.split('@')[0]})`)
       log.ok(`${pluginCount()} plugins ready | prefix "${config.prefix}" | mode ${getVar('MODE')}`)
@@ -168,6 +170,7 @@ WhatsApp > Settings > Linked devices > Link with phone number
     }
 
     if (connection === 'close') {
+      setConnected(false)
       const code = new Boom(lastDisconnect?.error)?.output?.statusCode
       const reason = Object.keys(DisconnectReason).find((k) => DisconnectReason[k] === code) || code
 
@@ -217,6 +220,7 @@ WhatsApp > Settings > Linked devices > Link with phone number
     if (type !== 'notify') return
     for (const raw of messages) {
       if (!raw.message) continue
+      touchMessage()
       // remember for retries + anti-delete
       messageStore.set(raw.key.id, raw)
       if (messageStore.size > MAX_STORE) {
