@@ -140,12 +140,12 @@ The bot decodes it at boot and connects with no QR. Invalid values are rejected 
 | **TEXTMAKER** | 48 | 47 text effects rendered locally — `neonlight` `hacker` `glitch` `galaxy` `fire` `gaming` `zodiac` |
 | **GROUP** | 42 | `poll` `vcf` `kick` `add` `promote` `demote` `mute` `tagall` `warn` `antilink` `antiword` `welcome` |
 | **ECONOMY** | 38 | `daily` `work` `mine` `fish` `hunt` `crime` `rob` `heist`, banking, loans, shop, `slots` `blackjack` |
-| **CONVERTER** | 39 | `sticker` `take` `photo` `mp4` `gif` `tomp3` `ptv` `circlestk` `exif` `doc` + 17 audio effects + `boomerang` `vidfast` `vidslow` `vidreverse` `smooth` |
+| **CONVERTER** | 40 | **`capcut`** — the plain-English video editor · `sticker` `take` `photo` `mp4` `gif` `tomp3` `ptv` `circlestk` `exif` `doc` + 17 audio effects + `boomerang` `vidfast` `vidslow` `vidreverse` `smooth` |
 | **UTILITIES** | 35 | `tempmail` `tempinbox` `quran` `praytimes` `weather` `wiki` `define` `bible` `calc` `tts` `tinyurl` `ss` `pdf` |
 | **CONFIG** | 29 | `setvar` `getvar` `allvar` `mode` `forcejoin` `setsudo` `antidelete` `antiedit` `readstatus` `savecmd` |
 | **IMAGE-MEME** | 29 | `fakechat` `wanted` `jail` `drip` `drake` `pooh` `oogway` `wasted` `triggered` `stonks` `carbon` |
 | **AI** | 22 | 8 providers with failover — `ai` `gpt` `gemini` `groq` `deepseek` `cerebras` `imagine` |
-| **DOWNLOADER** | 24 | `play` `music` `sc` `audiomack` `video` `spotify` `spotifyinfo` `tiktok` `instagram` `facebook` `twitter` `autodl` `gitclone` `mediafire` `apk` |
+| **DOWNLOADER** | 25 | **`movie`** — find any film/episode by name · `play` `music` `sc` `audiomack` `video` `spotify` `spotifyinfo` `tiktok` `instagram` `facebook` `twitter` `autodl` `gitclone` `mediafire` `apk` |
 | **USER** | 20 | `pp` `setpp` `setname` `bio` `block` `blocklist` `forward` `archive` `pinchat` `jid` `rank` `topranks` |
 | **TOOLS** | 17 | `snipe` `editsnipe` `afk` `msgs` `listonline` `listoffline` `setcmd` `permit` `areact` `element` |
 | **BOT** | 14 | `ping` `stats` `owner` `uptime` `ban` `unban` `banlist` `repo` `ignore` |
@@ -159,7 +159,7 @@ The bot decodes it at boot and connects with no QR. Invalid values are rejected 
 | **PLUGINS** | 4 | `plugin` `plugins` `reload` `remove` |
 | **PROCESS** | 3 | `restart` `shutdown` `pstatus` |
 | **HELP** | 1 | `menu` — the full styled command list |
-| **Total** | **464** | across 23 categories · 810 names including aliases |
+| **Total** | **466** | across 23 categories · 820 names including aliases |
 
 </div>
 
@@ -406,6 +406,8 @@ node test/fulltest.js       # 124 assertions, offline + live APIs
 node test/selftest.js       # quick smoke test
 node test/dltest.js         # downloader assertions (fast)
 node test/dltest.js --full  # + real YouTube/TikTok downloads (~3 min)
+node test/capcut-test.mjs   # .capcut editor - 196 assertions, fully offline
+node test/movie-test.mjs    # .movie finder  - 81 assertions, fully offline
 ```
 
 Tests never touch your production database. `test/_isolate.js` is imported first by every suite and strips `MONGO_URI`, so fixtures go to JSON files in `./data`. Run against the real cluster deliberately with `--live-db`.
@@ -426,6 +428,152 @@ Tests never touch your production database. `test/_isolate.js` is imported first
 All suites are deterministic — they reset their own DB state, so repeated runs give identical results. Third-party API outages are reported separately so an external failure never looks like a bug in your code.
 
 </details>
+
+---
+
+## 🍿 `.movie` — say it, get it
+
+Type the title the way you'd say it out loud. The bot works out the title,
+season, episode, year and quality on its own, searches its sources, and sends
+the video back.
+
+```
+.movie naruto epi 1
+.movie external fragrance epi 1
+.movie interstellar
+.movie the office s02e05
+.movie night of the living dead 1968 720p
+.movie <any video link>
+```
+
+**Aliases:** `.movie` · `.film` · `.episode` · `.ep` · `.watch` · `.cinema` — category **DOWNLOADER**.
+
+### It understands how people actually type
+
+| You type | It understands |
+|:---|:---|
+| `naruto epi 1` · `ep 1` · `episode 1` | episode 1 |
+| `the office s02e05` · `S2 E5` · `2x05` | season 2, episode 5 |
+| `one piece part 12` | part/episode 12 |
+| `night of the living dead 1968` | title + year |
+| `attack on titan ep 3 720p` | title + episode + quality |
+| `please send me naruto epi 1` | strips the request filler |
+
+Filler is only stripped when it's unambiguous, so real titles like **Free
+Willy**, **Full Metal Jacket** and **The Film Star** survive intact.
+
+Results are ranked before anything downloads: the right episode beats the
+wrong one, and trailers, soundtracks and reaction videos are pushed down —
+so `.movie naruto epi 1` doesn't hand you a trailer.
+
+A pasted link skips the search and goes straight to yt-dlp (1800+ sites).
+
+### Sources
+
+Tried in order, keyless first:
+
+1. **Archive.org** — a large, legal, public-domain catalogue (classic films,
+   cartoons, lots of TV). No API key.
+2. **yt-dlp** — any pasted link, plus legitimately free full-length uploads.
+
+> **Honest limitation:** this searches *free, legal* catalogues. A blockbuster
+> still in cinemas will not be there, and the bot says so plainly instead of
+> pretending. It deliberately does not scrape piracy streaming sites — those
+> break constantly and can get your host banned.
+
+If the file is over WhatsApp's ~64MB limit, the bot sends the source link
+rather than failing silently.
+
+---
+
+## 🎬 `.capcut` — the plain-English video editor
+
+One command that behaves like a real editor. Reply to a video and **describe the
+edit in normal words** — no flags, no chaining five commands together. The bot
+parses what you meant, runs the whole pipeline, and sends the finished clip back.
+
+```
+.capcut I want a voiceover saying "Welcome back to the channel" and make it cinematic
+.capcut reverse it, slow it down, put a caption "send this to her 😂"
+.capcut make it black and white with my voiceover read from the quoted message
+.capcut trim from 0:10 to 0:25, crop 9:16 and make it go viral
+.capcut trending style
+```
+
+**Aliases:** `.capcut` · `.edit` · `.videoedit` · `.autoedit` — category **CONVERTER**.
+
+### 🔥 Viral one-worders
+
+Just say what you want. These all resolve to a full punch-up edit
+(saturation, sharpen, zoom-in, 30fps):
+
+```
+.capcut make it go viral
+.capcut trending style
+.capcut make this insane
+.capcut make it fire
+.capcut do something cool with it
+```
+
+### 🧠 What it understands
+
+| | Say it like this |
+|:---|:---|
+| **Voiceover** | `voiceover saying "..."` · `add voice saying ...` · `narrate ...` · `read the quoted message` |
+| **Captions** | `caption "..."` · `subtitle "..."` · `put text "..."` · `add words "..."` |
+| **Styles** | `cinematic` `vintage` `vaporwave` `black and white` `glitch` `viral` `warm` `cold` `bright` `dark` |
+| **Motion** | `reverse` · `slow` · `fast` · `boomerang` · `smooth` · `zoom at the start/end` · `shake` · `speed ramp` |
+| **Cut & crop** | `trim from 0:05 to 0:20` · `crop 9:16` `1:1` `16:9` `4:5` · `make it vertical` |
+| **Audio** | `mute` · `keep my audio` (mixes the voiceover over the original at 20%) |
+
+Chain as many as you like — `reverse and slow and bw with a caption "wait for it"`.
+Ops always execute in a canonical order (**trim → crop → speed → style → motion →
+captions → audio**), so the result is the same no matter what order you typed them in.
+
+An instruction it genuinely doesn't know returns a help card listing every verb —
+never a stack trace.
+
+### 🏗️ Create mode — no video needed
+
+Give it a topic and it builds the whole thing from scratch:
+
+```
+.capcut create a 2 minute video about Lagos nightlife from stock clips, with a voiceover
+.capcut create a 30 second video about jollof rice from stock images with voiceover and captions
+```
+
+1. The AI (`chat()`, multi-provider with keyless fallback) writes a narration
+   script — one line per scene.
+2. Each line is spoken with keyless Google Translate TTS, chunked at 200
+   characters per request and concatenated.
+3. **Scene length follows the narration audio**, so the picture and the voice
+   stay locked together.
+4. Stock media per scene from the line's keywords, with Ken Burns motion
+   (zoom in / out / pan left / pan right, alternating) over stills.
+5. Optional caption strip per scene, then everything is concatenated and muxed.
+6. You get the video plus a scene list card.
+
+**Optional stock keys** — everything above works with **no keys at all** (keyless
+stills + Ken Burns motion). Add either key to `.env` and create mode upgrades to
+real moving stock footage:
+
+```env
+PEXELS_KEY=      # https://www.pexels.com/api/new/
+PIXABAY_KEY=     # https://pixabay.com/api/docs/
+```
+
+### 📐 Technical notes
+
+- **Output:** MP4 · h264 · CRF 28 · 720p30 · AAC 128k · faststart.
+- **Limits:** 40MB input, ~5 min per job, hard `-t` caps on every render.
+- Captions are rendered as PNG strips with **sharp/SVG** and overlaid — the
+  bundled static ffmpeg has no `drawtext`, and emojis work this way.
+- A voiceover longer than the clip **holds the last frame** instead of being cut
+  off mid-word.
+- Every temp file lives in a per-job workspace that is always removed, even on
+  failure. Nothing is left in `tmp/`.
+- **Avatar lip-sync is marked "coming soon"** rather than faked — narration
+  voiceover is the real, working feature today.
 
 ---
 

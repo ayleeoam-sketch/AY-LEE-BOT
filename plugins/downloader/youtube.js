@@ -115,7 +115,7 @@ export default [
     desc: 'Download a video from YouTube',
     usage: '.video despacito  |  .video <link> 720',
     cooldown: 30,
-    async run({ m, text, args }) {
+    async run({ m, text, args, prefix }) {
       if (!hasYtdlp()) return notInstalled(m)
       if (!text) return m.reply('🎬 Give me a video name or YouTube link:\n*.video despacito*\n\nAdd a quality: *.video <link> 720*')
 
@@ -154,7 +154,19 @@ export default [
         await m.react('✅')
       } catch (e) {
         await m.react('❌')
-        await m.reply(`❌ ${e.message}`)
+        /*
+         * When YouTube bot-checks the host there is nothing the user can do
+         * from chat, so point them at the two commands that still work
+         * rather than leaving them at a dead end.
+         */
+        const blocked = /bot check|not a bot|Sign in to confirm/i.test(e.message)
+        await m.reply(
+          blocked
+            ? `${e.message}\n\n*Meanwhile:*\n` +
+              `▸ *${prefix}movie ${query}* — searches free catalogues\n` +
+              `▸ *${prefix}play ${query}* — audio, falls back to SoundCloud`
+            : `❌ ${e.message}`
+        )
       }
     }
   },
