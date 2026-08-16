@@ -1,70 +1,151 @@
-# VENOM MD BOT
+<!-- VENOM MD BOT — by TAPRUSH EMP (Micheal) -->
 
-**by TAPRUSH EMP (Micheal)**
+<div align="center">
 
-A modular, plugin-driven WhatsApp bot on **Baileys v7**.
+<img src="assets/menu.jpg" width="100%" style="border-radius:12px;" />
 
-**Status: 464 plugins · 23 categories · 810 command names · 179 tests passing · every command audited live.**
+<br/>
 
-Covers **93% of the original 380-command menu** (334/360 verified present).
+[![Typing SVG](https://readme-typing-svg.herokuapp.com?font=Orbitron&weight=900&size=22&duration=3000&pause=800&color=8A2BE2&center=true&vCenter=true&width=600&lines=%E2%9A%A1+VENOM+MD+BOT;BUILT+BY+TAPRUSH+EMP+%F0%9F%87%B3%F0%9F%87%AC;464+PLUGINS+%C2%B7+23+CATEGORIES;FORK+%26+DEPLOY+IN+MINUTES)](https://git.io/typing-svg)
+
+<br/>
+
+[![GitHub](https://img.shields.io/badge/MykelGoal-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/MykelGoal)
+[![Baileys](https://img.shields.io/badge/Baileys-v7-25D366?style=for-the-badge&logo=whatsapp&logoColor=white)](https://www.npmjs.com/package/baileys)
+[![Node](https://img.shields.io/badge/Node-20%2B-339933?style=for-the-badge&logo=nodedotjs&logoColor=white)](https://nodejs.org)
+
+<br/>
+
+[![Stars](https://img.shields.io/github/stars/MykelGoal/VENOM-MD-BOT?style=flat-square&color=8A2BE2&label=Stars)](https://github.com/MykelGoal/VENOM-MD-BOT/stargazers)
+[![Forks](https://img.shields.io/github/forks/MykelGoal/VENOM-MD-BOT?style=flat-square&color=8A2BE2&label=Forks)](https://github.com/MykelGoal/VENOM-MD-BOT/network/members)
+[![Watchers](https://img.shields.io/github/watchers/MykelGoal/VENOM-MD-BOT?style=flat-square&color=8A2BE2&label=Watchers)](https://github.com/MykelGoal/VENOM-MD-BOT/watchers)
+[![Repo Size](https://img.shields.io/github/repo-size/MykelGoal/VENOM-MD-BOT?style=flat-square&color=8A2BE2)](https://github.com/MykelGoal/VENOM-MD-BOT)
+[![License](https://img.shields.io/badge/License-MIT-8A2BE2?style=flat-square)](LICENSE)
+
+</div>
 
 ---
 
-## Quick start
+## 🐍 What is VENOM MD?
+
+**VENOM MD** is a modular, plugin-driven WhatsApp bot built on **Baileys v7** — engineered for speed, clean code, and honest documentation. Every command is auto-discovered from `plugins/`, hot-reloadable, and audited live. Maintained by **TAPRUSH EMP (Micheal) 🇳🇬**.
+
+<div align="center">
+
+| 🔌 Plugins | 🗂️ Categories | ⌨️ Command Names | ✅ Broken |
+|:---:|:---:|:---:|:---:|
+| **464** | **23** | **810** | **0** |
+
+</div>
+
+---
+
+## ⚡ Quick Deploy
+
+<div align="center">
+
+| Platform | Deploy |
+|----------|--------|
+| **Render** | [![Render](https://img.shields.io/badge/Deploy-Render-46E3B7?style=for-the-badge&logo=render&logoColor=black)](https://dashboard.render.com/web/new) |
+| **Koyeb** | [![Koyeb](https://img.shields.io/badge/Deploy-Koyeb-FF009D?style=for-the-badge&logo=koyeb&logoColor=white)](https://app.koyeb.com/services/deploy?type=git&repository=MykelGoal/VENOM-MD-BOT) |
+| **Railway** | [![Railway](https://img.shields.io/badge/Deploy-Railway-FF8700?style=for-the-badge&logo=railway&logoColor=white)](https://railway.app/new) |
+| **Heroku** | [![Heroku](https://img.shields.io/badge/Deploy-Heroku-430098?style=for-the-badge&logo=heroku&logoColor=white)](https://dashboard.heroku.com/new?template=https://github.com/MykelGoal/VENOM-MD-BOT) |
+| **Panel/ZIP** | [![ZIP](https://img.shields.io/badge/Download-ZIP-CC00FF?style=for-the-badge&logo=files&logoColor=white)](https://github.com/MykelGoal/VENOM-MD-BOT/archive/refs/heads/main.zip) |
+
+</div>
+
+---
+
+## 🛠️ Manual Deployment
 
 ```bash
-git clone <your-repo> venom-md-bot && cd venom-md-bot
+# 1. Clone the repo
+git clone https://github.com/MykelGoal/VENOM-MD-BOT
+cd VENOM-MD-BOT
+
+# 2. Install dependencies
 npm install
-npm run setup            # fetches yt-dlp
-cp .env.example .env     # then edit it
-npm start                # scan the QR that appears
+
+# 3. Fetch yt-dlp (downloaders)
+npm run setup
+
+# 4. Configure your environment
+cp .env.example .env
+#    → set OWNER_NUMBER and OWNER_NAME
+
+# 5. Start the bot
+npm start
 ```
 
-Minimum you must set in `.env`:
+> ⚠️ Minimum required in `.env`:
+>
+> ```env
+> OWNER_NUMBER=2348012345678     # digits only, no + or spaces
+> OWNER_NAME=Your Name
+> ```
+
+**Strongly recommended** — both are free and take two minutes:
 
 ```env
-OWNER_NUMBER=2348012345678     # digits only, no + or spaces
-OWNER_NAME=Your Name
+MONGO_URI=mongodb+srv://...    # free tier, never sleeps
+GROQ_API_KEY=gsk_...           # makes every AI command fast
 ```
 
-Strongly recommended:
+Neither is required — the bot falls back to JSON files and a keyless AI endpoint. Set a key without touching a file: `.setkey groq gsk_xxxxx`
+
+---
+
+## 🔑 Session ID (skip the QR)
+
+<div align="center">
+
+[![Session ID](https://img.shields.io/badge/GENERATE%20SESSION%20ID-Deploy%20session--site-5500ff?style=for-the-badge&logo=key&logoColor=white)](#-session-id-skip-the-qr)
+
+</div>
+
+<details>
+<summary><b>How it works</b></summary>
+
+<br/>
+
+A companion web app generates session IDs so the bot starts already authenticated — useful on Render, Pterodactyl, or anywhere without a terminal.
+
+1. Deploy `session-site/` (see its README — one click on Render).
+2. Open it, link with QR or a pairing code.
+3. Copy the session ID into `.env`:
 
 ```env
-MONGO_URI=mongodb+srv://...    # free tier, never sleeps - see Database
-GROQ_API_KEY=gsk_...           # free, makes every AI command fast
+SESSION_ID=eyJub2lzZUtleSI6...
 ```
 
-Neither is required — the bot falls back to JSON files and a keyless AI
-endpoint — but both take two minutes and the difference is large. Run
-`.aikeys` in chat for AI signup links, or set a key without touching a file:
+The bot decodes it at boot and connects with no QR. Invalid values are rejected with a clear log line and it falls back to normal login.
 
-```
-.setkey groq gsk_xxxxx
-```
+</details>
 
-Skip the QR entirely by generating a `SESSION_ID` on the web generator — see
-[Session ID](#session-id-skip-the-qr-entirely).
+---
 
-## Command categories
+## 📋 Command Categories
 
-| Category | Commands | Highlights |
-|---|---|---|
-| **FUN** | 58 | 43 anime reaction GIFs (`hug` `slap` `kiss` `dance`…), `ship`, `truth`, `dare`, `emojimix`, `pokemon`, animal pics |
-| **TEXTMAKER** | 48 | 47 text effects rendered locally — `neonlight` `hacker` `glitch` `galaxy` `fire` `gaming` `zodiac`… |
-| **GROUP** | 40 | `kick` `add` `promote` `demote` `mute` `tagall` `warn` `antilink` `antiword` `antispam` `welcome` `goodbye` |
-| **ECONOMY** | 38 | `daily` `work` `mine` `fish` `hunt` `crime` `rob` `heist`, banking, loans, shop, `slots` `blackjack` `dice`, `tax` |
-| **CONVERTER** | 34 | `sticker` `take` `photo` `mp4` `gif` `tomp3` `ptv` `circlestk` `black` `exif` `doc` `aitts` + 18 audio effects |
-| **UTILITIES** | 32 | `weather` `wiki` `define` `bible` `calc` `tts` `ip` `tinyurl` `ss` `qrcode` `readqr` `wm` `pdf` `url` `font` `ngl`, notes |
-| **CONFIG** | 28 | `setvar` `getvar` `allvar` `mode` `setsudo` `antidelete` `antiedit` `readstatus` `savecmd` `vvcmd` |
-| **IMAGE-MEME** | 28 | `wanted` `jail` `drip` `drake` `pooh` `oogway` `wasted` `rip-meme` `triggered` `rainbow` `stonks` `carbon` |
-| **DOWNLOADER** | 19 | `play` `video` `tiktok` `instagram` `facebook` `twitter` `autodl` `playdoc` `gitclone` `mediafire` `gdrive` `apk` |
+<div align="center">
+
+| Category | # | Highlights |
+|:---|:---:|:---|
+| **FUN** | 58 | 43 anime reaction GIFs (`hug` `slap` `kiss` `dance`…), `ship`, `truth`, `dare`, `emojimix`, `pokemon` |
+| **TEXTMAKER** | 48 | 47 text effects rendered locally — `neonlight` `hacker` `glitch` `galaxy` `fire` `gaming` `zodiac` |
+| **GROUP** | 40 | `kick` `add` `promote` `demote` `mute` `tagall` `warn` `antilink` `antiword` `antispam` `welcome` |
+| **ECONOMY** | 38 | `daily` `work` `mine` `fish` `hunt` `crime` `rob` `heist`, banking, loans, shop, `slots` `blackjack` |
+| **CONVERTER** | 34 | `sticker` `take` `photo` `mp4` `gif` `tomp3` `ptv` `circlestk` `exif` `doc` + 18 audio effects |
+| **UTILITIES** | 32 | `weather` `wiki` `define` `bible` `calc` `tts` `ip` `tinyurl` `ss` `qrcode` `readqr` `pdf` `font` |
+| **CONFIG** | 28 | `setvar` `getvar` `allvar` `mode` `setsudo` `antidelete` `antiedit` `readstatus` `savecmd` |
+| **IMAGE-MEME** | 28 | `wanted` `jail` `drip` `drake` `pooh` `oogway` `wasted` `triggered` `stonks` `carbon` |
+| **AI** | 22 | 8 providers with failover — `ai` `gpt` `gemini` `groq` `deepseek` `cerebras` `imagine` |
+| **DOWNLOADER** | 19 | `play` `video` `tiktok` `instagram` `facebook` `twitter` `autodl` `gitclone` `mediafire` `apk` |
 | **USER** | 18 | `pp` `setpp` `setname` `bio` `block` `blocklist` `forward` `archive` `pinchat` `jid` |
-| **AI** | 22 | 8 providers with failover — `ai` `gpt` `gemini` `groq` `deepseek` `cerebras` `openrouter` `mistral` `cohere`, plus `coder` `reasoning` `chatbot` `aikeys` `setkey` `aistatus` `imagine` |
 | **TOOLS** | 15 | `afk` `msgs` `listonline` `listoffline` `setcmd` `delcmd` `permit` `areact` `element` |
 | **BOT** | 14 | `ping` `stats` `owner` `uptime` `ban` `unban` `banlist` `repo` `ignore` |
-| **SEARCH** | 11 | `websearch` `img` `wallpaper` `github` `npm` `lyrics` `country` `book` `urban` `subtitle` `shazam` |
-| **ANIME** | 10 | `anime` `manga` `character` `airing` `animerec` `animequote` `animegif` `reactions` `waifu` `animenews` |
-| **IMAGE** | 10 | 11 local sharp filters — `grey` `sepia` `sharpen` `flipv` `negate` `pixelate` `blur2` `compress` `imageinfo` |
+| **SEARCH** | 11 | `websearch` `img` `wallpaper` `github` `npm` `lyrics` `country` `book` `urban` `shazam` |
+| **ANIME** | 10 | `anime` `manga` `character` `airing` `animerec` `animequote` `waifu` `animenews` |
+| **IMAGE** | 10 | Local sharp filters — `grey` `sepia` `sharpen` `flipv` `negate` `pixelate` `blur2` `compress` |
 | **MISC** | 10 | `quote` `fact` `advice` `8ball` `choose` `ebinary` `dbinary` `q` |
 | **GAME** | 8 | `ttt` `hangman` `wcg` `trivia` `guess` |
 | **PRIVACY** | 8 | `lastseen` `online` `mypp` `mystatus` `read` `allow-gcadd` `privacy` |
@@ -72,33 +153,15 @@ Skip the QR entirely by generating a `SESSION_ID` on the web generator — see
 | **PLUGINS** | 4 | `plugin` `plugins` `reload` `remove` |
 | **PROCESS** | 3 | `restart` `shutdown` `pstatus` |
 | **HELP** | 1 | `menu` — the full styled command list |
-| **Total** | **464** | across 23 categories, 810 names including aliases |
+| **Total** | **464** | across 23 categories · 810 names including aliases |
 
-Type `.menu` for the full list, `.menu <category>` for one section, `.menu <command>` for a help card.
+</div>
 
----
-
-## Architecture
-
-| File | Role |
-|---|---|
-| `index.js` | Boot: DB → vars → plugins → socket. Crash-resistant, clean shutdown. |
-| `src/connection.js` | QR + pairing login, backoff reconnect, group cache, call rejection, event fan-out. |
-| `src/handler.js` | Prefix parsing, permission gates, cooldowns, mode gating, ban checks. |
-| `src/lib/serialize.js` | Flattens any message shape into one clean `m` object. |
-| `src/lib/pluginLoader.js` | Recursive auto-discovery + hot reload. |
-| `src/lib/database.js` | MongoDB with automatic JSON fallback. |
-| `src/lib/mongoAuth.js` | Session in Mongo — **survives Pterodactyl redeploys**. |
-| `src/lib/media.js` | Bundled ffmpeg: stickers, EXIF, audio FX, PTV. |
-| `src/lib/api.js` | HTTP helper with multi-source failover. |
-| `src/lib/economy.js` | Shared economy state, items, cooldowns, XP. |
-| `src/lib/vars.js` | Runtime config persisted to DB. |
-| `src/lib/keepalive.js` | Tiny HTTP health server — lets UptimeRobot keep Render awake. |
-| `test/fulltest.js` | 124 assertions across every subsystem. |
+> 💡 Type `.menu` for the full list · `.menu <category>` for one section · `.menu <command>` for a help card.
 
 ---
 
-## Writing a plugin
+## 🧩 Writing a Plugin
 
 Drop a file under `plugins/`. Picked up on the next `.reload` — no restart.
 
@@ -126,7 +189,10 @@ export default {
 
 Export an **array** for several commands in one file.
 
-### The `m` object
+<details>
+<summary><b>The <code>m</code> object</b></summary>
+
+<br/>
 
 ```js
 m.body / m.text     // text of any message type
@@ -142,7 +208,12 @@ const buf  = await m.download()         // this message's media
 const buf2 = await m.quoted.download()  // the replied-to media
 ```
 
-### Hooks
+</details>
+
+<details>
+<summary><b>Hooks</b></summary>
+
+<br/>
 
 ```js
 export default {
@@ -154,14 +225,45 @@ export default {
 }
 ```
 
+</details>
+
 ---
 
-## Database
+## 🏗️ Architecture
 
-The bot uses **MongoDB**. Your data is document-shaped — nested inventories,
-per-group flag sets that plugins extend freely — which Mongo stores natively
-with no migrations. Atlas's free M0 tier never sleeps, so a quiet bot stays
-reachable.
+<details>
+<summary><b>File map</b></summary>
+
+<br/>
+
+| File | Role |
+|:---|:---|
+| `index.js` | Boot: DB → vars → plugins → socket. Crash-resistant, clean shutdown. |
+| `src/connection.js` | QR + pairing login, backoff reconnect, group cache, call rejection. |
+| `src/handler.js` | Prefix parsing, permission gates, cooldowns, mode gating, ban checks. |
+| `src/lib/serialize.js` | Flattens any message shape into one clean `m` object. |
+| `src/lib/pluginLoader.js` | Recursive auto-discovery + hot reload. |
+| `src/lib/database.js` | MongoDB with automatic JSON fallback. |
+| `src/lib/mongoAuth.js` | Session in Mongo — **survives Pterodactyl redeploys**. |
+| `src/lib/media.js` | Bundled ffmpeg: stickers, EXIF, audio FX, PTV. |
+| `src/lib/api.js` | HTTP helper with multi-source failover. |
+| `src/lib/economy.js` | Shared economy state, items, cooldowns, XP. |
+| `src/lib/vars.js` | Runtime config persisted to DB. |
+| `src/lib/keepalive.js` | Tiny HTTP health server — lets UptimeRobot keep Render awake. |
+| `test/fulltest.js` | 124 assertions across every subsystem. |
+
+</details>
+
+---
+
+## 🗄️ Database
+
+<details>
+<summary><b>MongoDB setup (recommended)</b></summary>
+
+<br/>
+
+Your data is document-shaped — nested inventories, per-group flag sets that plugins extend freely — which Mongo stores natively with no migrations. Atlas's free M0 tier never sleeps.
 
 1. Create a free **M0** cluster at <https://cloud.mongodb.com>
 2. **Database Access** → add a user, copy the password
@@ -173,39 +275,17 @@ MONGO_URI=mongodb+srv://user:pass@cluster0.xxxxx.mongodb.net/?retryWrites=true&w
 MONGO_DB=venom
 ```
 
-If the password contains `@ : / ? # [ ] %`, URL-encode it — otherwise the
-driver misreads the URI.
+If the password contains `@ : / ? # [ ] %`, URL-encode it — otherwise the driver misreads the URI.
 
-**No `MONGO_URI`?** The bot writes JSON files to `./data` instead and boots
-fine. That is good for local testing, but most free hosts wipe the disk on
-redeploy, so you would lose economy balances and group settings.
+**No `MONGO_URI`?** The bot writes JSON files to `./data` and boots fine. Good for local testing, but most free hosts wipe the disk on redeploy, so you would lose economy balances and group settings.
 
 `.stats` shows which backend is live.
 
+</details>
+
 ---
 
-## Runtime configuration
-
-### Command reactions
-
-Every command reacts so you can see it was received, even before the reply
-arrives:
-
-| Reaction | Meaning |
-|---|---|
-| ⚡ | command accepted, now running |
-| ✅ | finished successfully |
-| ❌ | failed — the reply explains why |
-| 🚫 | refused (wrong chat type, or you lack permission) |
-| ⏳ | on cooldown |
-
-Commands that do slow work (downloads, image generation) show their own
-progress emoji instead — `.play` reacts ⏳ then ✅, and the handler does not
-override it.
-
-Turn it off with `.setvar CMD_REACT false`, or change the trigger emoji with
-`.setvar CMD_REACT_EMOJI 🔥`.
-
+## ⚙️ Runtime Configuration
 
 No redeploy needed — values persist in the database:
 
@@ -214,69 +294,72 @@ No redeploy needed — values persist in the database:
 .setvar AUTO_READ true    .delvar MODE    .mode public
 ```
 
-Keys: `PREFIX` `MODE` `AUTO_READ` `AUTO_READ_STATUS` `AUTO_TYPING` `ALWAYS_ONLINE` `REJECT_CALL` `ANTI_DELETE` `STARTUP_MESSAGE` `CMD_REACT` `CMD_REACT_EMOJI` `BOT_NAME` `OWNER_NAME` `USER_TAG`
+**Keys:** `PREFIX` `MODE` `AUTO_READ` `AUTO_READ_STATUS` `AUTO_TYPING` `ALWAYS_ONLINE` `REJECT_CALL` `ANTI_DELETE` `STARTUP_MESSAGE` `CMD_REACT` `CMD_REACT_EMOJI` `BOT_NAME` `OWNER_NAME` `USER_TAG`
 
 **Modes:** `public` · `private` (owner only) · `group` · `inbox`
-**Prefix:** one character, `multi` (`. / ! # $ ,`), or `none`.
+**Prefix:** one character, `multi` (`. / ! # $ ,`), or `none`
+
+<details>
+<summary><b>Command reactions</b></summary>
+
+<br/>
+
+Every command reacts so you can see it was received, even before the reply arrives:
+
+| Reaction | Meaning |
+|:---:|:---|
+| ⚡ | command accepted, now running |
+| ✅ | finished successfully |
+| ❌ | failed — the reply explains why |
+| 🚫 | refused (wrong chat type, or you lack permission) |
+| ⏳ | on cooldown |
+
+Slow commands (downloads, image generation) show their own progress emoji instead — `.play` reacts ⏳ then ✅, and the handler does not override it.
+
+Turn it off with `.setvar CMD_REACT false`, or change the trigger emoji with `.setvar CMD_REACT_EMOJI 🔥`.
+
+</details>
 
 ---
 
-## Deploying on Render (and keeping it awake 24/7)
+## 🚀 Hosting
 
-Render's free tier puts a service to sleep after ~15 minutes with no inbound
-traffic. A WhatsApp bot never receives HTTP traffic on its own, so it naps —
-and while it naps it can't answer messages. The fix is two parts:
+<details>
+<summary><b>Render — and keeping it awake 24/7</b></summary>
 
-1. **Run as a Web Service, not a background worker.** Workers have no public
-   URL, so nothing can ever ping them. A Web Service gets a public HTTPS URL
-   (`https://your-bot.onrender.com`) and Render injects a `PORT`.
+<br/>
 
-2. **This bot already runs a keep-alive HTTP server** (`src/lib/keepalive.js`),
-   enabled by default. It answers `200 OK` on `/` with a small JSON status, so
-   any free "uptime" pinger can keep it awake.
+Render's free tier sleeps after ~15 minutes with no inbound traffic. A WhatsApp bot never receives HTTP traffic on its own, so it naps — and while it naps it can't answer messages. Two-part fix:
 
-### Step by step
+1. **Run as a Web Service, not a background worker.** Workers have no public URL, so nothing can ping them. A Web Service gets `https://your-bot.onrender.com` and Render injects a `PORT`.
+2. **This bot already runs a keep-alive HTTP server** (`src/lib/keepalive.js`), enabled by default. It answers `200 OK` on `/` with a small JSON status.
+
+**Step by step**
 
 1. On Render: **New → Web Service**, connect the Git repo.
    - **Build command:** `npm install`
    - **Start command:** `npm start`
    - **Runtime:** Node 20+
-2. Add the environment variables — at minimum `OWNER_NUMBER`. To skip the QR,
-   set a `SESSION_ID` (see [Session ID](#session-id-skip-the-qr-entirely)).
-   Set `MONGO_URI` so your data and session survive redeploys. `KEEP_ALIVE` is
-   `true` by default; leave it. Leave `PORT` alone — Render sets it.
-3. Deploy, then open `https://your-bot.onrender.com` — you should see JSON like:
+2. Add env vars — at minimum `OWNER_NUMBER`. Set a `SESSION_ID` to skip the QR. Set `MONGO_URI` so data and session survive redeploys. Leave `PORT` alone — Render sets it.
+3. Deploy, then open `https://your-bot.onrender.com`:
    ```json
-   { "ok": true, "name": "VENOM MD BOT", "connected": true, ... }
+   { "ok": true, "name": "VENOM MD BOT", "connected": true }
    ```
-4. Create a free **UptimeRobot** account → **New monitor**:
-   - **Monitor type:** HTTP(s)
-   - **URL:** `https://your-bot.onrender.com`
-   - **Monitoring interval:** every 5 minutes
-   That ping counts as traffic, so Render never puts the instance to sleep.
+4. Free **UptimeRobot** account → **New monitor** → HTTP(s), your URL, every 5 minutes. That ping counts as traffic, so Render never sleeps.
 
-UptimeRobot works because it only needs a URL that returns 200 — which the
-keep-alive server provides. Alternatives that do the same thing:
-[cron-job.org](https://cron-job.org), [Better Uptime](https://betterstack.com),
-or a free GitHub Actions workflow that curls the URL every 5 minutes.
+Alternatives: [cron-job.org](https://cron-job.org), [Better Uptime](https://betterstack.com), or a GitHub Actions workflow that curls the URL.
 
-If you'd rather not use a pinger at all, upgrade Render to a paid instance
-(the `$7`/mo Starter is always-on), or host on a platform that doesn't sleep
-(see [Pterodactyl](#deploying-on-pterodactyl) below).
+**Troubleshooting**
 
-### Troubleshooting
+- **"Deploy failed, port not listening"** — the bot binds `0.0.0.0:$PORT`. Check logs for a keep-alive bind error.
+- **Bot disconnects right after waking** — a sleeping instance takes seconds to re-open the socket. The 5-minute ping prevents this; drop to 1 minute if needed.
 
-- **"Deploy failed, port not listening"** — the bot must bind the port Render
-  gives it. It does (`0.0.0.0:$PORT`). If you see this, check the logs for a
-  keep-alive bind error.
-- **Bot disconnects right after waking** — a sleeping instance takes a few
-  seconds to resume and re-open the WhatsApp socket. The 5-minute UptimeRobot
-  interval prevents this entirely; if it still happens, drop the interval to
-  1 minute (UptimeRobot free tier minimum).
+</details>
 
----
+<details>
+<summary><b>Pterodactyl</b></summary>
 
-## Deploying on Pterodactyl
+<br/>
 
 1. Upload the folder (skip `node_modules`) or point the panel at your Git repo.
 2. **Startup:** `npm start` · **Node:** 20+
@@ -285,129 +368,144 @@ If you'd rather not use a pinger at all, upgrade Render to a paid instance
 
 ffmpeg is bundled via `ffmpeg-static` — no system install needed for stickers or audio.
 
+</details>
+
 ---
 
-## Session ID (skip the QR entirely)
+## 🧪 Testing
 
-A companion web app generates session IDs so the bot can start already
-authenticated — useful on Render, Pterodactyl, or anywhere without a terminal.
-
-1. Deploy `session-site/` (see its README — one click on Render).
-2. Open it, link with QR or a pairing code.
-3. Copy the session ID into `.env`:
-
-```env
-SESSION_ID=eyJub2lzZUtleSI6...
+```bash
+node test/fulltest.js       # 124 assertions, offline + live APIs
+node test/selftest.js       # quick smoke test
+node test/dltest.js         # downloader assertions (fast)
+node test/dltest.js --full  # + real YouTube/TikTok downloads (~3 min)
 ```
 
-The bot decodes it at boot and connects with no QR. Invalid values are
-rejected with a clear log line and it falls back to normal login.
+Tests never touch your production database. `test/_isolate.js` is imported first by every suite and strips `MONGO_URI`, so fixtures go to JSON files in `./data`. Run against the real cluster deliberately with `--live-db`.
 
----
+<details>
+<summary><b>Live command audit — all 464 dispatched through the real handler</b></summary>
 
-## Testing
-
-Tests never touch your production database. `test/_isolate.js` is imported
-first by every suite and strips `MONGO_URI`, so fixtures are written to JSON
-files in `./data` instead. Run against the real cluster deliberately with
-`--live-db`.
-
-
-Every one of the 464 commands has been dispatched through the real handler
-with a full WhatsApp mock:
+<br/>
 
 | Result | Count |
-|---|---|
+|:---|:---:|
 | Fully working | 354 |
 | Correct guard (needs media, a key, or an argument) | 79 |
 | Skipped as destructive (`restart`, `kickall`, `logout`…) | 26 |
 | **Broken** | **0** |
 | Responded without a reaction | **0** |
 
+All suites are deterministic — they reset their own DB state, so repeated runs give identical results. Third-party API outages are reported separately so an external failure never looks like a bug in your code.
 
-```bash
-node test/fulltest.js     # 124 assertions, offline + live APIs
-node test/selftest.js     # quick 31-assertion smoke test
-node test/dltest.js       # 21 downloader assertions (fast)
-node test/dltest.js --full  # + real YouTube/TikTok downloads (~3 min)
-```
-
-All three are deterministic — the suites reset their own DB state, so repeated
-runs give identical results.
-
-The suite drives real commands through the real handler against a mock socket, and reports third-party API outages separately so an external failure never looks like a bug in your code. Run it after adding plugins.
+</details>
 
 ---
 
-## Downloaders — what works and why
+## 📥 Downloaders
 
-Findings from testing every route live, rather than assuming:
+<div align="center">
 
 | Platform | Status | How |
-|---|---|---|
-| **YouTube** | ✅ Working, keyless | `yt-dlp` with the `android_vr` player client |
-| **TikTok** | ✅ Working, no watermark | tikwm JSON API, `yt-dlp` as fallback |
+|:---|:---:|:---|
+| **YouTube** | ✅ Keyless | `yt-dlp` with the `android_vr` player client |
+| **TikTok** | ✅ No watermark | tikwm JSON API, `yt-dlp` fallback |
 | **Twitter/X, Facebook** | ✅ Working | `yt-dlp` (public posts) |
 | **1800+ other sites** | ✅ Working | `.autodl <link>` |
 | **Instagram** | ⚠️ Needs cookies | See below |
 
-**Three real obstacles I hit and solved:**
+</div>
+
+<details>
+<summary><b>Three real obstacles I hit and solved</b></summary>
+
+<br/>
 
 1. **YouTube's pre-muxed stream (format 18) returns HTTP 403 from server IPs.** Most player clients (`web`, `ios`, `tv`, `mweb`) refuse to list formats at all. Only `android_vr` works — and then only with *separate* DASH video+audio merged by ffmpeg. That combination is what the code uses.
 
 2. **YouTube throttles bursts from one IP.** A single download nearly always works; the second or third in quick succession gets a 403. Fixed with a serialising queue (6s gap), client rotation, format cycling, and exponential retry. Measured: a burst that failed 1-in-4 now passes 6/6.
 
-3. **Instagram genuinely requires a login session.** yt-dlp returns "empty media response", the GraphQL endpoint 403s, `?__a=1` is dead, and the public scraper sites are IP-blocked or rate-limited. I tested nine routes — none work anonymously from a server.
+3. **Instagram genuinely requires a login session.** yt-dlp returns "empty media response", the GraphQL endpoint 403s, `?__a=1` is dead, and public scraper sites are IP-blocked. I tested nine routes — none work anonymously from a server.
 
-**To enable Instagram:** install the *Get cookies.txt LOCALLY* browser extension, log into Instagram, export cookies, and save the file as `cookies.txt` in the bot folder. The bot picks it up automatically (`.dlstatus` confirms). The same file also unlocks private/age-restricted YouTube and Facebook content.
-
-Without it, `.instagram` fails with that exact instruction rather than a vague error.
+**To enable Instagram:** install the *Get cookies.txt LOCALLY* browser extension, log into Instagram, export cookies, save as `cookies.txt` in the bot folder. The bot picks it up automatically (`.dlstatus` confirms). The same file unlocks private/age-restricted YouTube and Facebook content.
 
 **Size limits:** audio capped at 30 min, video at 15 min and 64MB (WhatsApp's ceiling). Use `.video <link> 240` for a smaller file.
 
+</details>
+
 ---
 
-## Notes & honest limitations
+## 🤖 AI Providers
+
+The bot ships with 8 providers and automatic failover. **Groq and Gemini are genuinely free** and take two minutes to set up.
+
+<div align="center">
+
+| Provider | Free tier | Get a key |
+|:---|:---|:---|
+| **Groq** | Yes, generous — fastest | [console.groq.com/keys](https://console.groq.com/keys) |
+| **Gemini** | Yes, very capable | [aistudio.google.com/apikey](https://aistudio.google.com/apikey) |
+| **Cerebras** | Yes, fastest inference | [cloud.cerebras.ai](https://cloud.cerebras.ai) |
+| **OpenRouter** | Yes, many `:free` models | [openrouter.ai/keys](https://openrouter.ai/keys) |
+| **Mistral** | Free experiment tier | [console.mistral.ai](https://console.mistral.ai/api-keys) |
+| **Cohere** | Free trial | [dashboard.cohere.com](https://dashboard.cohere.com/api-keys) |
+| **DeepSeek** | Paid, very cheap | [platform.deepseek.com](https://platform.deepseek.com/api_keys) |
+| **OpenAI** | Paid | [platform.openai.com](https://platform.openai.com/api-keys) |
+
+</div>
+
+Add keys to `.env`, or from WhatsApp with `.setkey groq gsk_xxx` — that command deletes your message immediately and verifies the key with a real call before confirming. `.aikeys` lists every provider, `.aistatus` latency-tests the ones you configured.
+
+---
+
+## ⚠️ Notes & Honest Limitations
+
+<details>
+<summary><b>Read before you open an issue</b></summary>
+
+<br/>
 
 - **Baileys v7 is ESM-only** — use `import`, not `require`. `printQRInTerminal` was removed; the QR is rendered from the `connection.update` event.
-- **AI needs a key now.** The bot ships with 8 providers and automatic
-  failover, but the keyless fallback it used to rely on (Pollinations' legacy
-  text API) started returning `402 Payment Required` in 2026, and DuckDuckGo's
-  free chat endpoint now demands a browser challenge. Free keyless AI is
-  effectively over. The good news: **Groq and Gemini are both genuinely free**
-  and take two minutes to set up.
-
-  | Provider | Free tier | Get a key |
-  |---|---|---|
-  | **Groq** | Yes, generous — fastest | https://console.groq.com/keys |
-  | **Gemini** | Yes, very capable | https://aistudio.google.com/apikey |
-  | **Cerebras** | Yes, fastest inference | https://cloud.cerebras.ai |
-  | **OpenRouter** | Yes, many `:free` models | https://openrouter.ai/keys |
-  | **Mistral** | Free experiment tier | https://console.mistral.ai/api-keys |
-  | **Cohere** | Free trial | https://dashboard.cohere.com/api-keys |
-  | **DeepSeek** | Paid, very cheap | https://platform.deepseek.com/api_keys |
-  | **OpenAI** | Paid | https://platform.openai.com/api-keys |
-
-  Add keys to `.env`, or set them from WhatsApp with `.setkey groq gsk_xxx` —
-  that command deletes your message immediately and verifies the key with a
-  real call before confirming. `.aikeys` lists every provider, `.aistatus`
-  latency-tests the ones you have configured.
-- **Third-party APIs rot.** Every network command has multi-source failover and a clear error message instead of a crash, but expect to swap an endpoint occasionally. `restcountries` was already dead during the build and was replaced with World Bank + countriesnow.
-- **Textmaker is rendered locally, not scraped.** ephoto360 and textpro.me both
-  now block automated form submission — every request returns
-  `{"success":false,"code":-1}`. Rather than ship 45 dead commands, the 47
-  effects are drawn with SVG + sharp: instant, offline, and impossible to break
-  from outside.
-- **Still missing (26 of the original 380, ~7%):** the `gfx1-12` photo
-  templates, `remini` upscaler and `naturewlp` all need paid AI image services
-  (Replicate, Picsart or similar) — there is no free provider left that works.
-  `shazam` needs an AudD/ACRCloud key, `audio2text` needs an OpenAI key, and
-  `subtitle` returns search links because every subtitle site blocks automated
-  downloads. Each becomes a ~30-line plugin the moment you supply a key.
-- **Screenshots, QR, memes and PDF are all local or keyless.** `.ss` uses
-  thum.io with a microlink fallback and refuses private/internal addresses
-  (SSRF guard). `.qrcode`/`.readqr` run entirely offline. The meme overlays and
-  `.carbon` are drawn with sharp + SVG. `.pdf` hand-builds a valid PDF —
-  verified with a real parser (single A4 page, embedded DCTDecode JPEG).
+- **Keyless AI is effectively over.** Pollinations' legacy text API returns `402 Payment Required`, and DuckDuckGo's free chat endpoint demands a browser challenge. Use Groq or Gemini — both free.
+- **Third-party APIs rot.** Every network command has multi-source failover and a clear error instead of a crash, but expect to swap an endpoint occasionally. `restcountries` was already dead during the build and was replaced with World Bank + countriesnow.
+- **Textmaker is rendered locally, not scraped.** ephoto360 and textpro.me both block automated form submission — every request returns `{"success":false,"code":-1}`. Rather than ship 45 dead commands, the 47 effects are drawn with SVG + sharp: instant, offline, impossible to break from outside.
+- **Still missing (26 of the original 380, ~7%):** the `gfx1-12` photo templates, `remini` upscaler and `naturewlp` need paid AI image services. `shazam` needs an AudD/ACRCloud key, `audio2text` needs an OpenAI key, and `subtitle` returns search links because every subtitle site blocks automated downloads. Each becomes a ~30-line plugin the moment you supply a key.
+- **Screenshots, QR, memes and PDF are local or keyless.** `.ss` uses thum.io with a microlink fallback and refuses private/internal addresses (SSRF guard). `.qrcode`/`.readqr` run offline. Meme overlays and `.carbon` are drawn with sharp + SVG. `.pdf` hand-builds a valid PDF — verified with a real parser.
 - Keep `.env` out of Git — `.gitignore` covers it plus `session/`, `data/`, `tmp/`.
-- This is an unofficial library. Don't spam; WhatsApp bans numbers for bulk unsolicited messaging. Test with a spare SIM first.
+- This is an unofficial library. **Don't spam** — WhatsApp bans numbers for bulk unsolicited messaging. Test with a spare SIM first.
+
+</details>
+
+---
+
+## 📜 Credits
+
+<div align="center">
+
+| Role | Credit |
+|:---|:---|
+| 👨‍💻 Developer | **TAPRUSH EMP (Micheal)** — [@MykelGoal](https://github.com/MykelGoal) |
+| 📦 Core Library | [Baileys v7](https://www.npmjs.com/package/baileys) |
+| 🎞️ Media | [ffmpeg-static](https://www.npmjs.com/package/ffmpeg-static) · [sharp](https://sharp.pixelplumbing.com) |
+
+</div>
+
+---
+
+## ⚖️ Notice
+
+> This bot is built for **educational purposes only**.
+> **DO NOT misuse** this software.
+> Redistribution without credit to the original author is **strictly prohibited**.
+
+Licensed under [MIT](LICENSE).
+
+---
+
+<div align="center">
+
+### ⭐ Star the repo if VENOM MD helped you
+
+**《 POWERED BY TAPRUSH EMP 🇳🇬 》**
+
+</div>
