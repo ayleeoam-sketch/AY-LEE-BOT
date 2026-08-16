@@ -145,7 +145,7 @@ The bot decodes it at boot and connects with no QR. Invalid values are rejected 
 | **CONFIG** | 28 | `setvar` `getvar` `allvar` `mode` `setsudo` `antidelete` `antiedit` `readstatus` `savecmd` |
 | **IMAGE-MEME** | 28 | `wanted` `jail` `drip` `drake` `pooh` `oogway` `wasted` `triggered` `stonks` `carbon` |
 | **AI** | 22 | 8 providers with failover — `ai` `gpt` `gemini` `groq` `deepseek` `cerebras` `imagine` |
-| **DOWNLOADER** | 21 | `play` `video` `spotify` `spotifyinfo` `tiktok` `instagram` `facebook` `twitter` `autodl` `gitclone` `mediafire` `apk` |
+| **DOWNLOADER** | 24 | `play` `music` `sc` `audiomack` `video` `spotify` `spotifyinfo` `tiktok` `instagram` `facebook` `twitter` `autodl` `gitclone` `mediafire` `apk` |
 | **USER** | 20 | `pp` `setpp` `setname` `bio` `block` `blocklist` `forward` `archive` `pinchat` `jid` `rank` `topranks` |
 | **TOOLS** | 15 | `afk` `msgs` `listonline` `listoffline` `setcmd` `delcmd` `permit` `areact` `element` |
 | **BOT** | 14 | `ping` `stats` `owner` `uptime` `ban` `unban` `banlist` `repo` `ignore` |
@@ -415,7 +415,9 @@ All suites are deterministic — they reset their own DB state, so repeated runs
 | Platform | Status | How |
 |:---|:---:|:---|
 | **YouTube** | ✅ Keyless | `yt-dlp` with the `android_vr` player client |
-| **Spotify** | ✅ Keyless | metadata via oEmbed/JSON-LD, audio via YouTube match |
+| **SoundCloud** | ✅ Keyless | `.music` / `.sc` - no bot-check, works from server IPs |
+| **Audiomack** | ✅ Keyless | `.music` / `.audiomack` - search + track links |
+| **Spotify** | ✅ Keyless | metadata via oEmbed/JSON-LD, audio matched on any source |
 | **TikTok** | ✅ No watermark | tikwm JSON API, `yt-dlp` fallback |
 | **Twitter/X, Facebook** | ✅ Working | `yt-dlp` (public posts) |
 | **1800+ other sites** | ✅ Working | `.autodl <link>` |
@@ -433,6 +435,8 @@ All suites are deterministic — they reset their own DB state, so repeated runs
 2. **YouTube throttles bursts from one IP.** A single download nearly always works; the second or third in quick succession gets a 403. Fixed with a serialising queue (6s gap), client rotation, format cycling, and exponential retry. Measured: a burst that failed 1-in-4 now passes 6/6.
 
 3. **Instagram genuinely requires a login session.** yt-dlp returns "empty media response", the GraphQL endpoint 403s, `?__a=1` is dead, and public scraper sites are IP-blocked. I tested nine routes — none work anonymously from a server.
+
+4. **A YouTube bot-check should not kill a song request.** When YouTube refuses, `.play` now falls back automatically: the same song is searched on **SoundCloud** and **Audiomack**, which don't bot-check server IPs. `.music <name>` does the same with SoundCloud first, plus source-specific `.sc` and `.audiomack`. Music keeps arriving even on hosts where YouTube alone would fail.
 
 **To enable Instagram:** install the *Get cookies.txt LOCALLY* browser extension, log into Instagram, export cookies, save as `cookies.txt` in the bot folder. The bot picks it up automatically (`.dlstatus` confirms). The same file unlocks private/age-restricted YouTube and Facebook content.
 

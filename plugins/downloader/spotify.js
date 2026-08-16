@@ -1,4 +1,4 @@
-import { youtubeSearch, youtubeAudio, hasYtdlp, isUrl } from '../../src/lib/downloader.js'
+import { musicAuto, hasYtdlp, isUrl, fmtDuration } from '../../src/lib/downloader.js'
 import { getJson, getBuffer, http } from '../../src/lib/api.js'
 
 /**
@@ -90,18 +90,28 @@ export default [
             await m.reply(caption)
           }
 
-          if (!meta.title) query = `spotify track ${match[1]}`
+          if (!meta.title) {
+            await m.react('❌')
+            return m.reply(
+              '❌ Could not read that Spotify track - spotify.com is unreachable or rate-limiting.\n\n' +
+                `_Workaround: use *.music ${meta.artist || 'artist'} - song title* - it searches SoundCloud, Audiomack and YouTube._`
+            )
+          }
         }
 
-        const [first] = await youtubeSearch(query.includes('spotify track ') ? input : query, 1)
-        if (!first) return m.reply(`❌ Could not find \"${query}\" on YouTube to match the Spotify track.`)
-
-        const { buffer } = await youtubeAudio(first.url)
+        /*
+         * Match the Spotify track on any music source. YouTube first (best
+         * match quality for mainstream tracks), SoundCloud and Audiomack
+         * after - they don't bot-check server IPs, so this survives on hosts
+         * where plain .play gets refused.
+         */
+        const r = await musicAuto(query, { order: ['youtube', 'soundcloud', 'audiomack'] })
         await m.reply({
-          audio: buffer,
+          audio: r.buffer,
           mimetype: 'audio/mpeg',
-          fileName: `${query.replace(/[^\w\s-]/g, '').slice(0, 60)}.mp3`
+          fileName: `${r.title.replace(/[^\w\s-]/g, '').slice(0, 60)}.mp3`
         })
+        if (r.source !== 'YouTube') await m.reply(`_Matched on ${r.source} (YouTube was unavailable)._`)
         await m.react('✅')
       } catch (e) {
         await m.react('❌')

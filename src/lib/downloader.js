@@ -361,6 +361,185 @@ export async function youtubeSearch(query, limit = 5) {
   }))
 }
 
+/* ----------------------------- SoundCloud ----------------------------- */
+
+/**
+ * SoundCloud: the reliable fallback. No bot-check like YouTube from server
+ * IPs, so plain probe/download works without client rotation or cookies.
+ */
+
+export async function soundcloudSearch(query, limit = 3) {
+  const info = await probe(`scsearch${limit}:${query}`, ['--flat-playlist'])
+  return (info.entries || [])
+    .map((e) => ({
+      id: e.id,
+      title: e.title,
+      author: e.uploader || e.channel || e.uploader_id,
+      duration: e.duration,
+      url: e.url || e.webpage_url
+    }))
+    .filter((e) => e.url)
+}
+
+export function soundcloudAudio(url, { maxMb = 64 } = {}) {
+  return ytdlpDownload(url, { audio: true, format: 'bestaudio/best', maxMb })
+}
+
+/* ----------------------------- Audiomack ------------------------------ */
+
+/**
+ * Audiomack (big for African music). Two keyless routes:
+ *  1. their web app's JSON API
+ *  2. the __NEXT_DATA__ payload embedded in the search page HTML
+ * Downloads go through yt-dlp's Audiomack extractor (track page URLs).
+ */
+
+export const AUDIOMACK_TRACK = /audiomack\.com\/([\w-]+)\/song\/([\w-]+)/i
+
+/** Turn one raw API result object into { title, artist, url } or null. */
+export function parseAudiomackTrack(item) {
+  if (!item || typeof item !== 'object') return null
+  const title = item.title || item.song_title
+  const slug = item.url_slug || item.slug
+  const artistSlug = item.artist || item.url_slug_artist || item.uploader
+  const direct = item.url || item.share_url
+  if (!title || (!slug && !direct)) return null
+
+  // their various payloads give us one of: a full url, a /artist/song/slug
+  // path, or a bare slug plus the artist separately - normalise all three
+  const candidates = []
+  if (typeof direct === 'string') candidates.push(direct)
+  if (slug && String(slug).includes('audiomack.com')) candidates.push(String(slug))
+  if (slug && String(slug).startsWith('/')) candidates.push(`https://audiomack.com${slug}`)
+  if (slug && artistSlug) {
+    candidates.push(
+      `https://audiomack.com/${String(artistSlug).replace(/[^\w-]+/g, '').toLowerCase()}/song/${slug}`
+    )
+  }
+  const url = candidates.find((c) => AUDIOMACK_TRACK.test(c)) || null
+  if (!url) return null
+
+  return {
+    title,
+    artist: item.artist || item.uploader || null,
+    duration: item.duration,
+    image: item.image || item.image_url || null,
+    url
+  }
+}
+
+/** Deep-scan any JSON tree for Audiomack track objects. Used on both the API body and __NEXT_DATA__. */
+export function findAudiomackTracks(node, limit = 8, found = new Map()) {
+  if (!node || typeof node !== 'object' || found.size >= limit) return [...found.values()]
+  if (Array.isArray(node)) {
+    for (const v of node) findAudiomackTracks(v, limit, found)
+    return [...found.values()]
+  }
+  const track = parseAudiomackTrack(node)
+  if (track && !found.has(track.url)) found.set(track.url, track)
+  for (const v of Object.values(node)) {
+    if (found.size >= limit) break
+    if (v && typeof v === 'object') findAudiomackTracks(v, limit, found)
+  }
+  return [...found.values()]
+}
+
+export async function audiomackSearch(query, limit = 5) {
+  // 1) the JSON API their own web app calls
+  try {
+    const { data } = await axios.get('https://api.audiomack.com/v1/search', {
+      params: { q: query, show: 'music', limit, verified_only: 0 },
+      timeout: 20_000,
+      headers: { 'User-Agent': 'Mozilla/5.0' }
+    })
+    const tracks = findAudiomackTracks(data, limit)
+    if (tracks.length) return tracks
+  } catch {}
+
+  // 2) scrape the public search page's embedded state
+  try {
+    const { data: html } = await axios.get(`https://audiomack.com/search?q=${encodeURIComponent(query)}`, {
+      timeout: 25_000,
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36' }
+    })
+    const raw = String(html).match(/<script[^>]*id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/i)?.[1]
+    if (raw) {
+      const tracks = findAudiomackTracks(JSON.parse(raw), limit)
+      if (tracks.length) return tracks
+    }
+    // last resort: bare track links anywhere in the HTML (json escapes \/ too)
+    const links = new Set()
+    for (const m of String(html).matchAll(/https:\\?\/\\?\/audiomack\.com\\?\/([\w-]+)\\?\/song\\?\/([\w-]+)/gi)) {
+      links.add(`https://audiomack.com/${m[1]}/song/${m[2]}`)
+    }
+    const tracks = [...links].slice(0, limit).map((url) => ({ title: null, url }))
+    if (tracks.length) return tracks
+  } catch {}
+
+  return []
+}
+
+export function audiomackAudio(url, { maxMb = 64 } = {}) {
+  if (!AUDIOMACK_TRACK.test(url)) throw new Error('That is not an Audiomack track link.')
+  return ytdlpDownload(url, { audio: true, format: 'bestaudio/best', maxMb })
+}
+
+/* ------------------------- multi-source music ------------------------- */
+
+/**
+ * One song, every source. musicAuto tries each source in order - search,
+ * then download - and only gives up when all of them have failed. YouTube is
+ * deliberate about order: callers that know YouTube may be bot-checked put
+ * SoundCloud first (`.music`), callers that just failed YouTube skip it
+ * (`.play` fallback).
+ *
+ * `sinks` is injectable so tests can stub each source.
+ */
+export const MUSIC_SINKS = {
+  soundcloud: {
+    label: 'SoundCloud',
+    search: (q) => soundcloudSearch(q, 1),
+    download: (track, maxMb) => soundcloudAudio(track.url, { maxMb })
+  },
+  audiomack: {
+    label: 'Audiomack',
+    search: (q) => audiomackSearch(q, 1),
+    download: (track, maxMb) => audiomackAudio(track.url, { maxMb })
+  },
+  youtube: {
+    label: 'YouTube',
+    search: (q) => youtubeSearch(q, 1),
+    download: (track, maxMb) => youtubeAudio(track.url, { maxMb })
+  }
+}
+
+export async function musicAuto(query, { order = ['soundcloud', 'audiomack', 'youtube'], maxMb = 64 } = {}, sinks = MUSIC_SINKS) {
+  const errors = []
+  for (const name of order) {
+    const sink = sinks[name]
+    if (!sink) continue
+    try {
+      const [track] = await sink.search(query)
+      if (!track?.url) throw new Error('no results')
+      const { buffer, ext } = await sink.download(track, maxMb)
+      return {
+        buffer,
+        ext,
+        source: sink.label,
+        url: track.url,
+        title: track.title || query,
+        artist: track.artist || track.author || 'unknown',
+        duration: track.duration,
+        image: track.image || null
+      }
+    } catch (e) {
+      errors.push(`${sink.label}: ${String(e.message || e).split('\n')[0].slice(0, 120)}`)
+    }
+  }
+  throw new Error(`Every music source failed:\n${errors.map((e) => `• ${e}`).join('\n')}`)
+}
+
+
 /* ------------------------------ TikTok ------------------------------ */
 
 /** tikwm: fast, keyless, returns a no-watermark URL. Verified working. */
@@ -535,6 +714,6 @@ export const fmtCount = (n) => {
 export default {
   YTDLP, hasYtdlp, hasCookies, detectPlatform, isUrl, probe,
   youtubeInfo, youtubeAudio, youtubeVideo, youtubeSearch,
-  tiktokInfo, tiktokDownload, instagramDownload, anyDownload,
-  fmtDuration, fmtCount
+  soundcloudSearch, soundcloudAudio, audiomackSearch, audiomackAudio,
+  musicAuto, fmtDuration, fmtCount
 }

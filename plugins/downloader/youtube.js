@@ -1,5 +1,5 @@
 import {
-  youtubeInfo, youtubeAudio, youtubeVideo, youtubeSearch,
+  youtubeInfo, youtubeAudio, youtubeVideo, youtubeSearch, musicAuto,
   fmtDuration, fmtCount, hasYtdlp, isUrl
 } from '../../src/lib/downloader.js'
 import { getBuffer } from '../../src/lib/api.js'
@@ -25,7 +25,7 @@ export default [
     name: 'play',
     alias: ['song', 'ytmp3', 'yta', 'ytaudio'],
     category: 'DOWNLOADER',
-    desc: 'Download a song from YouTube as audio',
+    desc: 'Download a song from YouTube as audio (auto-falls back to SoundCloud/Audiomack)',
     usage: '.play alan walker faded',
     cooldown: 20,
     async run({ m, text }) {
@@ -33,9 +33,11 @@ export default [
       if (!text) return m.reply('🎵 Give me a song name or YouTube link:\n*.play alan walker faded*')
 
       await m.react('⏳')
+      let ytTitle = null // kept for the multi-source fallback if YouTube refuses
       try {
         const url = await resolve(text)
         const info = await youtubeInfo(url)
+        ytTitle = info.title
 
         if (info.duration > 1800) {
           await m.react('❌')
@@ -64,9 +66,45 @@ export default [
           fileName: `${info.title.replace(/[^\w\s-]/g, '').slice(0, 60)}.mp3`
         })
         await m.react('✅')
-      } catch (e) {
-        await m.react('❌')
-        await m.reply(`❌ ${e.message}`)
+      } catch (ytErr) {
+        /*
+         * YouTube bot-checks server IPs, so this is where .play dies on most
+         * hosts. Rather than failing, take the same song to SoundCloud and
+         * Audiomack, which don't bot-check. If the user gave a bare link and
+         * we never got a title, there's nothing to search elsewhere with.
+         */
+        const query = ytTitle || (isUrl(text) ? null : text)
+        if (!query) {
+          await m.react('❌')
+          return m.reply(
+            `❌ YouTube failed: ${ytErr.message.split('\n')[0]}\n\n` +
+              `_Try the song name instead - *.music <song name>* searches other sources too._`
+          )
+        }
+
+        await m.reply(`⚠️ YouTube refused that download - searching *SoundCloud* and *Audiomack* instead...`)
+        try {
+          const r = await musicAuto(query, { order: ['soundcloud', 'audiomack'] })
+          const caption =
+            `╭━━━〔 *MUSIC* 〔${r.source}〕━━━╮\n` +
+            `┃ 🎵 ${r.title}\n` +
+            `┃ 👤 ${r.artist}\n` +
+            (r.duration ? `┃ ⏱️ ${fmtDuration(r.duration)}\n` : '') +
+            `╰━━━━━━━━━━━━━━━━━━━╯\n_Found outside YouTube ✌️_`
+          const img = r.image ? await getBuffer(r.image).catch(() => null) : null
+          if (img) await m.reply({ image: img, caption }).catch(() => m.reply(caption))
+          else await m.reply(caption)
+
+          await m.reply({
+            audio: r.buffer,
+            mimetype: 'audio/mpeg',
+            fileName: `${r.title.replace(/[^\w\s-]/g, '').slice(0, 60)}.mp3`
+          })
+          await m.react('✅')
+        } catch (multiErr) {
+          await m.react('❌')
+          await m.reply(`❌ YouTube failed: ${ytErr.message.split('\n')[0]}\n\n${multiErr.message}`)
+        }
       }
     }
   },
