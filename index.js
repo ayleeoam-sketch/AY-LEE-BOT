@@ -6,6 +6,7 @@ import { loadVars } from './src/lib/vars.js'
 import { loadPlugins } from './src/lib/pluginLoader.js'
 import { loadKeys } from './src/lib/ai.js'
 import { startSocket } from './src/connection.js'
+import { startKeepAlive } from './src/lib/keepalive.js'
 
 /* CLI flags override .env: node index.js --pair | --qr */
 if (process.argv.includes('--pair')) config.authMethod = 'pair'
@@ -27,6 +28,9 @@ async function main() {
   await loadVars()
   await loadKeys()   // AI keys saved via .setkey
   await loadPlugins()
+  if (config.keepAlive) {
+    startKeepAlive({ port: config.keepAlivePort, botName: config.botName, version: config.version })
+  }
   await startSocket()
 }
 
