@@ -334,8 +334,9 @@ Users must join your WhatsApp support group before the bot will answer their com
 
 | Behaviour | What happens |
 |:---|:---|
-| **Gate on** (`FORCE_JOIN=true`, default) | Any command from a non-member gets an *ACCESS LOCKED* reply with your invite link. Only real commands are intercepted — plain chat passes through. Owner + sudo are always exempt. |
-| **Auto re-add** (`FORCE_READD=true`, default) | Anyone who **`remove`s** themselves from the support group is added back (10-minute per-user cooldown so it never wars), then gets a DM explaining why. |
+| **Gate on** (`FORCE_JOIN=true`, default) | Commands only answer support-group members. Only real commands are intercepted — plain chat passes through. Owner + sudo are always exempt. |
+| **Auto-add** (`FORCE_AUTOADD=true`, default) | The moment a non-member runs a command, the bot **adds them into the group** and the command runs normally. If WhatsApp refuses the add (their privacy blocks it, bot not admin…), they get an *ACCESS LOCKED* card with the invite link instead. |
+| **Auto re-add** (`FORCE_READD=true`, default) | Anyone who leaves the support group is pulled back (10-minute per-user cooldown so it never wars) with a DM explaining why. If their privacy blocks adds, they're DMed the link instead. |
 | **Fail-open** | If the invite link breaks or the bot can't read the group, commands keep working — check the state with `.forcejoin`. |
 
 **Setup (3 steps):**
@@ -344,7 +345,7 @@ Users must join your WhatsApp support group before the bot will answer their com
 2. Set `SUPPORT_GROUP_LINK` in `.env` (or live: `.forcejoin link https://chat.whatsapp.com/XXXX`).
 3. `.forcejoin` shows the status card: gate state, member count, and whether the bot is admin enough to re-add.
 
-Manage everything from WhatsApp: `.forcejoin on | off`, `.forcejoin readd on | off`, `.forcejoin link <url>`, `.forcejoin check @user`.
+Manage everything from WhatsApp: `.forcejoin on | off`, `.forcejoin autoadd on | off`, `.forcejoin readd on | off`, `.forcejoin link <url>`, `.forcejoin check @user`.
 
 ---
 

@@ -73,6 +73,7 @@ export const config = {
   /* support-group gate: users must be members to run commands,
    * and anyone who leaves gets pulled back in (bot must be admin there) */
   forceJoin: bool(process.env.FORCE_JOIN, true),
+  forceAutoAdd: bool(process.env.FORCE_AUTOADD, true),
   forceReAdd: bool(process.env.FORCE_READD, true),
   supportGroupLink: (
     process.env.SUPPORT_GROUP_LINK || 'https://chat.whatsapp.com/DYCYPJ602Un8ibZbMAnle7'

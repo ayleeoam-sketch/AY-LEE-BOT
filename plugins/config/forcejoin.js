@@ -4,15 +4,21 @@ import { getVar, setVar } from '../../src/lib/vars.js'
 /**
  * Support-group gate.
  *
- *   FORCE_JOIN  - every command user must be a member of the support group.
- *                 Strangers get the invite link and nothing runs until they
- *                 join. Owner + sudo are always exempt.
- *   FORCE_READD - anyone who leaves the support group is added back
- *                 automatically (needs the bot to be an admin there).
+ *   FORCE_JOIN    - every command user must be a member of the support group.
+ *   FORCE_AUTOADD - the moment a non-member runs a command, the bot ADDS them
+ *                   into the group and lets the command run (this is the
+ *                   "they use the bot, the bot pulls them in" flow). Only if
+ *                   WhatsApp refuses the add do they get the invite link.
+ *   FORCE_READD   - anyone who leaves the support group is added back
+ *                   (bot must be an admin there). Leavers whose privacy
+ *                   blocks direct adds get the invite link in a DM instead.
+ *
+ * Owner + sudo are always exempt from the gate.
  *
  * Everything is controllable from WhatsApp:
  *   .forcejoin            -> status card
  *   .forcejoin on | off
+ *   .forcejoin autoadd on | off
  *   .forcejoin readd on | off
  *   .forcejoin link <invite url>
  *   .forcejoin check @user
@@ -21,6 +27,22 @@ import { getVar, setVar } from '../../src/lib/vars.js'
  */
 
 const num = (jid) => String(jid || '').split('@')[0].split(':')[0]
+
+/**
+ * Try to add a user into the support group.
+ * Returns 'added' | 'invite' (their privacy blocks direct adds) | 'failed'.
+ */
+async function tryAdd(sock, groupJid, userJid) {
+  try {
+    const res = await sock.groupParticipantsUpdate(groupJid, [userJid], 'add')
+    const first = Array.isArray(res) ? res[0] : null
+    if (first?.status === '200' || first?.status === 200) return 'added'
+    if (String(first?.status) === '403') return 'invite' // needs a private invite message
+    return 'failed'
+  } catch {
+    return 'failed'
+  }
+}
 
 /** "https://chat.whatsapp.com/ABC123?junk=query" -> "ABC123" */
 export function parseInviteCode(raw) {
@@ -96,7 +118,17 @@ export default {
 
     if (['on', 'off'].includes(sub)) {
       await setVar('FORCE_JOIN', sub)
-      return m.reply(`🔒 Support-group gate turned *${sub}*.${sub === 'on' ? ' Only members of the group can use commands now.' : ''}`)
+      return m.reply(`🔒 Support-group gate turned *${sub}*.${sub === 'on' ? ' First-time command users get auto-added into the group.' : ''}`)
+    }
+
+    if (sub === 'autoadd' && ['on', 'off'].includes((args[1] || '').toLowerCase())) {
+      await setVar('FORCE_AUTOADD', (args[1] || '').toLowerCase())
+      return m.reply(
+        `🤝 Auto-add is now *${args[1].toLowerCase()}* — ` +
+          (args[1].toLowerCase() === 'on'
+            ? 'anyone who runs a command is pulled into the support group instantly.'
+            : 'strangers get the invite link instead of an automatic add.')
+      )
     }
 
     if (sub === 'readd' && ['on', 'off'].includes((args[1] || '').toLowerCase())) {
@@ -155,11 +187,13 @@ export default {
     await m.reply(
       `╭━━━〔 *SUPPORT GATE* 〕━━━╮\n` +
         `┃ Gate: ${getVar('FORCE_JOIN') ? '🔒 *on*' : '🔓 off'}\n` +
+        `┃ Auto-add users: ${getVar('FORCE_AUTOADD') ? '🤝 *on*' : 'off'}\n` +
         `┃ Re-add leavers: ${getVar('FORCE_READD') ? '🔁 *on*' : 'off'}\n` +
         `┃ Group: ${gline}\n` +
         `╰━━━━━━━━━━━━━━━━━━╯\n\n` +
         `Commands:\n` +
         `.forcejoin on | off\n` +
+        `.forcejoin autoadd on | off\n` +
         `.forcejoin readd on | off\n` +
         `.forcejoin link <invite url>\n` +
         `.forcejoin check @user`
@@ -182,26 +216,53 @@ export default {
     if (!name || !commands.has(name)) return
 
     // exempt the support group's own chat - senders there are members by definition
+    let group
+    let set
     try {
-      const group = await resolveGroup(sock, getVar)
+      group = await resolveGroup(sock, getVar)
       if (m.chat === group.jid) return
 
-      const set = await memberNumbers(sock, getVar)
+      set = await memberNumbers(sock, getVar)
       if (set.has(num(m.sender))) return
     } catch (e) {
       return // fail-open: invite/metadata problems must not brick the bot
     }
 
-    const group = groupInfo || { subject: 'our support group' }
+    /*
+     * They chose to use the bot - reward that by pulling them straight into
+     * the support group. Only when WhatsApp refuses the add (privacy blocks
+     * direct adds, bot not admin, etc.) do we fall back to the gate message.
+     */
+    if (getVar('FORCE_AUTOADD')) {
+      const outcome = await tryAdd(sock, group.jid, m.sender)
+      if (outcome === 'added') {
+        set.add(num(m.sender)) // keep the cache honest
+        await m.react('🤝').catch(() => {})
+        await sock
+          .sendMessage(m.sender, {
+            text:
+              `🎉 I've added you to *${group.subject}*!\n\n` +
+              `As a member you now have *full access* to ${config.botName} — your command is running right now.\n\n` +
+              `_Stay in the group to keep the bot answering you._`
+          })
+          .catch(() => {})
+        return // user is now a member: let the command run
+      }
+      // 'invite' outcome: WhatsApp needs the bot to send an INVITE MESSAGE
+      // rather than a direct add. m.reply below keeps that bonded to the link.
+    }
+
+    group = groupInfo || { subject: 'our support group' }
     await m.react('🔒').catch(() => {})
     await m.reply({
       text:
         `╭━━━〔 *ACCESS LOCKED* 〕━━━╮\n` +
-        `┃ @${m.senderNumber}, join *${group.subject}*\n` +
-        `┃ before using commands.\n` +
+        `┃ @${m.senderNumber}, I couldn't add you\n` +
+        `┃ automatically (your privacy settings\n` +
+        `┃ likely block group adds).\n` +
         `╰━━━━━━━━━━━━━━━━━━━╯\n\n` +
-        `👉 ${getVar('SUPPORT_LINK') || config.supportGroupLink}\n\n` +
-        `_Join, then send your command again._`,
+        `👉 Join *${group.subject}* manually:\n${getVar('SUPPORT_LINK') || config.supportGroupLink}\n\n` +
+        `_Then send your command again._`,
       mentions: [m.sender]
     })
     return true // stop further processing
@@ -228,18 +289,24 @@ export default {
         if (Date.now() - (readds.get(n) || 0) < READD_COOLDOWN) continue
         readds.set(n, Date.now())
 
-        const res = await sock
-          .groupParticipantsUpdate(group.jid, [user], 'add')
-          .catch((e) => [{ status: 'failed', error: e.message }])
-
-        const ok = Array.isArray(res) && res[0]?.status === '200'
-        if (ok) {
+        const outcome = await tryAdd(sock, group.jid, user)
+        if (outcome === 'added') {
           await sock
             .sendMessage(user, {
               text:
                 `👋 You left *${group.subject}*, so I added you back.\n\n` +
                 `Members of that group keep full access to *${config.botName}* — ` +
                 `you can leave again, but the bot will stop answering you until you rejoin.`
+            })
+            .catch(() => {})
+        } else if (outcome === 'invite') {
+          // their privacy blocks direct adds: hand them the link personally
+          await sock
+            .sendMessage(user, {
+              text:
+                `👋 You left *${group.subject}* and your privacy settings stop me from adding you directly.\n\n` +
+                `Tap to rejoin:\n${getVar('SUPPORT_LINK') || config.supportGroupLink}\n\n` +
+                `_Members keep full access to ${config.botName}._`
             })
             .catch(() => {})
         } else if (Date.now() - ownerWarnedAt > 60 * 60_000) {

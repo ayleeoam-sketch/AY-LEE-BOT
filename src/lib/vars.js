@@ -50,6 +50,7 @@ export const SCHEMA = {
   /* support-group gate (.forcejoin) */
   FORCE_JOIN: { type: 'bool', get: () => config.forceJoin },
   FORCE_READD: { type: 'bool', get: () => config.forceReAdd },
+  FORCE_AUTOADD: { type: 'bool', get: () => config.forceAutoAdd }, // add command users into the group on first use
   SUPPORT_LINK: { type: 'string', get: () => config.supportGroupLink }
 }
 
