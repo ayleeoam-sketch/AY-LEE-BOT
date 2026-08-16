@@ -489,6 +489,8 @@ export function buildCapcutPipeline(ops = [], opts = {}) {
     hasAudio = true,
     durationWanted = null,
     voiceDuration = 0,
+    /** source is a still image (photo reply) rather than a video */
+    stillImage = false,
     width = OUT_W,
     height = OUT_H
   } = opts
@@ -497,6 +499,13 @@ export function buildCapcutPipeline(ops = [], opts = {}) {
     .map((op, i) => ({ op, i }))
     .sort((a, b) => (OP_ORDER[a.op.type] ?? 99) - (OP_ORDER[b.op.type] ?? 99) || a.i - b.i)
     .map((x) => x.op)
+    /*
+     * Time-based ops are meaningless on a still photo - there is no motion to
+     * reverse, loop or re-time, and feeding a looped still to `reverse`
+     * deadlocks the filter graph. Drop them instead of failing the job; the
+     * look/caption/voiceover ops still apply.
+     */
+    .filter((op) => !(stillImage && ['reverse', 'boomerang', 'speed', 'speedramp', 'trim'].includes(op.type)))
 
   const vf = []
   const af = []
@@ -509,6 +518,7 @@ export function buildCapcutPipeline(ops = [], opts = {}) {
   let keepAudio = false
   let caption = null
   let voice = null
+  let trimmed = false
   let workDuration = duration
 
   // always normalise the frame first: <=720p, even dimensions
@@ -517,10 +527,23 @@ export function buildCapcutPipeline(ops = [], opts = {}) {
   for (const op of ordered) {
     switch (op.type) {
       case 'trim': {
-        const start = Math.max(0, op.start || 0)
-        const end = Math.min(op.end ?? duration, start + MAX_EDIT_SECONDS)
+        /*
+         * Clamp to the real duration. Asking for "trim from 0:10 to 0:25" on
+         * a 3 second clip used to seek past the end, so ffmpeg encoded zero
+         * frames and died with "Nothing was written into output file"
+         * (-22 Invalid argument). Now an out-of-range trim is pulled back
+         * inside the clip instead of producing an empty render.
+         */
+        const limit = duration > 0 ? duration : MAX_EDIT_SECONDS
+        let start = Math.max(0, op.start || 0)
+        let end = Math.min(op.end ?? limit, limit)
+        // start beyond the clip: keep the tail rather than failing outright
+        if (start >= limit - 0.15) start = Math.max(0, limit - Math.min(5, limit))
+        if (end <= start) end = limit
+        end = Math.min(end, start + MAX_EDIT_SECONDS)
+        trimmed = end - start < limit - 0.05
         pre.push('-ss', round(start), '-to', round(end))
-        workDuration = Math.max(0.1, end - start)
+        workDuration = Math.max(0.3, end - start)
         break
       }
       case 'crop':
@@ -613,9 +636,14 @@ export function buildCapcutPipeline(ops = [], opts = {}) {
    * -shortest, which sounds broken ("Welcome back to the ch-"). Hold the
    * last frame instead so every word is heard.
    */
-  const holdFrames = voice && voiceDuration > workDuration + 0.15
+  const holdFrames = !stillImage && voice && voiceDuration > workDuration + 0.15
   if (holdFrames) vf.push(`tpad=stop_mode=clone:stop_duration=${round(voiceDuration - workDuration + 0.3)}`)
-  const playDuration = holdFrames ? voiceDuration + 0.3 : workDuration
+  let playDuration = holdFrames ? voiceDuration + 0.3 : workDuration
+  /*
+   * A still needs an explicit runtime: match the voiceover if there is one,
+   * otherwise give it a sensible default slideshow length.
+   */
+  if (stillImage) playDuration = voiceDuration > 0.4 ? voiceDuration + 0.3 : Math.max(5, Math.min(workDuration, 10))
   const cap = durationWanted || Math.min(playDuration, MAX_EDIT_SECONDS)
 
   return {
@@ -634,6 +662,8 @@ export function buildCapcutPipeline(ops = [], opts = {}) {
     voice,
     hasAudio,
     holdFrames,
+    stillImage,
+    trimmed,
     duration: Math.round(playDuration * 1000) / 1000,
     sourceDuration: Math.round(workDuration * 1000) / 1000,
     durationCap: Math.round(cap * 1000) / 1000,
@@ -648,6 +678,12 @@ export function buildCapcutPipeline(ops = [], opts = {}) {
  */
 export function pipelineToArgs(pipeline, { input, captionPng = null, voiceAudio = null, output }) {
   const args = ['-y']
+  /*
+   * A still image has a single frame, so without -loop it renders a ~0.03s
+   * "video" that WhatsApp will not play. Loop it and let the -t cap below
+   * decide the length, exactly like a create-mode scene.
+   */
+  if (pipeline.stillImage) args.push('-loop', '1', '-framerate', String(pipeline.fps))
   args.push(...pipeline.pre, '-i', input)
   let idx = 0
   const vIn = `${idx}:v`
@@ -674,7 +710,8 @@ export function pipelineToArgs(pipeline, { input, captionPng = null, voiceAudio 
   }
 
   const maps = ['-map', vLabel]
-  const useOriginalAudio = pipeline.hasAudio && !pipeline.mute && !boom
+  // a still image has no audio stream to filter, reverse or mix
+  const useOriginalAudio = pipeline.hasAudio && !pipeline.mute && !boom && !pipeline.stillImage
 
   if (voiceIdx !== null) {
     const voiceChain = `[${voiceIdx}:a]aresample=44100,volume=1.0[vo]`
@@ -903,6 +940,44 @@ export class Workspace {
  * ffmpeg execution helpers
  * ------------------------------------------------------------------ */
 
+/**
+ * Turn ffmpeg's stderr into something a WhatsApp user can act on.
+ *
+ * A raw dump like "[vost#0:0/libx264] Task finished with error code: -22
+ * (Invalid argument) ... Conversion failed!" tells the user nothing and looks
+ * like the bot exploded. These are the failures that actually happen.
+ */
+export function explainFfmpeg(raw, code) {
+  const t = String(raw || '')
+
+  if (/Nothing was written into output file|Output file is empty|received no packets/i.test(t)) {
+    return 'That edit produced an empty video - the trim range is probably outside the clip. Try a shorter range.'
+  }
+  if (/not divisible by 2|width not divisible|height not divisible/i.test(t)) {
+    return 'That video has an odd frame size this encoder cannot take. Try another clip.'
+  }
+  if (/Invalid data found when processing input|moov atom not found|Invalid argument/i.test(t)) {
+    return 'That file looks corrupted or only partly downloaded - resend it and try again.'
+  }
+  if (/No such file or directory/i.test(t)) return 'A working file went missing mid-edit. Try again.'
+  if (/Decoder.*not found|Unknown encoder|Unrecognized option/i.test(t)) {
+    return 'This ffmpeg build cannot handle that format or effect.'
+  }
+  if (/No space left on device/i.test(t)) return 'The server ran out of disk space. Try a shorter clip.'
+  if (/Killed|out of memory|Cannot allocate memory/i.test(t)) {
+    return 'That clip was too heavy for this server. Try something shorter or smaller.'
+  }
+
+  // unknown: surface the last real error line, never the whole dump
+  const line = t
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .reverse()
+    .find((l) => /error|failed|invalid|unable/i.test(l) && !/Task finished|Terminating thread|Conversion failed/i.test(l))
+  return line ? line.slice(0, 200) : `The render failed (ffmpeg exit ${code}).`
+}
+
 /** Run ffmpeg, resolving with its stderr (needed for probing). */
 export function runFfmpeg(args, timeout = JOB_TIMEOUT_MS) {
   return new Promise((resolve, reject) => {
@@ -915,8 +990,8 @@ export function runFfmpeg(args, timeout = JOB_TIMEOUT_MS) {
     }, timeout)
     proc.on('close', (code) => {
       clearTimeout(timer)
-      if (code === 0) resolve(err)
-      else reject(new Error(err.split('\n').filter(Boolean).slice(-4).join('\n') || `ffmpeg exited ${code}`))
+      if (code === 0) return resolve(err)
+      reject(new Error(explainFfmpeg(err, code)))
     })
     proc.on('error', (e) => {
       clearTimeout(timer)

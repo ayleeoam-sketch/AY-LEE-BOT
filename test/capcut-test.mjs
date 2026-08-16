@@ -33,6 +33,7 @@ import {
   toSeconds,
   probe,
   runFfmpeg,
+  explainFfmpeg,
   Workspace,
   STYLE_FILTERS,
   OP_ORDER
@@ -253,9 +254,22 @@ check('9:16 centre crop expression', crop.vf.includes("crop='min(iw,ih*9/16)':'m
 check('1:1 centre crop expression', build('crop 1:1').vf.includes("crop='min(iw,ih)':'min(iw,ih)'"))
 check('4:5 centre crop expression', build('crop 4:5').vf.includes("crop='min(iw,ih*4/5)'"))
 
-const trim = build('trim from 0:10 to 0:25')
+const trim = build('trim from 0:10 to 0:25', { duration: 60 })
 check('trim emits -ss/-to before the input', trim.pre.join(' ') === '-ss 10 -to 25', trim.pre.join(' '))
 check('trim sets the working duration', trim.duration === 15, String(trim.duration))
+
+/*
+ * Regression: a trim range past the end of the clip used to seek beyond the
+ * last frame, so ffmpeg encoded nothing and died with
+ * "Nothing was written into output file" / -22 Invalid argument.
+ */
+const overTrim = build('trim from 0:10 to 0:25', { duration: 3 })
+check('trim past the end is clamped inside the clip',
+  overTrim.pre.join(' ') === '-ss 0 -to 3', overTrim.pre.join(' '))
+check('clamped trim still has a real duration', overTrim.duration > 0.5, String(overTrim.duration))
+const partTrim = build('trim from 0:02 to 0:30', { duration: 3 })
+check('trim ending past the clip is capped at its end',
+  partTrim.pre.join(' ') === '-ss 2 -to 3', partTrim.pre.join(' '))
 
 const shake = build('add shake')
 check('shake wobbles with a crop expression', /crop=iw-12:ih-12:x='6\+6\*sin/.test(shake.vf), shake.vf)
@@ -309,6 +323,37 @@ const held = build('voiceover saying "hi"', { duration: 3, voiceDuration: 9 })
 check('a long voiceover holds the last frame', held.holdFrames === true && held.vf.includes('tpad=stop_mode=clone'))
 check('held duration follows the voice', held.durationCap > 9, String(held.durationCap))
 check('a short voiceover does not pad', build('voiceover saying "hi"', { duration: 30, voiceDuration: 4 }).holdFrames === false)
+
+/* ---------------------- still images as a source ---------------------- */
+
+const still = buildCapcutPipeline(parseCapcutIntent('make it cinematic').ops,
+  { duration: 3, hasAudio: false, stillImage: true })
+check('a still gets a real runtime, not one frame', still.durationCap >= 5, String(still.durationCap))
+const stillArgs = pipelineToArgs(still, { input: 'photo.jpg', output: 'o.mp4' })
+check('a still is looped into a clip', stillArgs.join(' ').includes('-loop 1 -framerate'))
+check('a still never maps a non-existent audio stream', !stillArgs.join(' ').includes('0:a'))
+const stillRev = buildCapcutPipeline(parseCapcutIntent('reverse it and boomerang and slow it down').ops,
+  { duration: 3, hasAudio: false, stillImage: true })
+check('time-based ops are dropped for a still (no filter deadlock)',
+  !stillRev.vf.includes('reverse') && !stillRev.boomerang && stillRev.speed === 1)
+const stillVoice = buildCapcutPipeline(parseCapcutIntent('voiceover saying "hi"').ops,
+  { duration: 3, hasAudio: false, stillImage: true, voiceDuration: 6 })
+check('a still with narration runs as long as the voice', stillVoice.durationCap > 6, String(stillVoice.durationCap))
+
+/* ------------------- ffmpeg errors are translated --------------------- */
+
+const realCrash =
+  '[vost#0:0/libx264 @ 0x28e83cc0] Task finished with error code: -22 (Invalid argument)\n' +
+  '[vost#0:0/libx264 @ 0x28e83cc0] Terminating thread with return code -22 (Invalid argument)\n' +
+  '[out#0/mp4 @ 0x28e89500] Nothing was written into output file, because at least one of its streams received no packets.\n' +
+  'Conversion failed!'
+const explained = explainFfmpeg(realCrash, 1)
+check('the -22 "nothing written" crash becomes plain English',
+  /empty video/i.test(explained) && !/-22|libx264|vost/.test(explained), explained)
+check('odd frame size is explained', /odd frame size/i.test(explainFfmpeg('width not divisible by 2 (321x241)', 1)))
+check('corrupt input is explained', /corrupted/i.test(explainFfmpeg('moov atom not found', 1)))
+check('out of memory is explained', /too heavy/i.test(explainFfmpeg('Killed', 137)))
+check('explainer never echoes "Conversion failed!"', !/Conversion failed/.test(explainFfmpeg(realCrash, 1)))
 
 /* --------------------------- caption rendering ------------------------ */
 

@@ -166,7 +166,9 @@ async function runEdit({ m, intent, src }) {
     const inExt = await extOf(buffer, 'mp4')
     const input = ws.write(inExt, buffer)
     const info = await probe(input)
-    if (!info.hasVideo) throw new Error('That file has no video track to edit.')
+    // a photo reply is a valid source - it becomes a Ken Burns style clip
+    const stillImage = src.type === 'imageMessage' || (info.hasVideo && info.duration < 0.12 && !info.hasAudio)
+    if (!info.hasVideo && !stillImage) throw new Error('That file has no video track to edit.')
 
     /*
      * Voice first: the narration length decides whether the clip has to hold
@@ -183,7 +185,8 @@ async function runEdit({ m, intent, src }) {
     const pipeline = buildCapcutPipeline(intent.ops, {
       duration: info.duration || 10,
       hasAudio: info.hasAudio,
-      voiceDuration
+      voiceDuration,
+      stillImage
     })
 
     // caption strip -> PNG (sharp, because this ffmpeg build has no drawtext)

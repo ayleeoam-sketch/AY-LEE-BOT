@@ -40,7 +40,8 @@ export default [
     owner: true,
     async run({ m }) {
       const target = m.quoted || m
-      const json = JSON.stringify(target.message, null, 1).slice(0, 3000)
+      // some message shapes (reactions, protocol messages) carry no .message
+      const json = (JSON.stringify(target.message ?? target.raw ?? null, null, 1) || 'null').slice(0, 3000)
       await m.reply(
         `🔍 *MESSAGE STRUCTURE*\n\n` +
           `📦 Type: ${target.type}\n` +
@@ -132,6 +133,7 @@ export default [
     usage: '.getdevice (reply to a message)',
     async run({ m }) {
       const id = m.quoted?.id || m.id
+      if (!id) return m.reply('📱 Reply to a message with *.getdevice*')
       let device = 'Android'
       if (id.length > 21) device = 'Web / Desktop'
       else if (id.startsWith('3EB0') || id.startsWith('3A')) device = 'iOS'

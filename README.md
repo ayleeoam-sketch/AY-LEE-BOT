@@ -145,7 +145,7 @@ The bot decodes it at boot and connects with no QR. Invalid values are rejected 
 | **CONFIG** | 29 | `setvar` `getvar` `allvar` `mode` `forcejoin` `setsudo` `antidelete` `antiedit` `readstatus` `savecmd` |
 | **IMAGE-MEME** | 29 | `fakechat` `wanted` `jail` `drip` `drake` `pooh` `oogway` `wasted` `triggered` `stonks` `carbon` |
 | **AI** | 22 | 8 providers with failover — `ai` `gpt` `gemini` `groq` `deepseek` `cerebras` `imagine` |
-| **DOWNLOADER** | 24 | `play` `music` `sc` `audiomack` `video` `spotify` `spotifyinfo` `tiktok` `instagram` `facebook` `twitter` `autodl` `gitclone` `mediafire` `apk` |
+| **DOWNLOADER** | 25 | **`movie`** — find any film/episode by name · `play` `music` `sc` `audiomack` `video` `spotify` `spotifyinfo` `tiktok` `instagram` `facebook` `twitter` `autodl` `gitclone` `mediafire` `apk` |
 | **USER** | 20 | `pp` `setpp` `setname` `bio` `block` `blocklist` `forward` `archive` `pinchat` `jid` `rank` `topranks` |
 | **TOOLS** | 17 | `snipe` `editsnipe` `afk` `msgs` `listonline` `listoffline` `setcmd` `permit` `areact` `element` |
 | **BOT** | 14 | `ping` `stats` `owner` `uptime` `ban` `unban` `banlist` `repo` `ignore` |
@@ -159,7 +159,7 @@ The bot decodes it at boot and connects with no QR. Invalid values are rejected 
 | **PLUGINS** | 4 | `plugin` `plugins` `reload` `remove` |
 | **PROCESS** | 3 | `restart` `shutdown` `pstatus` |
 | **HELP** | 1 | `menu` — the full styled command list |
-| **Total** | **465** | across 23 categories · 814 names including aliases |
+| **Total** | **466** | across 23 categories · 820 names including aliases |
 
 </div>
 
@@ -406,7 +406,8 @@ node test/fulltest.js       # 124 assertions, offline + live APIs
 node test/selftest.js       # quick smoke test
 node test/dltest.js         # downloader assertions (fast)
 node test/dltest.js --full  # + real YouTube/TikTok downloads (~3 min)
-node test/capcut-test.mjs   # .capcut editor - 181 assertions, fully offline
+node test/capcut-test.mjs   # .capcut editor - 196 assertions, fully offline
+node test/movie-test.mjs    # .movie finder  - 81 assertions, fully offline
 ```
 
 Tests never touch your production database. `test/_isolate.js` is imported first by every suite and strips `MONGO_URI`, so fixtures go to JSON files in `./data`. Run against the real cluster deliberately with `--live-db`.
@@ -427,6 +428,61 @@ Tests never touch your production database. `test/_isolate.js` is imported first
 All suites are deterministic — they reset their own DB state, so repeated runs give identical results. Third-party API outages are reported separately so an external failure never looks like a bug in your code.
 
 </details>
+
+---
+
+## 🍿 `.movie` — say it, get it
+
+Type the title the way you'd say it out loud. The bot works out the title,
+season, episode, year and quality on its own, searches its sources, and sends
+the video back.
+
+```
+.movie naruto epi 1
+.movie external fragrance epi 1
+.movie interstellar
+.movie the office s02e05
+.movie night of the living dead 1968 720p
+.movie <any video link>
+```
+
+**Aliases:** `.movie` · `.film` · `.episode` · `.ep` · `.watch` · `.cinema` — category **DOWNLOADER**.
+
+### It understands how people actually type
+
+| You type | It understands |
+|:---|:---|
+| `naruto epi 1` · `ep 1` · `episode 1` | episode 1 |
+| `the office s02e05` · `S2 E5` · `2x05` | season 2, episode 5 |
+| `one piece part 12` | part/episode 12 |
+| `night of the living dead 1968` | title + year |
+| `attack on titan ep 3 720p` | title + episode + quality |
+| `please send me naruto epi 1` | strips the request filler |
+
+Filler is only stripped when it's unambiguous, so real titles like **Free
+Willy**, **Full Metal Jacket** and **The Film Star** survive intact.
+
+Results are ranked before anything downloads: the right episode beats the
+wrong one, and trailers, soundtracks and reaction videos are pushed down —
+so `.movie naruto epi 1` doesn't hand you a trailer.
+
+A pasted link skips the search and goes straight to yt-dlp (1800+ sites).
+
+### Sources
+
+Tried in order, keyless first:
+
+1. **Archive.org** — a large, legal, public-domain catalogue (classic films,
+   cartoons, lots of TV). No API key.
+2. **yt-dlp** — any pasted link, plus legitimately free full-length uploads.
+
+> **Honest limitation:** this searches *free, legal* catalogues. A blockbuster
+> still in cinemas will not be there, and the bot says so plainly instead of
+> pretending. It deliberately does not scrape piracy streaming sites — those
+> break constantly and can get your host banned.
+
+If the file is over WhatsApp's ~64MB limit, the bot sends the source link
+rather than failing silently.
 
 ---
 
