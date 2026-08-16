@@ -42,7 +42,10 @@ export const SCHEMA = {
 
   /* misc automation */
   AUTO_BIO: { type: 'bool', get: () => false },
-  ANTI_CALL_BLOCK: { type: 'bool', get: () => false }
+  ANTI_CALL_BLOCK: { type: 'bool', get: () => false },
+
+  /* chat XP / rank system (.rank, .topranks) */
+  LEVEL_UP: { type: 'bool', get: () => true }
 }
 
 const coerce = (type, raw) => {

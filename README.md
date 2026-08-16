@@ -140,13 +140,13 @@ The bot decodes it at boot and connects with no QR. Invalid values are rejected 
 | **TEXTMAKER** | 48 | 47 text effects rendered locally — `neonlight` `hacker` `glitch` `galaxy` `fire` `gaming` `zodiac` |
 | **GROUP** | 40 | `kick` `add` `promote` `demote` `mute` `tagall` `warn` `antilink` `antiword` `antispam` `welcome` |
 | **ECONOMY** | 38 | `daily` `work` `mine` `fish` `hunt` `crime` `rob` `heist`, banking, loans, shop, `slots` `blackjack` |
-| **CONVERTER** | 34 | `sticker` `take` `photo` `mp4` `gif` `tomp3` `ptv` `circlestk` `exif` `doc` + 18 audio effects |
+| **CONVERTER** | 39 | `sticker` `take` `photo` `mp4` `gif` `tomp3` `ptv` `circlestk` `exif` `doc` + 17 audio effects + `boomerang` `vidfast` `vidslow` `vidreverse` `smooth` |
 | **UTILITIES** | 32 | `weather` `wiki` `define` `bible` `calc` `tts` `ip` `tinyurl` `ss` `qrcode` `readqr` `pdf` `font` |
 | **CONFIG** | 28 | `setvar` `getvar` `allvar` `mode` `setsudo` `antidelete` `antiedit` `readstatus` `savecmd` |
 | **IMAGE-MEME** | 28 | `wanted` `jail` `drip` `drake` `pooh` `oogway` `wasted` `triggered` `stonks` `carbon` |
 | **AI** | 22 | 8 providers with failover — `ai` `gpt` `gemini` `groq` `deepseek` `cerebras` `imagine` |
-| **DOWNLOADER** | 19 | `play` `video` `tiktok` `instagram` `facebook` `twitter` `autodl` `gitclone` `mediafire` `apk` |
-| **USER** | 18 | `pp` `setpp` `setname` `bio` `block` `blocklist` `forward` `archive` `pinchat` `jid` |
+| **DOWNLOADER** | 21 | `play` `video` `spotify` `spotifyinfo` `tiktok` `instagram` `facebook` `twitter` `autodl` `gitclone` `mediafire` `apk` |
+| **USER** | 20 | `pp` `setpp` `setname` `bio` `block` `blocklist` `forward` `archive` `pinchat` `jid` `rank` `topranks` |
 | **TOOLS** | 15 | `afk` `msgs` `listonline` `listoffline` `setcmd` `delcmd` `permit` `areact` `element` |
 | **BOT** | 14 | `ping` `stats` `owner` `uptime` `ban` `unban` `banlist` `repo` `ignore` |
 | **SEARCH** | 11 | `websearch` `img` `wallpaper` `github` `npm` `lyrics` `country` `book` `urban` `shazam` |
@@ -415,6 +415,7 @@ All suites are deterministic — they reset their own DB state, so repeated runs
 | Platform | Status | How |
 |:---|:---:|:---|
 | **YouTube** | ✅ Keyless | `yt-dlp` with the `android_vr` player client |
+| **Spotify** | ✅ Keyless | metadata via oEmbed/JSON-LD, audio via YouTube match |
 | **TikTok** | ✅ No watermark | tikwm JSON API, `yt-dlp` fallback |
 | **Twitter/X, Facebook** | ✅ Working | `yt-dlp` (public posts) |
 | **1800+ other sites** | ✅ Working | `.autodl <link>` |
@@ -436,6 +437,38 @@ All suites are deterministic — they reset their own DB state, so repeated runs
 **To enable Instagram:** install the *Get cookies.txt LOCALLY* browser extension, log into Instagram, export cookies, save as `cookies.txt` in the bot folder. The bot picks it up automatically (`.dlstatus` confirms). The same file unlocks private/age-restricted YouTube and Facebook content.
 
 **Size limits:** audio capped at 30 min, video at 15 min and 64MB (WhatsApp's ceiling). Use `.video <link> 240` for a smaller file.
+
+</details>
+
+<details>
+<summary><b>😤 ".play is not working" — read this first</b></summary>
+
+<br/>
+
+**There is no YouTube API key in this bot.** `.play`, `.video`, `.ytsearch` and the new
+`.spotify` all run on `yt-dlp`, a free keyless downloader. The official YouTube Data
+API v3 cannot download media at all (it only returns metadata), so no API key from any
+website will ever fix `.play`. If a video "fails even with an API key", the key was
+never the problem.
+
+`.play` fails for exactly three reasons — check them in order:
+
+1. **yt-dlp is not installed** (fresh clone / fresh panel).
+   **Fix:** `npm run setup` — verify with `.dlstatus`. The bot says this plainly in chat.
+2. **yt-dlp is outdated.** YouTube changes its internals regularly and an old binary
+   is the most common cause of "it worked yesterday".
+   **Fix:** `npm run update-dl` (run it weekly; many hosts auto-restart anyway).
+3. **YouTube is bot-checking your server.** Datacenter/Hostinger/Pterodactyl IPs get
+   the "Sign in to confirm you're not a bot" screen.
+   **Fix (permanent):** install the *Get cookies.txt LOCALLY* browser extension, open
+   youtube.com **while signed in**, export the file as `cookies.txt` into the bot
+   folder. The downloader picks it up automatically — `.dlstatus` confirms it.
+   TikTok/Twitter/Facebook are unaffected by this.
+
+Optional: if you *still* want a YouTube Data API key for other projects —
+[console.cloud.google.com](https://console.cloud.google.com) → new project →
+APIs & Services → Enable **YouTube Data API v3** → Credentials → **Create API key**.
+Just know it has zero effect on this bot's downloads.
 
 </details>
 
