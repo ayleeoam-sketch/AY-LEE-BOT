@@ -142,7 +142,7 @@ The bot decodes it at boot and connects with no QR. Invalid values are rejected 
 | **ECONOMY** | 38 | `daily` `work` `mine` `fish` `hunt` `crime` `rob` `heist`, banking, loans, shop, `slots` `blackjack` |
 | **CONVERTER** | 39 | `sticker` `take` `photo` `mp4` `gif` `tomp3` `ptv` `circlestk` `exif` `doc` + 17 audio effects + `boomerang` `vidfast` `vidslow` `vidreverse` `smooth` |
 | **UTILITIES** | 32 | `weather` `wiki` `define` `bible` `calc` `tts` `ip` `tinyurl` `ss` `qrcode` `readqr` `pdf` `font` |
-| **CONFIG** | 28 | `setvar` `getvar` `allvar` `mode` `setsudo` `antidelete` `antiedit` `readstatus` `savecmd` |
+| **CONFIG** | 29 | `setvar` `getvar` `allvar` `mode` `forcejoin` `setsudo` `antidelete` `antiedit` `readstatus` `savecmd` |
 | **IMAGE-MEME** | 28 | `wanted` `jail` `drip` `drake` `pooh` `oogway` `wasted` `triggered` `stonks` `carbon` |
 | **AI** | 22 | 8 providers with failover — `ai` `gpt` `gemini` `groq` `deepseek` `cerebras` `imagine` |
 | **DOWNLOADER** | 24 | `play` `music` `sc` `audiomack` `video` `spotify` `spotifyinfo` `tiktok` `instagram` `facebook` `twitter` `autodl` `gitclone` `mediafire` `apk` |
@@ -325,6 +325,26 @@ Slow commands (downloads, image generation) show their own progress emoji instea
 Turn it off with `.setvar CMD_REACT false`, or change the trigger emoji with `.setvar CMD_REACT_EMOJI 🔥`.
 
 </details>
+
+---
+
+## 🔒 Support-Group Gate (`.forcejoin`)
+
+Users must join your WhatsApp support group before the bot will answer their commands — and if they leave, the bot pulls them back in.
+
+| Behaviour | What happens |
+|:---|:---|
+| **Gate on** (`FORCE_JOIN=true`, default) | Any command from a non-member gets an *ACCESS LOCKED* reply with your invite link. Only real commands are intercepted — plain chat passes through. Owner + sudo are always exempt. |
+| **Auto re-add** (`FORCE_READD=true`, default) | Anyone who **`remove`s** themselves from the support group is added back (10-minute per-user cooldown so it never wars), then gets a DM explaining why. |
+| **Fail-open** | If the invite link breaks or the bot can't read the group, commands keep working — check the state with `.forcejoin`. |
+
+**Setup (3 steps):**
+
+1. Add the **bot's number** to the support group and make it an **admin** (admin is required for re-add).
+2. Set `SUPPORT_GROUP_LINK` in `.env` (or live: `.forcejoin link https://chat.whatsapp.com/XXXX`).
+3. `.forcejoin` shows the status card: gate state, member count, and whether the bot is admin enough to re-add.
+
+Manage everything from WhatsApp: `.forcejoin on | off`, `.forcejoin readd on | off`, `.forcejoin link <url>`, `.forcejoin check @user`.
 
 ---
 

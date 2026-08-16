@@ -45,7 +45,12 @@ export const SCHEMA = {
   ANTI_CALL_BLOCK: { type: 'bool', get: () => false },
 
   /* chat XP / rank system (.rank, .topranks) */
-  LEVEL_UP: { type: 'bool', get: () => true }
+  LEVEL_UP: { type: 'bool', get: () => true },
+
+  /* support-group gate (.forcejoin) */
+  FORCE_JOIN: { type: 'bool', get: () => config.forceJoin },
+  FORCE_READD: { type: 'bool', get: () => config.forceReAdd },
+  SUPPORT_LINK: { type: 'string', get: () => config.supportGroupLink }
 }
 
 const coerce = (type, raw) => {

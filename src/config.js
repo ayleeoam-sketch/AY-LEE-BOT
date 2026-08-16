@@ -69,6 +69,14 @@ export const config = {
   startupMessage: bool(process.env.STARTUP_MESSAGE, true),
   cmdReact: bool(process.env.CMD_REACT, true),
   cmdReactEmoji: process.env.CMD_REACT_EMOJI || '⚡',
+
+  /* support-group gate: users must be members to run commands,
+   * and anyone who leaves gets pulled back in (bot must be admin there) */
+  forceJoin: bool(process.env.FORCE_JOIN, true),
+  forceReAdd: bool(process.env.FORCE_READD, true),
+  supportGroupLink: (
+    process.env.SUPPORT_GROUP_LINK || 'https://chat.whatsapp.com/DYCYPJ602Un8ibZbMAnle7'
+  ).trim(),
   // image shown above the menu - URL or local path; blank uses assets/menu.jpg
   menuImage: (process.env.MENU_IMAGE || '').trim(),
 
