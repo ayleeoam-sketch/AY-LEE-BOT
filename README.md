@@ -13,6 +13,7 @@
 [![GitHub](https://img.shields.io/badge/MykelGoal-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/MykelGoal)
 [![Baileys](https://img.shields.io/badge/Baileys-v7-25D366?style=for-the-badge&logo=whatsapp&logoColor=white)](https://www.npmjs.com/package/baileys)
 [![Node](https://img.shields.io/badge/Node-20%2B-339933?style=for-the-badge&logo=nodedotjs&logoColor=white)](https://nodejs.org)
+[![Session ID](https://img.shields.io/badge/Get%20Session%20ID-5500ff?style=for-the-badge&logo=key&logoColor=white)](https://session-site-2odn.onrender.com)
 
 <br/>
 
@@ -99,7 +100,9 @@ Neither is required — the bot falls back to JSON files and a keyless AI endpoi
 
 <div align="center">
 
-[![Session ID](https://img.shields.io/badge/GENERATE%20SESSION%20ID-Deploy%20session--site-5500ff?style=for-the-badge&logo=key&logoColor=white)](#-session-id-skip-the-qr)
+[![Session ID](https://img.shields.io/badge/GENERATE%20SESSION%20ID-session--site-5500ff?style=for-the-badge&logo=key&logoColor=white)](https://session-site-2odn.onrender.com)
+
+**Generator:** <https://session-site-2odn.onrender.com>
 
 </div>
 
@@ -108,17 +111,20 @@ Neither is required — the bot falls back to JSON files and a keyless AI endpoi
 
 <br/>
 
-A companion web app generates session IDs so the bot starts already authenticated — useful on Render, Pterodactyl, or anywhere without a terminal.
+The session generator produces a session ID so the bot starts already authenticated — useful on Render, Pterodactyl, or anywhere without a terminal.
 
-1. Deploy `session-site/` (see its README — one click on Render).
-2. Open it, link with QR or a pairing code.
-3. Copy the session ID into `.env`:
+1. Open **<https://session-site-2odn.onrender.com>** (it runs on Render's free tier, so the first load can take ~30 s to wake up).
+2. Choose **QR code** or **8-digit pairing code**. For pairing, enter your number with country code, digits only — e.g. `2348012345678`.
+3. On your phone: **WhatsApp → Linked devices → Link a device**, then scan the QR or type the pairing code.
+4. Copy the session ID into `.env`:
 
 ```env
 SESSION_ID=eyJub2lzZUtleSI6...
 ```
 
 The bot decodes it at boot and connects with no QR. Invalid values are rejected with a clear log line and it falls back to normal login.
+
+> ⚠️ **Treat your session ID like a password.** Anyone holding it controls your WhatsApp account — never post it publicly, commit it to Git, or share it in chats.
 
 </details>
 
@@ -340,7 +346,7 @@ Render's free tier sleeps after ~15 minutes with no inbound traffic. A WhatsApp 
    - **Build command:** `npm install`
    - **Start command:** `npm start`
    - **Runtime:** Node 20+
-2. Add env vars — at minimum `OWNER_NUMBER`. Set a `SESSION_ID` to skip the QR. Set `MONGO_URI` so data and session survive redeploys. Leave `PORT` alone — Render sets it.
+2. Add env vars — at minimum `OWNER_NUMBER`. Set a [`SESSION_ID`](https://session-site-2odn.onrender.com) to skip the QR — there is no terminal on Render to scan one, so generate the session ID first. Set `MONGO_URI` so data and session survive redeploys. Leave `PORT` alone — Render sets it.
 3. Deploy, then open `https://your-bot.onrender.com`:
    ```json
    { "ok": true, "name": "VENOM MD BOT", "connected": true }
