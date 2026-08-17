@@ -8,6 +8,27 @@ import 'dotenv/config'
 if (process.env.VENOM_TEST_ISOLATE === '1') delete process.env.MONGO_URI
 import { fileURLToPath } from 'url'
 import path from 'path'
+import { applyBuiltinKeys } from './builtin-keys.js'
+import { readMongoOverride } from './lib/mongoStore.js'
+
+/*
+ * A URI set from WhatsApp with .setmongo outranks the built-in cluster but
+ * yields to a MONGO_URI the host operator put in the environment themselves.
+ */
+if (process.env.VENOM_TEST_ISOLATE !== '1') {
+  const override = readMongoOverride()
+  if (override.uri && !String(process.env.MONGO_URI || '').trim()) {
+    process.env.MONGO_URI = override.uri
+    if (override.db && !String(process.env.MONGO_DB || '').trim()) process.env.MONGO_DB = override.db
+  }
+}
+
+/*
+ * Keys that ship with the code (src/builtin-keys.js) fill in anything the
+ * environment left blank, so a fresh deploy works with no .env at all.
+ * A real .env value always wins - this only fills gaps.
+ */
+export const builtinKeysApplied = applyBuiltinKeys()
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 export const ROOT = path.resolve(__dirname, '..')
@@ -22,18 +43,6 @@ const list = (v) =>
     .split(',')
     .map((s) => s.replace(/[^0-9]/g, ''))
     .filter(Boolean)
-
-/*
- * Shared fallback database.
- * Used when MONGO_URI is empty, so anyone who clones and restarts the bot
- * still gets persistent storage instead of local JSON that hosts wipe on
- * redeploy. It is a public, shared cluster - anyone with this repo can read
- * and write it, so put your own MONGO_URI in .env for anything private.
- */
-const DEFAULT_MONGO_URI =
-  process.env.VENOM_TEST_ISOLATE === '1'
-    ? '' // tests must never touch a real cluster
-    : 'mongodb+srv://GhostdevM:NaZ4mKNuGYUQg447@cluster0.kfzqn4v.mongodb.net/?appName=Cluster0'
 
 /**
  * Static config, read from .env at boot.
@@ -60,10 +69,10 @@ export const config = {
   sessionDir: path.join(ROOT, 'session'),
 
   // database
-  // Falls back to the shared public cluster below so a fresh clone keeps its
-  // economy balances, group settings and .setvar values across restarts even
-  // when nobody has filled in MONGO_URI. Set MONGO_URI in .env to use your own.
-  mongoUri: (process.env.MONGO_URI || '').trim() || DEFAULT_MONGO_URI,
+  // The shared cluster in src/builtin-keys.js has already been folded into
+  // process.env above, so a fresh clone keeps its economy balances, group
+  // settings and .setvar values across restarts with no setup at all.
+  mongoUri: (process.env.MONGO_URI || '').trim(),
   mongoDb: process.env.MONGO_DB || 'venom',
 
   // keep-alive HTTP server - stops Render free tier sleeping
@@ -102,6 +111,10 @@ export const config = {
   keys: {
     openai: process.env.OPENAI_API_KEY || '',
     gemini: process.env.GEMINI_API_KEY || '',
+    groq: process.env.GROQ_API_KEY || '',
+    pexels: process.env.PEXELS_KEY || '',
+    pixabay: process.env.PIXABAY_KEY || '',
+    // .weather uses keyless open-meteo - this is only here for custom forks
     weather: process.env.OPENWEATHER_KEY || ''
   },
 

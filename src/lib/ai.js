@@ -1,6 +1,7 @@
 import axios from 'axios'
 import config from '../config.js'
 import DB from './database.js'
+import { builtinKey } from '../builtin-keys.js'
 
 /**
  * Multi-provider AI engine.
@@ -100,7 +101,10 @@ export const PROVIDERS = {
 }
 
 /* ------------------------------------------------------------------ *
- * Key resolution — .env first, then keys set at runtime via .setkey
+ * Key resolution
+ *   1. .env / panel environment  (a deployer's own key always wins)
+ *   2. .setkey, stored in the database
+ *   3. keys shipped in src/builtin-keys.js, so a fresh clone just works
  * ------------------------------------------------------------------ */
 
 const runtimeKeys = new Map()
@@ -118,7 +122,7 @@ export async function loadKeys() {
 export function getKey(name) {
   const p = PROVIDERS[name]
   if (!p) return ''
-  return (process.env[p.env] || runtimeKeys.get(p.env) || '').trim()
+  return (process.env[p.env] || runtimeKeys.get(p.env) || builtinKey(p.env) || '').trim()
 }
 
 export async function setKey(envName, value) {

@@ -85,14 +85,15 @@ npm start
 > OWNER_NAME=Your Name
 > ```
 
-**Strongly recommended** — both are free and take two minutes:
+**No API keys to hunt for.** Everything the bot needs ships in [`src/builtin-keys.js`](src/builtin-keys.js) — database included — and is used whenever the environment leaves a value blank. Clone, set `OWNER_NUMBER`, run.
 
-```env
-MONGO_URI=mongodb+srv://...    # free tier, never sleeps
-GROQ_API_KEY=gsk_...           # makes every AI command fast
-```
+| Want to override? | How |
+|---|---|
+| Your own key, permanently | edit `src/builtin-keys.js` (ships with the fork) |
+| Your own key, this deploy only | set it in `.env` or your panel — env always wins |
+| Your own key, right now, from chat | `.setkey groq gsk_xxxxx` |
 
-Neither is required — a shared MongoDB cluster is built in as the default (so data survives restarts even if you set nothing), and AI falls back to a keyless endpoint. Set a key without touching a file: `.setkey groq gsk_xxxxx`
+Order of precedence: **environment → `.setkey` → built-in**.
 
 ---
 
@@ -249,6 +250,8 @@ export default {
 | `src/handler.js` | Prefix parsing, permission gates, cooldowns, mode gating, ban checks. |
 | `src/lib/serialize.js` | Flattens any message shape into one clean `m` object. |
 | `src/lib/pluginLoader.js` | Recursive auto-discovery + hot reload. |
+| `src/builtin-keys.js` | Keys + database URI that ship with the code — the one file to edit. |
+| `src/lib/mongoStore.js` | Persists a URI set with `.setmongo` outside the database. |
 | `src/lib/database.js` | MongoDB with automatic JSON fallback. |
 | `src/lib/mongoAuth.js` | Session in Mongo — **survives Pterodactyl redeploys**. |
 | `src/lib/media.js` | Bundled ffmpeg: stickers, EXIF, audio FX, PTV. |
@@ -283,9 +286,38 @@ MONGO_DB=venom
 
 If the password contains `@ : / ? # [ ] %`, URL-encode it — otherwise the driver misreads the URI.
 
-**No `MONGO_URI`?** The bot falls back to a shared cluster that ships in `src/config.js`, so data still survives a restart or redeploy with zero setup. It is shared and public — anyone running this repo can read and write it, so create your own free M0 cluster for anything private. To force local JSON files in `./data` instead, run with `VENOM_TEST_ISOLATE=1` or point `MONGO_URI` at nothing usable.
+**No `MONGO_URI`?** The bot falls back to the shared cluster in [`src/builtin-keys.js`](src/builtin-keys.js), so data still survives a restart or redeploy with zero setup. It is shared and public — anyone running this repo can read and write it, so create your own free M0 cluster for anything private.
 
 `.stats` shows which backend is live.
+
+</details>
+
+<details>
+<summary><b>Switch database from WhatsApp — <code>.setmongo</code></b></summary>
+
+<br/>
+
+Already hosted and want your own database? You do not need the panel, a redeploy or a text editor.
+
+```
+.setmongo mongodb+srv://user:pass@cluster0.xxxxx.mongodb.net/
+.setmongo mongodb+srv://user:pass@cluster0.xxxxx.mongodb.net/ mybotdb   # custom db name
+```
+
+What happens, in order:
+
+1. your message is **deleted immediately** — it carries a live password
+2. the URI is **connection-tested** before anything is saved; if it fails, nothing changes and you get the actual error plus the usual causes
+3. it is written to `mongo.local.json` (gitignored) and to `.env` when the filesystem is writable
+4. the live connection is **swapped in place — no restart**
+
+| Command | Does |
+|---|---|
+| `.setmongo <uri> [db]` | test, save and switch, live |
+| `.getmongo` | which database is active, where the URI came from, password masked |
+| `.delmongo` | forget yours, fall back to the built-in cluster |
+
+Owner-only. Precedence: **panel/`.env` `MONGO_URI` → `.setmongo` → built-in cluster → JSON files**.
 
 </details>
 
@@ -666,7 +698,7 @@ The bot ships with 8 providers and automatic failover. **Groq and Gemini are gen
 
 </div>
 
-Add keys to `.env`, or from WhatsApp with `.setkey groq gsk_xxx` — that command deletes your message immediately and verifies the key with a real call before confirming. `.aikeys` lists every provider, `.aistatus` latency-tests the ones you configured.
+Keys shipped in [`src/builtin-keys.js`](src/builtin-keys.js) are used automatically, so a deployer needs none of the above. To use your own instead: `.env`, or from WhatsApp with `.setkey groq gsk_xxx` — that command deletes your message immediately and verifies the key with a real call before confirming. `.aikeys` lists every provider, `.aistatus` latency-tests the ones you configured.
 
 ---
 

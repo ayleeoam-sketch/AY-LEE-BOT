@@ -78,7 +78,48 @@ export async function connectDB() {
   }
 }
 
+/**
+ * Try a URI without touching the live connection.
+ * Used by .setmongo so we never save a URI that does not work.
+ * @returns {Promise<{ok:boolean, error?:string, collections?:number, dbName:string}>}
+ */
+export async function testMongoUri(uri, dbName = config.mongoDb) {
+  const probe = new MongoClient(uri, { serverSelectionTimeoutMS: 15000 })
+  try {
+    await probe.connect()
+    const target = probe.db(dbName)
+    await target.command({ ping: 1 })
+    const collections = (await target.listCollections().toArray()).length
+    return { ok: true, collections, dbName }
+  } catch (e) {
+    return { ok: false, error: e.message, dbName }
+  } finally {
+    await probe.close().catch(() => {})
+  }
+}
+
+/**
+ * Swap the live database at runtime (.setmongo) with no restart.
+ * On failure the previous connection is already closed, so the bot drops to
+ * JSON files rather than writing to the wrong place.
+ */
+export async function reconnectDB(uri, dbName) {
+  if (client) await client.close().catch(() => {})
+  client = null
+  db = null
+  usingMongo = false
+
+  config.mongoUri = String(uri || '').trim()
+  if (dbName) config.mongoDb = dbName
+  process.env.MONGO_URI = config.mongoUri
+  if (dbName) process.env.MONGO_DB = dbName
+
+  return connectDB()
+}
+
 export const isMongo = () => usingMongo
+/** The URI currently in use (may hold credentials - mask before printing). */
+export const currentUri = () => config.mongoUri
 /** Human-readable name of the active backend, for .stats and boot logs. */
 export const backend = () => (usingMongo ? 'MongoDB' : 'JSON files')
 

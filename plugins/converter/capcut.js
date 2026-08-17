@@ -2,6 +2,7 @@ import fs from 'fs'
 import { getBuffer } from '../../src/lib/api.js'
 import { chat } from '../../src/lib/ai.js'
 import { extOf } from '../../src/lib/media.js'
+import { builtinKey } from '../../src/builtin-keys.js'
 import {
   parseCapcutIntent,
   buildCapcutPipeline,
@@ -89,8 +90,8 @@ const fetchTts = (url) => getBuffer(url, { headers: { Referer: 'https://translat
 
 /** Pexels/Pixabay if keyed, otherwise null and the still + Ken Burns wins. */
 async function stockVideo(keyword, index, ws) {
-  const pexels = process.env.PEXELS_KEY
-  const pixabay = process.env.PIXABAY_KEY
+  const pexels = process.env.PEXELS_KEY || builtinKey('PEXELS_KEY')
+  const pixabay = process.env.PIXABAY_KEY || builtinKey('PIXABAY_KEY')
   try {
     if (pexels) {
       const { getJson } = await import('../../src/lib/api.js')
@@ -249,7 +250,10 @@ async function runCreate({ m, intent }) {
         fetchImage: async (keyword, i) =>
           ws.write('jpg', await getBuffer(stockImageUrl(keyword, i), { timeout: 40_000 })),
         fetchVideo:
-          process.env.PEXELS_KEY || process.env.PIXABAY_KEY
+          process.env.PEXELS_KEY ||
+          process.env.PIXABAY_KEY ||
+          builtinKey('PEXELS_KEY') ||
+          builtinKey('PIXABAY_KEY')
             ? (keyword, i) => stockVideo(keyword, i, ws)
             : null
       }

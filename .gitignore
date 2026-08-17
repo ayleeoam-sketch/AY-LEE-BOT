@@ -3,6 +3,7 @@
 .env.*
 !.env.example
 cookies.txt
+mongo.local.json
 *.pem
 *.key
 credentials.json
