@@ -30,7 +30,7 @@ export const BUILTIN_KEYS = {
   //   https://console.groq.com/keys        (starts with gsk_)
   GROQ_API_KEY: '',
 
-  // Gemini — free, very capable, also reads images.
+  // Gemini — free, very capable, also reads images and edits photos (.restyle).
   //   https://aistudio.google.com/apikey   (starts with AIza)
   GEMINI_API_KEY: '',
 
@@ -63,6 +63,13 @@ export const BUILTIN_KEYS = {
   // https://pixabay.com/api/docs/     — free, instant on signup
   PIXABAY_KEY: '',
 
+  /* ── FOOTBALL ── optional upgrade for .pred ────────────────────────
+   * .pred works with NO key at all: it falls back to TheSportsDB's
+   * keyless API. Add a free API-Football key and real bookmaker odds
+   * get blended into the prediction model (65% odds / 35% stats).    */
+  // https://dashboard.api-football.com   — free, 100 requests/day
+  FOOTBALL_API_KEY: '',
+
   /* ── CLASSROOM ── the ONE group VENOM SCHOOL is allowed to teach in ──
    * Paste your group's invite link (or its raw jid, 1234567890@g.us).
    * The bot resolves the link once and then refuses to run a class
@@ -92,6 +99,7 @@ export const BUILTIN_KEYS = {
  * NO KEY IS REQUIRED FOR:
  *   .play .video .song .music .spotify  -> yt-dlp, keyless (npm run setup)
  *   .weather                            -> open-meteo, keyless
+ *   .pred football picks                -> TheSportsDB, keyless
  *   .ai and friends                     -> keyless fallback, but it is
  *                                          paywalled/rate-limited in 2026,
  *                                          so a Groq key is worth 2 minutes

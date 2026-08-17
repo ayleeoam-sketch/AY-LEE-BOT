@@ -107,16 +107,17 @@ Scan the QR, or use a pairing code with `npm run pair`. On panels with no termin
 | **CONFIG** · 35 | `setvar` `mode` `forcejoin` `setrole` `school` `setmongo` `antidelete` |
 | **IMAGE-MEME** · 29 | `fakechat` `wanted` `jail` `drake` `wasted` `triggered` `carbon` |
 | **DOWNLOADER** · 26 | `movie` `play` `music` `video` `spotify` `tiktok` `instagram` `apk` |
-| **AI** · 22 | 8 providers with failover — `ai` `gpt` `gemini` `groq` `imagine` |
-| **USER** · 26 | `pp` `rank` `affiliate` `mygrades` `classtop` `present` `askteacher` |
+| **AI** · 23 | 8 providers with failover — `ai` `gpt` `gemini` `groq` `imagine` `restyle` |
+| **USER** · 36 | `clone` `unclone` `clonestatus` `cloneinfo` `pp` `rank` `affiliate` `mygrades` `classtop` |
 | **TOOLS** · 21 | `snipe` `afk` `remind` `schedule` `setcmd` `msgs` `listonline` |
 | **BOT** · 20 | `ping` `stats` `alive` `broadcast` `grouplist` `backup` `dbsize` |
 | **SEARCH** · 13 | `news` `tvshow` `img` `wallpaper` `github` `lyrics` `shazam` |
+| **SPORTS** · 2 | `pred` — daily top football picks, any league · `predkey` |
 | **+9 more** | ANIME · IMAGE · GAME · MISC · PRIVACY · AUTOREPLY · PLUGINS · PROCESS · HELP |
 
 </div>
 
-> 💡 `.menu` for everything · `.menu <category>` for one section · `.menu <command>` for a help card.
+> 💡 `.cmds` maps every category at a glance · `.menu` for everything · `.menu <category>` for one section · `.menu <command>` for a help card.
 
 ---
 
