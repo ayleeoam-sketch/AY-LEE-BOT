@@ -779,6 +779,16 @@ Keys shipped in [`src/builtin-keys.js`](src/builtin-keys.js) are used automatica
 
 ---
 
+## 🎞️ Why reaction GIFs are transcoded
+
+WhatsApp has no GIF format. What the app shows as a "GIF" is an **MP4 flagged `gifPlayback`** that it loops silently. Send a real `.gif` in the video slot and you get a frozen first frame with a GIF badge that never plays.
+
+So `.punch`, `.kiss`, `.hug`, `.slap`, `.animegif` and friends pull the GIF, then run it through `gifToMp4()` in `src/lib/media.js` — baseline H.264, `yuv420p`, even dimensions, `faststart` — before sending. If ffmpeg is unavailable it degrades to a still image rather than posting a badge that does nothing.
+
+Missing ffmpeg? `npm run setup`.
+
+---
+
 ## ⚠️ Notes & Honest Limitations
 
 <details>
