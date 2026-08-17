@@ -7,6 +7,8 @@ import axios from 'axios'
 import ffmpegPath from 'ffmpeg-static'
 import config, { ROOT } from '../config.js'
 import log from './logger.js'
+import { apiDownload, apiSearch } from './ytapi.js'
+import { getVar } from './vars.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -694,6 +696,131 @@ export async function anyDownload(url, { audio = false, maxMb = 64, quality = 48
   return ytdlpDownload(url, { audio, format, maxMb, extraArgs })
 }
 
+/* ------------------- YouTube: the resilient path ------------------- */
+
+/**
+ * Which route to try first.
+ *
+ * yt-dlp downloads directly from YouTube, which is great quality and free -
+ * right up until YouTube bot-checks your server's IP, which it does on
+ * basically every free host. The public APIs do the fetch from their own
+ * machines, so they sail past that, at the cost of depending on somebody
+ * else's uptime.
+ *
+ * 'api'    APIs only
+ * 'ytdlp'  yt-dlp only
+ * 'auto'   (default) APIs first, yt-dlp as the fallback - this is what keeps
+ *          .play and .video alive on Render, Koyeb, Heroku and Pterodactyl
+ *
+ * Change it live:  .setvar DL_SOURCE ytdlp
+ */
+const dlSource = () => String(getVar('DL_SOURCE') || 'auto').toLowerCase()
+
+/** Run the two routes in the configured order, collecting failures. */
+async function tryRoutes({ viaApi, viaYtdlp }) {
+  const mode = dlSource()
+  const routes =
+    mode === 'api' ? [viaApi]
+      : mode === 'ytdlp' ? [viaYtdlp]
+        : [viaApi, viaYtdlp]
+
+  const errors = []
+  for (const route of routes) {
+    if (!route) continue
+    try {
+      return await route()
+    } catch (e) {
+      errors.push(e.message)
+    }
+  }
+  throw new Error(errors.join('\n\n') || 'No download route is available.')
+}
+
+/**
+ * Audio, whichever way works.
+ * @returns {Promise<{buffer:Buffer, ext:string, source:string, title?:string}>}
+ */
+export function youtubeAudioSmart(url, { maxMb = 64 } = {}) {
+  return tryRoutes({
+    viaApi: async () => {
+      const r = await apiDownload(url, { audio: true, maxMb })
+      return { ...r, source: `api:${r.provider}` }
+    },
+    viaYtdlp: hasYtdlp()
+      ? async () => ({ ...(await youtubeAudio(url, { maxMb })), source: 'yt-dlp' })
+      : null
+  })
+}
+
+/**
+ * Video, whichever way works.
+ * @param {{quality?:number, maxMb?:number}} opts
+ */
+export function youtubeVideoSmart(url, { quality = 360, maxMb = 64 } = {}) {
+  return tryRoutes({
+    viaApi: async () => {
+      const r = await apiDownload(url, { audio: false, quality, maxMb })
+      return { ...r, source: `api:${r.provider}` }
+    },
+    viaYtdlp: hasYtdlp()
+      ? async () => ({ ...(await youtubeVideo(url, { quality, maxMb })), source: 'yt-dlp' })
+      : null
+  })
+}
+
+/** Search that survives yt-dlp being absent or blocked. */
+export async function youtubeSearchSmart(query, limit = 5) {
+  const mode = dlSource()
+  const errors = []
+
+  if (mode !== 'api' && hasYtdlp()) {
+    try {
+      const r = await youtubeSearch(query, limit)
+      if (r.length) return r
+    } catch (e) {
+      errors.push(e.message)
+    }
+  }
+  try {
+    return await apiSearch(query, limit)
+  } catch (e) {
+    errors.push(e.message)
+  }
+  throw new Error(errors[0] || `No results for "${query}".`)
+}
+
+/**
+ * Metadata without yt-dlp: search by video id and take the first hit.
+ * Less detail than a real probe, but enough for the info card, and it works
+ * when yt-dlp cannot even reach YouTube.
+ */
+export async function youtubeInfoSmart(url) {
+  if (dlSource() !== 'api' && hasYtdlp()) {
+    try {
+      return await youtubeInfo(url)
+    } catch {
+      /* fall through to the keyless route */
+    }
+  }
+  const id = String(url).match(/(?:v=|youtu\.be\/|shorts\/|embed\/|live\/)([A-Za-z0-9_-]{11})/)?.[1]
+  if (id) {
+    try {
+      const [hit] = await apiSearch(id, 1)
+      if (hit) return { ...hit, thumbnail: `https://i.ytimg.com/vi/${id}/hqdefault.jpg`, url }
+    } catch {}
+    return {
+      id,
+      title: 'YouTube video',
+      author: '',
+      duration: 0,
+      views: 0,
+      thumbnail: `https://i.ytimg.com/vi/${id}/hqdefault.jpg`,
+      url
+    }
+  }
+  throw new Error('That is not a YouTube link.')
+}
+
 /** Pretty duration: 213 -> 3:33 */
 export const fmtDuration = (s) => {
   if (!s && s !== 0) return 'unknown'
@@ -714,6 +841,7 @@ export const fmtCount = (n) => {
 export default {
   YTDLP, hasYtdlp, hasCookies, detectPlatform, isUrl, probe,
   youtubeInfo, youtubeAudio, youtubeVideo, youtubeSearch,
+  youtubeInfoSmart, youtubeAudioSmart, youtubeVideoSmart, youtubeSearchSmart,
   soundcloudSearch, soundcloudAudio, audiomackSearch, audiomackAudio,
   musicAuto, fmtDuration, fmtCount
 }

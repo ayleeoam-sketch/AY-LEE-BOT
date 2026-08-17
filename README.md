@@ -779,6 +779,30 @@ Keys shipped in [`src/builtin-keys.js`](src/builtin-keys.js) are used automatica
 
 ---
 
+## 📡 YouTube: two routes, automatic failover
+
+`.play` and `.video` used to die on hosted deploys with *"Sign in to confirm you're not a bot"*. That is not a bug in the bot — yt-dlp downloads **from your server**, and YouTube blocks datacenter IPs.
+
+Bots that stay up (SubZero MD and friends) never download from YouTube themselves: they ask a public API to do it and fetch the direct link it returns. That service absorbs the bot check. VENOM now does both:
+
+| `DL_SOURCE` | Behaviour |
+|---|---|
+| `auto` *(default)* | public APIs first, yt-dlp as fallback |
+| `api` | APIs only — no binary needed |
+| `ytdlp` | local yt-dlp only, best quality when your IP is clean |
+
+Six keyless providers are tried in order, and the JSON parser is shape-agnostic on purpose — these services rename their fields without warning, so it scores every URL in the response instead of trusting a fixed path.
+
+```
+.ytstatus                       which routes work from YOUR host (owner)
+.setvar DL_PROVIDER gifted      pin the fastest one
+.setvar DL_SOURCE ytdlp         force local downloads
+```
+
+Search and metadata fall back the same way, through Piped and Invidious, so `.ytsearch` and `.ytinfo` work even with no yt-dlp installed at all.
+
+---
+
 ## 🎞️ Why reaction GIFs are transcoded
 
 WhatsApp has no GIF format. What the app shows as a "GIF" is an **MP4 flagged `gifPlayback`** that it loops silently. Send a real `.gif` in the video slot and you get a frozen first frame with a GIF badge that never plays.

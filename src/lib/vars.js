@@ -47,6 +47,10 @@ export const SCHEMA = {
   /* chat XP / rank system (.rank, .topranks) */
   LEVEL_UP: { type: 'bool', get: () => true },
 
+  /* downloads: which YouTube route to use - api | ytdlp | auto */
+  DL_SOURCE: { type: 'enum', values: ['auto', 'api', 'ytdlp'], get: () => config.dlSource },
+  DL_PROVIDER: { type: 'string', get: () => config.dlProvider },
+
   /* affiliate programme (.affiliate / .ref) */
   AFFILIATE_URL: { type: 'string', get: () => config.affiliateUrl },
   REF_REWARD: { type: 'number', get: () => config.refReward },   // coins to the referrer

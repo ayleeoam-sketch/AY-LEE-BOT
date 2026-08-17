@@ -125,6 +125,10 @@ export const config = {
   // image shown above the menu - URL or local path; blank uses assets/menu.jpg
   menuImage: (process.env.MENU_IMAGE || '').trim(),
 
+  // downloads - see src/lib/downloader.js (DL_SOURCE) and ytapi.js
+  dlSource: (process.env.DL_SOURCE || 'auto').toLowerCase(),
+  dlProvider: (process.env.DL_PROVIDER || 'auto').toLowerCase(),
+
   // affiliate programme - .affiliate builds share links off this
   affiliateUrl: (process.env.AFFILIATE_URL || 'https://github.com/MykelGoal/VENOM-MD-BOT').trim(),
   refReward: Number(process.env.REF_REWARD || 500),

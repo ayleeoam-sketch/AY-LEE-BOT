@@ -14,6 +14,8 @@ import {
   dbNameFromUri
 } from '../../src/lib/mongoStore.js'
 import config from '../../src/config.js'
+import { loadVars } from '../../src/lib/vars.js'
+import { loadKeys } from '../../src/lib/ai.js'
 import { builtinKey } from '../../src/builtin-keys.js'
 
 /**
@@ -77,6 +79,9 @@ export default [
 
       const written = writeMongoOverride(uri, dbName)
       await reconnectDB(uri, dbName)
+      // the in-memory caches belong to the OLD database - refill them
+      await loadVars().catch(() => {})
+      await loadKeys().catch(() => {})
 
       await m.send(
         `✅ *Connected to your MongoDB.*\n\n` +
@@ -85,6 +90,8 @@ export default [
           `┃ 🔗 ${maskMongoUri(uri)}\n` +
           `┃ 💾 Saved to: *${written.length ? written.join(' + ') : 'memory only'}*\n` +
           `┃ ⚡ Live now — no restart needed\n\n` +
+          `_Settings and AI keys were re-read from the new database. Anything you set with ` +
+          `.setvar or .setkey before this points at the old one — set those again if they are missing._\n\n` +
           (written.length
             ? `_It will still be here after a restart._`
             : `⚠️ _This filesystem is read-only, so I could not save it. It works until the next restart — put MONGO_URI in your panel's environment variables to make it permanent._`) +
@@ -151,6 +158,8 @@ export default [
         const res = await testMongoUri(fallback, builtinKey('MONGO_DB') || 'venom')
         if (res.ok) {
           await reconnectDB(fallback, builtinKey('MONGO_DB') || 'venom')
+          await loadVars().catch(() => {})
+          await loadKeys().catch(() => {})
           return m.reply(
             `♻️ Your URI has been removed.\n\nBack on the built-in shared cluster — *${backend()}*.\n\n` +
               `_Your own database was not touched; its data is still there if you *${prefix}setmongo* again._`
@@ -158,6 +167,8 @@ export default [
         }
       }
       await reconnectDB('', config.mongoDb)
+      await loadVars().catch(() => {})
+      await loadKeys().catch(() => {})
       await m.reply(
         `♻️ Your URI has been removed. Now on *${backend()}*.\n\n` +
           `_Set a new one with *${prefix}setmongo <uri>*._`

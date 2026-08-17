@@ -1,7 +1,9 @@
 import {
-  youtubeInfo, youtubeAudio, youtubeVideo, youtubeSearch, musicAuto,
-  fmtDuration, fmtCount, hasYtdlp, isUrl
+  youtubeInfoSmart, youtubeAudioSmart, youtubeVideoSmart, youtubeSearchSmart,
+  musicAuto, fmtDuration, fmtCount, hasYtdlp, isUrl
 } from '../../src/lib/downloader.js'
+import { probeProviders, PROVIDERS } from '../../src/lib/ytapi.js'
+import { getVar } from '../../src/lib/vars.js'
 import { getBuffer } from '../../src/lib/api.js'
 
 const YT_URL = /(?:youtube\.com\/(?:watch\?v=|shorts\/|live\/|embed\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/
@@ -12,13 +14,10 @@ async function resolve(input) {
     if (!YT_URL.test(input)) throw new Error('That is not a YouTube link.')
     return input
   }
-  const [first] = await youtubeSearch(input, 1)
+  const [first] = await youtubeSearchSmart(input, 1)
   if (!first) throw new Error(`No YouTube results for "${input}".`)
   return first.url
 }
-
-const notInstalled = (m) =>
-  m.reply('⚠️ yt-dlp is not installed.\n\nRun *npm run setup* in the bot folder, then try again.')
 
 export default [
   {
@@ -29,14 +28,13 @@ export default [
     usage: '.play alan walker faded',
     cooldown: 20,
     async run({ m, text }) {
-      if (!hasYtdlp()) return notInstalled(m)
       if (!text) return m.reply('🎵 Give me a song name or YouTube link:\n*.play alan walker faded*')
 
       await m.react('⏳')
       let ytTitle = null // kept for the multi-source fallback if YouTube refuses
       try {
         const url = await resolve(text)
-        const info = await youtubeInfo(url)
+        const info = await youtubeInfoSmart(url)
         ytTitle = info.title
 
         if (info.duration > 1800) {
@@ -59,7 +57,7 @@ export default [
           await m.reply(caption)
         }
 
-        const { buffer } = await youtubeAudio(url)
+        const { buffer } = await youtubeAudioSmart(url)
         await m.reply({
           audio: buffer,
           mimetype: 'audio/mpeg',
@@ -116,7 +114,6 @@ export default [
     usage: '.video despacito  |  .video <link> 720',
     cooldown: 30,
     async run({ m, text, args, prefix }) {
-      if (!hasYtdlp()) return notInstalled(m)
       if (!text) return m.reply('🎬 Give me a video name or YouTube link:\n*.video despacito*\n\nAdd a quality: *.video <link> 720*')
 
       // trailing number = requested quality
@@ -128,7 +125,7 @@ export default [
       await m.react('⏳')
       try {
         const url = await resolve(query)
-        const info = await youtubeInfo(url)
+        const info = await youtubeInfoSmart(url)
 
         if (info.duration > 900) {
           await m.react('❌')
@@ -145,10 +142,10 @@ export default [
           `╰━━━━━━━━━━━━━━━━━╯\n\n_Downloading video..._`
         await m.reply(caption)
 
-        const { buffer } = await youtubeVideo(url, { quality })
+        const { buffer, source } = await youtubeVideoSmart(url, { quality })
         await m.reply({
           video: buffer,
-          caption: `🎬 *${info.title}*\n👤 ${info.author}`,
+          caption: `🎬 *${info.title}*\n👤 ${info.author}\n📡 via ${source}`,
           fileName: `${info.title.replace(/[^\w\s-]/g, '').slice(0, 60)}.mp4`
         })
         await m.react('✅')
@@ -163,6 +160,7 @@ export default [
         await m.reply(
           blocked
             ? `${e.message}\n\n*Meanwhile:*\n` +
+              `▸ *${prefix}ytstatus* — see which download services work on this host\n` +
               `▸ *${prefix}movie ${query}* — searches free catalogues\n` +
               `▸ *${prefix}play ${query}* — audio, falls back to SoundCloud`
             : `❌ ${e.message}`
@@ -178,11 +176,10 @@ export default [
     usage: '.ytsearch lofi hip hop',
     cooldown: 10,
     async run({ m, text, prefix }) {
-      if (!hasYtdlp()) return notInstalled(m)
       if (!text) return m.reply('🔎 Usage: .ytsearch lofi hip hop')
       await m.react('🔎')
       try {
-        const results = await youtubeSearch(text, 6)
+        const results = await youtubeSearchSmart(text, 6)
         if (!results.length) return m.reply(`❌ No results for "${text}".`)
         const body = results
           .map((r, i) =>
@@ -210,11 +207,10 @@ export default [
     usage: '.ytinfo <link>',
     cooldown: 10,
     async run({ m, text }) {
-      if (!hasYtdlp()) return notInstalled(m)
       if (!text) return m.reply('📝 Usage: .ytinfo https://youtu.be/...')
       await m.react('⏳')
       try {
-        const info = await youtubeInfo(await resolve(text))
+        const info = await youtubeInfoSmart(await resolve(text))
         const date = info.upload ? `${info.upload.slice(6, 8)}/${info.upload.slice(4, 6)}/${info.upload.slice(0, 4)}` : 'unknown'
         const caption =
           `╭━━━〔 *VIDEO INFO* 〕━━━╮\n` +
@@ -236,6 +232,39 @@ export default [
         await m.react('❌')
         await m.reply(`❌ ${e.message}`)
       }
+    }
+  },
+  {
+    name: 'ytstatus',
+    alias: ['dltest2', 'ytcheck'],
+    category: 'DOWNLOADER',
+    desc: 'Test every YouTube download route from this host',
+    usage: '.ytstatus',
+    owner: true,
+    cooldown: 30,
+    async run({ m, prefix }) {
+      await m.react('🔎')
+      await m.reply(`🔎 Testing ${PROVIDERS.length} download services from this server...`)
+
+      const results = await probeProviders()
+      const ok = results.filter((r) => r.ok)
+      const body = results
+        .sort((a, b) => Number(b.ok) - Number(a.ok) || a.ms - b.ms)
+        .map((r) => `${r.ok ? '✅' : '❌'} *${r.name}* — ${r.ok ? `${r.ms}ms` : r.error}`)
+        .join('\n')
+
+      await m.reply(
+        `╭━━━〔 *DOWNLOAD ROUTES* 〕━━━╮\n${body}\n` +
+          `┃\n┃ ${hasYtdlp() ? '✅' : '❌'} *yt-dlp* — ${hasYtdlp() ? 'installed' : 'missing (npm run setup)'}\n` +
+          `╰━━━━━━━━━━━━━━━━━━╯\n\n` +
+          `📡 Mode: *${getVar('DL_SOURCE')}* · Preferred: *${getVar('DL_PROVIDER')}*\n\n` +
+          (ok.length
+            ? `*${ok.length}/${results.length} services are alive* — .play and .video should work.\n\n` +
+              `Pin the fastest one: *${prefix}setvar DL_PROVIDER ${ok[0]?.name}*`
+            : `⚠️ *Every service failed.* Either this host blocks outbound requests, or all the free APIs are down at once (it happens).\n\n` +
+              `Try: *${prefix}setvar DL_SOURCE ytdlp* and *npm run setup*.`)
+      )
+      await m.react('✅')
     }
   }
 ]
