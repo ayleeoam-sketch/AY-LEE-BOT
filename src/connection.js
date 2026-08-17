@@ -16,6 +16,7 @@ import path from 'path'
 import config from './config.js'
 import log, { waLogger } from './lib/logger.js'
 import { setConnected, touchMessage } from './lib/keepalive.js'
+import { attachScheduler } from './lib/scheduler.js'
 import { useMongoAuthState } from './lib/mongoAuth.js'
 import { getVar } from './lib/vars.js'
 import { handleMessage } from './handler.js'
@@ -147,6 +148,7 @@ WhatsApp > Settings > Linked devices > Link with phone number
     if (connection === 'open') {
       reconnectAttempts = 0
       setConnected(true)
+      attachScheduler(sock) // reminders + scheduled messages
       const me = jidNormalizedUser(sock.user?.id || '')
       log.ok(`Connected as ${sock.user?.name || 'bot'} (${me.split('@')[0]})`)
       log.ok(`${pluginCount()} plugins ready | prefix "${config.prefix}" | mode ${getVar('MODE')}`)

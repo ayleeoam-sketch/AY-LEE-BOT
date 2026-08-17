@@ -346,6 +346,29 @@ Set `BOT_ID` explicitly in `.env` if you run two bots from one owner number.
 
 ---
 
+## 🧰 Commands added from a survey of other bots
+
+I diffed VENOM's ~400 commands against the plugin lists of GataBot-MD, TheMystic-Bot-MD, wabot-aq and Levanter (900+ plugin files). Almost everything they had, VENOM already had. These were the real gaps:
+
+| Command | Why it earned its place |
+|---|---|
+| `.ttp` / `.attp` | The most-used command in most bots. Text → sticker, rendered **locally** with SVG + sharp, so no API can kill it. 10 colours: `.ttp venom GOAT` |
+| `.ttpimg` | Same render, sent as an image |
+| `.remind 30m call mum` | Reminders stored in the database — they **survive restarts**, and fire late with an apology rather than vanishing |
+| `.reminders` / `.delremind` | Manage them |
+| `.schedule 8h Good morning` | Post to a chat later, as the bot |
+| `.broadcast` | Message every group, sequentially with a pause (parallel blasting is how numbers get banned) |
+| `.grouplist` | Every group, member counts, where you are admin |
+| `.ison 234801…` | Is that number on WhatsApp? |
+| `.alive` | Fast health card |
+| `.backup` | Whole database as a JSON document — **session keys excluded on purpose**, a backup must never be able to log in as you |
+| `.fetch <url>` | Owner: GET a URL, see the JSON |
+| `.horoscope leo` | Daily horoscope, keyless |
+
+Deliberately skipped: `jadibot` (multi-session, a support nightmare), `spam` (gets numbers banned), `removebg` (needs a paid key), and the Indonesian/Spanish word games that need locale word lists.
+
+---
+
 ## 👥 Staff Roles
 
 Other people can help run the bot without holding the keys to it. Each rung inherits everything below it.

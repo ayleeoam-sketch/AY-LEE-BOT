@@ -214,7 +214,8 @@ export const DB = {
   filters: collection('filters'),    // autoreply keyword -> response
   customcmd: collection('customcmd'), // user defined commands (.setcmd)
   roles: collection('roles'),        // staff ladder: admin/editor/mod/vip
-  referrals: collection('referrals') // affiliate programme claims
+  referrals: collection('referrals'), // affiliate programme claims
+  tasks: collection('tasks')         // reminders / scheduled messages
 }
 
 export default DB
