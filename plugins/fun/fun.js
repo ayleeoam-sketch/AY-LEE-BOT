@@ -1,5 +1,6 @@
 import { getJson, getBuffer, race } from '../../src/lib/api.js'
 import { pick } from '../../src/lib/utils.js'
+import { animatedPayload } from '../../src/lib/media.js'
 
 /**
  * Reaction GIFs.
@@ -32,12 +33,13 @@ const reaction = (name, phrase, emoji, apiName = name) => ({
       const caption = target
         ? `${emoji} @${m.senderNumber} ${phrase} @${target.split('@')[0]}`
         : `${emoji} @${m.senderNumber} ${phrase}`
-      await m.reply({
-        video: buffer,
-        caption,
-        gifPlayback: true,
-        mentions: target ? [m.sender, target] : [m.sender]
-      })
+      // the API hands back a real .gif - WhatsApp only animates mp4
+      await m.reply(
+        await animatedPayload(buffer, {
+          caption,
+          mentions: target ? [m.sender, target] : [m.sender]
+        })
+      )
     } catch (e) {
       await m.reply(`❌ ${e.message}`)
     }
@@ -54,12 +56,12 @@ const mood = (name, label, emoji, apiName = name) => ({
   async run({ m }) {
     try {
       const buffer = await getBuffer(await reactionGif(apiName))
-      await m.reply({
-        video: buffer,
-        caption: `${emoji} @${m.senderNumber} ${label}`,
-        gifPlayback: true,
-        mentions: [m.sender]
-      })
+      await m.reply(
+        await animatedPayload(buffer, {
+          caption: `${emoji} @${m.senderNumber} ${label}`,
+          mentions: [m.sender]
+        })
+      )
     } catch (e) {
       await m.reply(`❌ ${e.message}`)
     }

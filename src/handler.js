@@ -4,6 +4,7 @@ import DB from './lib/database.js'
 import { getVar } from './lib/vars.js'
 import { serialize, resolvePermissions } from './lib/serialize.js'
 import { commands, middlewares, findCommand, pluginCount } from './lib/pluginLoader.js'
+import { resolveRole, canRunOwnerCommand, atLeast, cooldownFor, invalidateRoles, ROLES } from './lib/roles.js'
 
 /* ---------------------------- caches ---------------------------- */
 
@@ -28,6 +29,7 @@ async function getBanned() {
 export const invalidateCaches = () => {
   sudoCache.at = 0
   bannedCache.at = 0
+  invalidateRoles()
 }
 
 /* --------------------------- prefix parse --------------------------- */
@@ -67,6 +69,8 @@ export async function handleMessage(sock, raw, ctx = {}) {
     }
 
     await resolvePermissions(sock, m, await getSudo())
+    // m.role / m.roleLevel / m.isStaff - the staff ladder (src/lib/roles.js)
+    await resolveRole(m)
 
     // hard bans (users and groups)
     const banned = await getBanned()
@@ -99,25 +103,36 @@ export async function handleMessage(sock, raw, ctx = {}) {
 
     /* --------------------- access control --------------------- */
     const mode = getVar('MODE')
-    if (mode === 'private' && !m.isSudo) return
-    if (mode === 'group' && !m.isGroup && !m.isSudo) return
-    if (mode === 'inbox' && m.isGroup && !m.isSudo) return
+    // staff and VIPs are trusted company: private mode still answers them
+    const privileged = m.isSudo || atLeast(m.role, 'vip')
+    if (mode === 'private' && !privileged) return
+    if (mode === 'group' && !m.isGroup && !privileged) return
+    if (mode === 'inbox' && m.isGroup && !privileged) return
 
     /* a refusal is still an answer - react so the user sees it registered */
     const deny = async (why) => {
       if (getVar('CMD_REACT')) await m.react('🚫').catch(() => {})
       return m.reply(why)
     }
-    if (plugin.owner && !m.isSudo) return deny('🚫 This command is for the owner only.')
+    if (plugin.owner && !m.isSudo && !canRunOwnerCommand(m.role, plugin.name)) {
+      return deny(
+        m.roleLevel > 0
+          ? `🚫 *${plugin.name}* is above your ${ROLES[m.role].emoji} ${ROLES[m.role].label} role.`
+          : '🚫 This command is for the owner only.'
+      )
+    }
     if (plugin.group && !m.isGroup) return deny('🚫 This command only works in groups.')
     if (plugin.private && m.isGroup) return deny('🚫 This command only works in DM.')
-    if (plugin.admin && m.isGroup && !m.isAdmin && !m.isSudo)
+    // moderators act through the bot without holding WhatsApp admin themselves
+    if (plugin.admin && m.isGroup && !m.isAdmin && !m.isSudo && !atLeast(m.role, 'mod'))
       return deny('🚫 You need to be a group admin to use this.')
     if (plugin.botAdmin && m.isGroup && !m.isBotAdmin)
       return deny('🚫 I need to be a group admin to do that.')
 
     /* ------------------------ cooldown ------------------------ */
-    if (plugin.cooldown && !m.isSudo) {
+    // staff skip cooldowns, VIPs pay half - see roles.js
+    const wait = plugin.cooldown ? cooldownFor(plugin.cooldown, m.role) : 0
+    if (wait && !m.isSudo) {
       const key = `${plugin.name}:${m.sender}`
       const until = cooldowns.get(key) || 0
       if (Date.now() < until) {
@@ -125,7 +140,7 @@ export async function handleMessage(sock, raw, ctx = {}) {
         if (getVar('CMD_REACT')) await m.react('⏳').catch(() => {})
         return m.reply(`⏳ Slow down - wait ${left}s before using *${plugin.name}* again.`)
       }
-      cooldowns.set(key, Date.now() + plugin.cooldown * 1000)
+      cooldowns.set(key, Date.now() + wait * 1000)
     }
 
     /* -------------------------- run --------------------------- */

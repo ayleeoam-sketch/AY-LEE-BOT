@@ -16,6 +16,9 @@ import path from 'path'
 import config from './config.js'
 import log, { waLogger } from './lib/logger.js'
 import { setConnected, touchMessage } from './lib/keepalive.js'
+import { attachScheduler } from './lib/scheduler.js'
+import { attachSchool } from './lib/school.js'
+import { attachCleanup } from './lib/cleanup.js'
 import { useMongoAuthState } from './lib/mongoAuth.js'
 import { getVar } from './lib/vars.js'
 import { handleMessage } from './handler.js'
@@ -67,7 +70,8 @@ export async function startSocket() {
   }
 
   if (config.sessionStore === 'mongo') {
-    const auth = await useMongoAuthState('default')
+    // Namespaced per deploy: two bots on one cluster must never share creds.
+    const auth = await useMongoAuthState(config.botId || 'default')
     state = auth.state
     saveCreds = auth.saveCreds
     deleteSession = auth.deleteSession
@@ -146,6 +150,9 @@ WhatsApp > Settings > Linked devices > Link with phone number
     if (connection === 'open') {
       reconnectAttempts = 0
       setConnected(true)
+      attachScheduler(sock) // reminders + scheduled messages
+      attachSchool(sock)    // daily command classes
+      attachCleanup()       // keep the 512MB free tier from filling up
       const me = jidNormalizedUser(sock.user?.id || '')
       log.ok(`Connected as ${sock.user?.name || 'bot'} (${me.split('@')[0]})`)
       log.ok(`${pluginCount()} plugins ready | prefix "${config.prefix}" | mode ${getVar('MODE')}`)

@@ -1,5 +1,6 @@
 import { getJson, getBuffer, race } from '../../src/lib/api.js'
 import { pick } from '../../src/lib/utils.js'
+import { animatedPayload } from '../../src/lib/media.js'
 
 /**
  * ANIME lookups.
@@ -309,11 +310,13 @@ export default [
         const want = text?.trim().toLowerCase()
         const chosen = want && reactions.includes(want) ? want : pick(reactions)
         const d = await getJson(`https://api.otakugifs.xyz/gif?reaction=${chosen}`)
-        await m.reply({
-          video: await getBuffer(d.url),
-          caption: `🎌 *${chosen}*` + (want && !reactions.includes(want) ? `\n\n_"${want}" is not available, sent a random one._` : ''),
-          gifPlayback: true
-        })
+        await m.reply(
+          await animatedPayload(await getBuffer(d.url), {
+            caption:
+              `🎌 *${chosen}*` +
+              (want && !reactions.includes(want) ? `\n\n_"${want}" is not available, sent a random one._` : '')
+          })
+        )
       } catch (e) {
         await m.reply(`❌ ${e.message}`)
       }
@@ -354,7 +357,11 @@ export default [
         ])
         const buffer = await getBuffer(url)
         const isGif = /\.gif$/i.test(url)
-        await m.reply({ [isGif ? 'video' : 'image']: buffer, caption: '💮 Waifu', gifPlayback: isGif })
+        await m.reply(
+          isGif
+            ? await animatedPayload(buffer, { caption: '💮 Waifu' })
+            : { image: buffer, caption: '💮 Waifu' }
+        )
       } catch (e) {
         await m.reply(`❌ ${e.message}`)
       }

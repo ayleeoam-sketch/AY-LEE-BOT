@@ -99,6 +99,60 @@ export async function addExif(webpBuffer, packname = '', author = '') {
   return img.save(null)
 }
 
+/* ------------------------------ animated ----------------------------- */
+
+/**
+ * GIF -> MP4 that WhatsApp will actually animate.
+ *
+ * WhatsApp has no GIF format. What the app calls a "GIF" is an MP4 flagged
+ * with gifPlayback, and it loops that silently. Hand it a real .gif in the
+ * video slot and you get exactly what you would expect from a container it
+ * cannot decode: a frozen first frame with a GIF badge that never plays.
+ *
+ * So every GIF has to be transcoded before it is sent. Baseline H.264 +
+ * yuv420p is the profile old Androids can decode; faststart puts the moov
+ * atom first so playback starts without downloading the whole file; even
+ * dimensions are a hard requirement of yuv420p.
+ *
+ * @param {Buffer} buffer a gif (or anything ffmpeg reads)
+ * @param {{maxSeconds?:number, fps?:number}} [opts]
+ * @returns {Promise<Buffer>} mp4, or the input untouched if it already is one
+ */
+export async function gifToMp4(buffer, { maxSeconds = 15, fps = 20 } = {}) {
+  const ext = await extOf(buffer, 'gif')
+  if (ext === 'mp4') return buffer
+  return convert(buffer, ext, 'mp4', [
+    '-movflags', 'faststart',
+    '-pix_fmt', 'yuv420p',
+    '-c:v', 'libx264',
+    '-profile:v', 'baseline',
+    '-level', '3.0',
+    '-preset', 'veryfast',
+    '-an',
+    '-t', String(maxSeconds),
+    '-vf', `fps=${fps},scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=lanczos`
+  ])
+}
+
+/**
+ * Build a send payload for an animated clip, degrading instead of failing.
+ *
+ * Transcodes to MP4 so it plays; if ffmpeg is missing or the source is
+ * broken, falls back to a still image rather than posting a GIF badge that
+ * does nothing.
+ *
+ * @param {Buffer} buffer source gif/mp4
+ * @param {{caption?:string, mentions?:string[]}} [opts]
+ */
+export async function animatedPayload(buffer, { caption = '', mentions = [] } = {}) {
+  try {
+    const video = await gifToMp4(buffer)
+    return { video, caption, gifPlayback: true, mentions }
+  } catch {
+    return { image: buffer, caption, mentions }
+  }
+}
+
 /** Sticker (webp) -> PNG image. */
 export const stickerToImage = (buffer) => convert(buffer, 'webp', 'png')
 
@@ -161,6 +215,8 @@ export const videoThumb = (buffer) =>
   convert(buffer, 'mp4', 'jpg', ['-ss', '00:00:01', '-vframes', '1'])
 
 export default {
+  gifToMp4,
+  animatedPayload,
   ffmpeg, convert, toSticker, addExif, stickerToImage, stickerToVideo,
   toPTT, toMp3, applyAudioFx, AUDIO_FX, toPTV, videoThumb, extOf, FFMPEG
 }

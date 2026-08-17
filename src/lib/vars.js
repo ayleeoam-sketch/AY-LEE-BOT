@@ -47,6 +47,23 @@ export const SCHEMA = {
   /* chat XP / rank system (.rank, .topranks) */
   LEVEL_UP: { type: 'bool', get: () => true },
 
+  /* downloads: which YouTube route to use - api | ytdlp | auto */
+  DL_SOURCE: { type: 'enum', values: ['auto', 'api', 'ytdlp'], get: () => config.dlSource },
+  DL_PROVIDER: { type: 'string', get: () => config.dlProvider },
+
+  /* database housekeeping (.dbclean / .dbsize) */
+  DB_RETAIN_DAYS: { type: 'number', get: () => config.dbRetainDays },
+  DB_AUTOCLEAN: { type: 'bool', get: () => config.dbAutoClean },
+
+  /* VENOM SCHOOL - coins paid per class (half for showing up) */
+  SCHOOL_REWARD: { type: 'number', get: () => config.schoolReward },
+
+  /* affiliate programme (.affiliate / .ref) */
+  AFFILIATE_URL: { type: 'string', get: () => config.affiliateUrl },
+  REF_REWARD: { type: 'number', get: () => config.refReward },   // coins to the referrer
+  REF_BONUS: { type: 'number', get: () => config.refBonus },     // coins to the newcomer
+  REF_VIP_AT: { type: 'number', get: () => config.refVipAt },    // invites needed for VIP, 0 = off
+
   /* support-group gate (.forcejoin) */
   FORCE_JOIN: { type: 'bool', get: () => config.forceJoin },
   FORCE_READD: { type: 'bool', get: () => config.forceReAdd },
