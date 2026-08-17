@@ -53,7 +53,7 @@ const render = (res) => {
 export default [
   {
     name: 'pred',
-    alias: ['prediction', 'predictions', 'picks', 'bet', 'football'],
+    alias: ['prediction', 'predictions', 'picks', 'football'],
     category: 'SPORTS',
     desc: "Today's best football picks - every league, ranked by confidence",
     usage: '.pred | .pred tomorrow | .pred premier league',

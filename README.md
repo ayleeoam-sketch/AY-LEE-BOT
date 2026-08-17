@@ -108,7 +108,7 @@ Scan the QR, or use a pairing code with `npm run pair`. On panels with no termin
 | **IMAGE-MEME** · 29 | `fakechat` `wanted` `jail` `drake` `wasted` `triggered` `carbon` |
 | **DOWNLOADER** · 26 | `movie` `play` `music` `video` `spotify` `tiktok` `instagram` `apk` |
 | **AI** · 22 | 8 providers with failover — `ai` `gpt` `gemini` `groq` `imagine` |
-| **USER** · 30 | `clone` `unclone` `clonestatus` `cloneinfo` `pp` `rank` `affiliate` `mygrades` `classtop` |
+| **USER** · 36 | `clone` `unclone` `clonestatus` `cloneinfo` `pp` `rank` `affiliate` `mygrades` `classtop` |
 | **TOOLS** · 21 | `snipe` `afk` `remind` `schedule` `setcmd` `msgs` `listonline` |
 | **BOT** · 20 | `ping` `stats` `alive` `broadcast` `grouplist` `backup` `dbsize` |
 | **SEARCH** · 13 | `news` `tvshow` `img` `wallpaper` `github` `lyrics` `shazam` |
@@ -117,7 +117,7 @@ Scan the QR, or use a pairing code with `npm run pair`. On panels with no termin
 
 </div>
 
-> 💡 `.menu` for everything · `.menu <category>` for one section · `.menu <command>` for a help card.
+> 💡 `.cmds` maps every category at a glance · `.menu` for everything · `.menu <category>` for one section · `.menu <command>` for a help card.
 
 ---
 
