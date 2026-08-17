@@ -51,6 +51,9 @@ export const SCHEMA = {
   DL_SOURCE: { type: 'enum', values: ['auto', 'api', 'ytdlp'], get: () => config.dlSource },
   DL_PROVIDER: { type: 'string', get: () => config.dlProvider },
 
+  /* VENOM SCHOOL - coins paid per class (half for showing up) */
+  SCHOOL_REWARD: { type: 'number', get: () => config.schoolReward },
+
   /* affiliate programme (.affiliate / .ref) */
   AFFILIATE_URL: { type: 'string', get: () => config.affiliateUrl },
   REF_REWARD: { type: 'number', get: () => config.refReward },   // coins to the referrer

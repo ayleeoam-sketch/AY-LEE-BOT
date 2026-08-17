@@ -215,7 +215,9 @@ export const DB = {
   customcmd: collection('customcmd'), // user defined commands (.setcmd)
   roles: collection('roles'),        // staff ladder: admin/editor/mod/vip
   referrals: collection('referrals'), // affiliate programme claims
-  tasks: collection('tasks')         // reminders / scheduled messages
+  tasks: collection('tasks'),        // reminders / scheduled messages
+  school: collection('school'),      // classroom state (VENOM SCHOOL)
+  attendance: collection('attendance') // who showed up to each class
 }
 
 export default DB

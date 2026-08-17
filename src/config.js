@@ -129,6 +129,9 @@ export const config = {
   dlSource: (process.env.DL_SOURCE || 'auto').toLowerCase(),
   dlProvider: (process.env.DL_PROVIDER || 'auto').toLowerCase(),
 
+  // VENOM SCHOOL
+  schoolReward: Number(process.env.SCHOOL_REWARD || 100),
+
   // affiliate programme - .affiliate builds share links off this
   affiliateUrl: (process.env.AFFILIATE_URL || 'https://github.com/MykelGoal/VENOM-MD-BOT').trim(),
   refReward: Number(process.env.REF_REWARD || 500),

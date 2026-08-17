@@ -346,6 +346,40 @@ Set `BOT_ID` explicitly in `.env` if you run two bots from one owner number.
 
 ---
 
+## 🎓 VENOM SCHOOL — the bot teaches its own commands
+
+A 380-command menu is unreadable, so people learn six commands and never find the rest. Dumping the menu on them does not fix that. **Teaching one command at a time, on a timetable, with a quiz and a register, does.**
+
+Three classes a day in your group:
+
+```
+.school on                     turn the classroom on here (owner)
+.classtime 08:00,14:00,20:00   timetable
+.classtz Africa/Lagos          timezone
+.lesson                        teach one right now
+```
+
+**How a class runs**
+
+1. At the scheduled minute the bot posts the lesson — what the command does, how to type it, its aliases, whether it is admin-only
+2. A **pop quiz** follows: three options, the right answer plus two real commands as decoys
+3. **Attendance is passive** — anyone who speaks during the window is in the room. Typing a bare `A`/`B`/`C` counts as answering, because in a real class nobody types `.answer`
+4. When the register closes the bot posts who came, who answered correctly, **and tags whoever missed it** — exactly like a teacher reading absentees
+
+| Student | Owner |
+|---|---|
+| `.present` `.answer A` | `.school on/off` `.lesson` `.endclass` |
+| `.mygrades` `.classtop` | `.classtime` `.classtz` |
+| `.attendance` `.syllabus` | |
+
+**The syllabus builds itself** from the live plugin registry — 425 lessons today, ordered so consecutive classes come from different categories. Install a plugin and it enters the syllabus by itself; owner-only and hidden commands are excluded so nobody is taught something they cannot run.
+
+Scoring is 1 point for attending, 2 for a correct answer, plus coins (`.setvar SCHOOL_REWARD 100`). Progress, the register and the current class all live in the database, so a restart mid-class resumes and still posts the register.
+
+**No API key needed.** Lessons come from the plugin registry itself, which is always accurate. If an AI key happens to be set, the bot adds a short "teacher's note" in plainer language — and if the AI is down, the lesson posts anyway.
+
+---
+
 ## 🧰 Commands added from a survey of other bots
 
 I diffed VENOM's ~400 commands against the plugin lists of GataBot-MD, TheMystic-Bot-MD, wabot-aq and Levanter (900+ plugin files). Almost everything they had, VENOM already had. These were the real gaps:
