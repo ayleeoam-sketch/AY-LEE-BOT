@@ -111,6 +111,7 @@ export const config = {
   startupMessage: bool(process.env.STARTUP_MESSAGE, true),
   cmdReact: bool(process.env.CMD_REACT, true),
   cmdReactEmoji: process.env.CMD_REACT_EMOJI || '⚡',
+  autoDeleteCommands: bool(process.env.AUTO_DELETE_COMMANDS),
 
   /* support-group gate: users must be members to run commands,
    * and anyone who leaves gets pulled back in (bot must be admin there) */

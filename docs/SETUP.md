@@ -91,7 +91,7 @@ No redeploy needed — values persist in the database:
 .setvar AUTO_READ true    .delvar MODE    .mode public
 ```
 
-**Keys:** `PREFIX` `MODE` `AUTO_READ` `AUTO_READ_STATUS` `AUTO_TYPING` `ALWAYS_ONLINE` `REJECT_CALL` `ANTI_DELETE` `STARTUP_MESSAGE` `CMD_REACT` `CMD_REACT_EMOJI` `BOT_NAME` `OWNER_NAME` `USER_TAG`
+**Keys:** `PREFIX` `MODE` `AUTO_READ` `AUTO_READ_STATUS` `AUTO_TYPING` `ALWAYS_ONLINE` `REJECT_CALL` `ANTI_DELETE` `STARTUP_MESSAGE` `CMD_REACT` `CMD_REACT_EMOJI` `AUTO_DELETE_COMMANDS` `BOT_NAME` `OWNER_NAME` `USER_TAG`
 
 **Modes:** `public` · `private` (owner only) · `group` · `inbox`
 **Prefix:** one character, `multi` (`. / ! # $ ,`), or `none`
@@ -114,6 +114,8 @@ Every command reacts so you can see it was received, even before the reply arriv
 Slow commands (downloads, image generation) show their own progress emoji instead — `.play` reacts ⏳ then ✅, and the handler does not override it.
 
 Turn it off with `.setvar CMD_REACT false`, or change the trigger emoji with `.setvar CMD_REACT_EMOJI 🔥`.
+
+To keep chats clean, the owner can use `.del on`. The bot will remove each recognized command message and its replies from the original chat; media deliberately sent elsewhere, such as `.vvpr` results in the requester's DM, is kept. Use `.del off` to leave them visible again. The bot must be a group admin to remove messages sent by other group members.
 
 </details>
 

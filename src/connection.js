@@ -21,7 +21,7 @@ import { attachSchool } from './lib/school.js'
 import { attachCleanup } from './lib/cleanup.js'
 import { useMongoAuthState } from './lib/mongoAuth.js'
 import { getVar } from './lib/vars.js'
-import { handleMessage } from './handler.js'
+import { handleMessage, isCommandCleanup } from './handler.js'
 import { loadPlugins, middlewares, pluginCount } from './lib/pluginLoader.js'
 
 const groupCache = new NodeCache({ stdTTL: 300, useClones: false })
@@ -243,6 +243,8 @@ WhatsApp > Settings > Linked devices > Link with phone number
       const isRevoke = update?.message === null || update?.messageStubType === 1
 
       if (isRevoke) {
+        // Do not let anti-delete or snipe restore messages removed by .del on.
+        if (isCommandCleanup(key)) continue
         for (const mw of middlewares) {
           if (typeof mw.onDelete === 'function') {
             await mw.onDelete({ sock, key, messageStore }).catch(() => {})

@@ -36,7 +36,7 @@ export default [
     category: 'TOOLS',
     desc: 'Reveal view-once media privately in your DM',
     usage: '.vvpr (reply to a view-once message)',
-    async run({ m, sock }) {
+    async run({ m }) {
       if (!m.quoted) return m.reply('🔒 Reply to a view-once message with *.vvpr*')
       try {
         const content = revealedMedia(
@@ -48,7 +48,7 @@ export default [
 
         // Never quote the group message here: the recovered media must exist only
         // in the requester's one-to-one chat with the bot.
-        await sock.sendMessage(m.sender, content)
+        await m.send(content, { jid: m.sender, keep: true })
         if (m.isGroup) await m.reply('🔒 Sent privately — check your DM with the bot.')
       } catch (e) {
         await m.reply(`❌ Could not send it privately: ${e.message}`)

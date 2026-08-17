@@ -1,12 +1,33 @@
+import { getVar, setVar } from '../../src/lib/vars.js'
+
 export default [
   {
     name: 'delete',
     alias: ['del', 'unsend'],
     category: 'USER',
-    desc: 'Delete a message the bot sent',
-    usage: '.delete (reply to the bot\'s message)',
-    async run({ sock, m }) {
-      if (!m.quoted) return m.reply('🗑️ Reply to the message you want deleted.')
+    desc: 'Delete a bot message or toggle automatic command cleanup',
+    usage: '.del on | off  (or reply to a bot message with .del)',
+    async run({ sock, m, args }) {
+      const sub = (args[0] || '').toLowerCase()
+      if (sub === 'on' || sub === 'off') {
+        if (!m.isSudo) return m.reply('🚫 Only the owner can change automatic command cleanup.')
+        await setVar('AUTO_DELETE_COMMANDS', sub === 'on' ? 'true' : 'false')
+        return m.reply(
+          `✅ Automatic command cleanup turned *${sub}*.` +
+            (sub === 'on'
+              ? '\n\n_Command messages and their bot replies will now be removed. I need group admin rights to delete members\' commands._'
+              : '\n\n_Command messages and replies will now stay visible._')
+        )
+      }
+
+      if (!m.quoted) {
+        return m.reply(
+          `🧹 *Automatic command cleanup:* *${getVar('AUTO_DELETE_COMMANDS') ? 'on' : 'off'}*\n\n` +
+            `Owner: use *.del on* or *.del off*\n` +
+            `Anyone: reply to one of my messages with *.del* to remove it.`
+        )
+      }
+
       // only allow deleting the bot's own messages unless you are admin
       if (!m.quoted.fromMe && !m.isAdmin && !m.isSudo) {
         return m.reply('🚫 You can only delete my messages, unless you are an admin.')
