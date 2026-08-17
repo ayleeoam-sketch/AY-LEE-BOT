@@ -103,7 +103,7 @@ Scan the QR, or use a pairing code with `npm run pair`. On panels with no termin
 | **GROUP** · 42 | `poll` `vcf` `kick` `promote` `mute` `tagall` `warn` `antilink` `welcome` |
 | **CONVERTER** · 40 | `capcut` `sticker` `take` `mp4` `gif` `tomp3` `ptv` + 17 audio effects |
 | **ECONOMY** · 38 | `daily` `work` `mine` `fish` `rob` `heist` · banking · `slots` `blackjack` |
-| **UTILITIES** · 35 | `tempmail` `quran` `praytimes` `weather` `wiki` `calc` `tts` `ss` `pdf` |
+| **UTILITIES** · 35 | `track` `tempmail` `quran` `praytimes` `weather` `wiki` `calc` `tts` `ss` `pdf` |
 | **CONFIG** · 35 | `setvar` `mode` `forcejoin` `setrole` `school` `setmongo` `antidelete` |
 | **IMAGE-MEME** · 29 | `fakechat` `wanted` `jail` `drake` `wasted` `triggered` `carbon` |
 | **DOWNLOADER** · 26 | `movie` `play` `music` `video` `spotify` `tiktok` `instagram` `apk` |
