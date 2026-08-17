@@ -14,6 +14,7 @@
 [![Baileys](https://img.shields.io/badge/Baileys-v7-25D366?style=for-the-badge&logo=whatsapp&logoColor=white)](https://www.npmjs.com/package/baileys)
 [![Node](https://img.shields.io/badge/Node-20%2B-339933?style=for-the-badge&logo=nodedotjs&logoColor=white)](https://nodejs.org)
 [![Session ID](https://img.shields.io/badge/Get%20Session%20ID-5500ff?style=for-the-badge&logo=key&logoColor=white)](https://session-site-2odn.onrender.com)
+[![YouTube](https://img.shields.io/badge/Tutorial-FF0000?style=for-the-badge&logo=youtube&logoColor=white)](https://youtu.be/ct4k9tfL1Fg)
 
 <br/>
 
@@ -55,6 +56,20 @@
 | **Panel/ZIP** | [![ZIP](https://img.shields.io/badge/Download-ZIP-CC00FF?style=for-the-badge&logo=files&logoColor=white)](https://github.com/MykelGoal/VENOM-MD-BOT/archive/refs/heads/main.zip) |
 
 </div>
+
+---
+
+## 🎬 Tutorials
+
+<div align="center">
+
+| Video | Link |
+|-------|------|
+| 🚀 **How to Deploy a Free WhatsApp Bot (464 Commands) — VENOM MD 2026** | [Watch on YouTube](https://youtu.be/ct4k9tfL1Fg) |
+
+</div>
+
+> 📺 Full walkthrough — session ID, pairing, fork, and free Render deploy, step by step. Subscribe to **VENOM MD Tech** for more.
 
 ---
 
