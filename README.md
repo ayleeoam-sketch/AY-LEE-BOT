@@ -356,7 +356,9 @@ A 380-command menu is unreadable, so people learn six commands and never find th
 SCHOOL_GROUP: 'https://chat.whatsapp.com/YourClassGroupLink',
 ```
 
-If you leave it blank, the classroom **falls back to your existing `SUPPORT_GROUP_LINK`** — the group link already in the project — so a bot with one community group needs no extra configuration. `.school on` in a specific group beats that fallback; an explicit `SCHOOL_GROUP` beats everything.
+Or set `SCHOOL_GROUP: 'support'` to reuse the force-join group in `SUPPORT_GROUP_LINK` as the classroom.
+
+Left blank, **no class runs anywhere** until the owner sends `.school on` in the group they want. It never guesses — the force-join group is usually not where you want to teach.
 
 The link is resolved to a group id once, then enforced everywhere. Every other group the bot sits in gets **no lessons, no register, and no AI questions** — which is also what stops strangers draining your API keys. It cannot be moved from chat: `.school on` in another group is refused, and even a database edit loses to the pin. Leave it blank and the classroom is simply whichever group runs `.school on`.
 

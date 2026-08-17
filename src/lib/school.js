@@ -51,7 +51,7 @@ export const parseInviteCode = (raw) =>
   String(raw || '').trim().match(/chat\.whatsapp\.com\/(?:invite\/)?([A-Za-z0-9]{10,})/)?.[1] || ''
 
 /** Is the classroom fixed in the code/env rather than chosen from chat? */
-export const isPinned = () => Boolean(config.schoolGroup)
+export const isPinned = () => Boolean(config.schoolGroup)  // includes the 'support' keyword
 
 /**
  * The jid of the pinned classroom, resolving the invite link on first use.
@@ -59,7 +59,7 @@ export const isPinned = () => Boolean(config.schoolGroup)
  */
 export async function pinnedClassroom() {
   const raw = config.schoolGroup
-  if (!raw) return ''
+  if (!raw || String(raw).toLowerCase() === 'support') return '' // handled in classroom()
   if (pinnedJid) return pinnedJid
 
   if (!/@g\.us$/.test(raw) && !parseInviteCode(raw)) {
@@ -109,12 +109,21 @@ export async function classroom() {
   const chosen = (await state()).group
   if (chosen) return chosen
 
+  /*
+   * Only reuse the support group when explicitly asked for with
+   * SCHOOL_GROUP='support'. The support link is the force-join group, which
+   * is usually NOT where you want to hold class - defaulting to it would
+   * quietly teach in the wrong room, and a bot that guesses about which
+   * group it broadcasts into is worse than one that stays quiet.
+   */
+  if (String(config.schoolGroup).toLowerCase() !== 'support') return ''
+
   if (!softJid) {
     const link = getVar('SUPPORT_LINK') || config.supportGroupLink
     const { jid, subject } = await resolveLink(link)
     softJid = jid
     softSubject = subject
-    if (jid) log.info(`School: no SCHOOL_GROUP set - defaulting to the support group (${subject || jid})`)
+    if (jid) log.info(`School: SCHOOL_GROUP='support' - classroom is the support group (${subject || jid})`)
   }
   return softJid
 }

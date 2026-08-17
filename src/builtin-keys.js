@@ -69,9 +69,15 @@ export const BUILTIN_KEYS = {
    * anywhere else - other groups get no lessons, no register, and no
    * AI questions burning your key.
    *
-   * Leave blank and the classroom falls back to SUPPORT_GROUP_LINK (the
-   * group link already configured in .env / src/config.js), or to whichever
-   * group runs .school on. Set it here to lock it beyond doubt.          */
+   * Three ways to set it:
+   *   'https://chat.whatsapp.com/xxxx'  the class group's invite link
+   *   '120363xxxxxxxx@g.us'             its raw jid
+   *   'support'                         reuse SUPPORT_GROUP_LINK (the
+   *                                     force-join group) as the classroom
+   *
+   * Leave blank and no class runs until the owner sends .school on in the
+   * group they want. Blank never guesses - the force-join group is usually
+   * NOT the classroom.                                                    */
   SCHOOL_GROUP: '',
 
   /* ── DATABASE ── keeps balances/settings alive across restarts ─────
