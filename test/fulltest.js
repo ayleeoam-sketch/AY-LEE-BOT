@@ -125,6 +125,7 @@ o = await run('.rolldice 20');     t('rolldice', /rolled/.test(txt(o)))
 o = await run('.flipcoin');        t('flipcoin', /HEADS|TAILS/.test(txt(o)))
 o = await run('.track 2348021016309'); t('track gives safe number metadata', /Nigeria/.test(txt(o)) && /Full number: \+2348021016309/.test(txt(o)) && /live GPS/i.test(txt(o)))
 o = await run('.track 08021016309'); t('track rejects local-only number', /full international number/i.test(txt(o)))
+o = await run('.requestloc');       t('requestloc requires a consenting target', /Usage:.*requestloc/s.test(txt(o)) && /country code/i.test(txt(o)))
 
 console.log('\n── FUN (offline) ──')
 o = await run('.truth');           t('truth', /TRUTH/.test(txt(o)))
