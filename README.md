@@ -112,6 +112,7 @@ Scan the QR, or use a pairing code with `npm run pair`. On panels with no termin
 | **TOOLS** · 21 | `snipe` `afk` `remind` `schedule` `setcmd` `msgs` `listonline` |
 | **BOT** · 20 | `ping` `stats` `alive` `broadcast` `grouplist` `backup` `dbsize` |
 | **SEARCH** · 13 | `news` `tvshow` `img` `wallpaper` `github` `lyrics` `shazam` |
+| **SPORTS** · 2 | `pred` — daily top football picks, any league · `predkey` |
 | **+9 more** | ANIME · IMAGE · GAME · MISC · PRIVACY · AUTOREPLY · PLUGINS · PROCESS · HELP |
 
 </div>
