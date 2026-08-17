@@ -51,6 +51,10 @@ export const SCHEMA = {
   DL_SOURCE: { type: 'enum', values: ['auto', 'api', 'ytdlp'], get: () => config.dlSource },
   DL_PROVIDER: { type: 'string', get: () => config.dlProvider },
 
+  /* database housekeeping (.dbclean / .dbsize) */
+  DB_RETAIN_DAYS: { type: 'number', get: () => config.dbRetainDays },
+  DB_AUTOCLEAN: { type: 'bool', get: () => config.dbAutoClean },
+
   /* VENOM SCHOOL - coins paid per class (half for showing up) */
   SCHOOL_REWARD: { type: 'number', get: () => config.schoolReward },
 

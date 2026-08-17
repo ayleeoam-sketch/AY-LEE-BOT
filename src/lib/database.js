@@ -124,6 +124,9 @@ export async function reconnectDB(uri, dbName) {
   return connectDB()
 }
 
+/** Raw driver handle for admin work (stats, compaction). Null on JSON. */
+export const rawDb = () => (usingMongo ? db : null)
+
 export const isMongo = () => usingMongo
 /** The URI currently in use (may hold credentials - mask before printing). */
 export const currentUri = () => config.mongoUri

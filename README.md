@@ -346,6 +346,36 @@ Set `BOT_ID` explicitly in `.env` if you run two bots from one owner number.
 
 ---
 
+## 🧹 Keeping the 512 MB free tier from filling up
+
+Atlas M0 gives you 512 MB and **no warning before it stops accepting writes** — at which point balances, settings and (if the session lives in Mongo) the login itself stop saving. So the bot cleans up after itself.
+
+```
+.dbsize            what is used, and which collections ate it
+.dbclean dry       preview - deletes nothing
+.dbclean           remove spent records
+.dbclean deep      also prune spent WhatsApp pre-keys, then compact
+.dbkeep 90         days of history to keep
+```
+
+An automatic sweep runs every 6 hours (`.setvar DB_AUTOCLEAN false` to stop it) and only goes `deep` once storage passes 80%. Past 90% the owner gets a warning in the log.
+
+**What it deletes** — only records that are provably spent:
+
+| Collection | Rule |
+|---|---|
+| `attendance` | older than `DB_RETAIN_DAYS` (90) |
+| `tasks` | reminders that fired or expired over 7 days ago |
+| `afk` | notes nobody ever came back from |
+| `users` | ghost records: no coins, no bank, no xp, no items, never played |
+| `session` | `deep` only: oldest pre-keys, keeping the newest 150 |
+
+**What it never touches:** balances, inventories, xp, roles, group settings, autoreplies, custom commands, `.setvar` values, AI keys, and `creds` — your WhatsApp login. If a rule cannot prove a record is dead, the record stays.
+
+> The pre-key rule is the only one that can bite: WhatsApp issues one-time keys, and deleting one that has not been consumed loses messages encrypted to it. That is why it is opt-in, capped, and never runs on the automatic sweep below 80%.
+
+---
+
 ## 🎓 VENOM SCHOOL — the bot teaches its own commands
 
 A 380-command menu is unreadable, so people learn six commands and never find the rest. Dumping the menu on them does not fix that. **Teaching one command at a time, on a timetable, with a quiz and a register, does.**

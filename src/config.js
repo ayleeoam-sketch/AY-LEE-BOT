@@ -129,6 +129,10 @@ export const config = {
   dlSource: (process.env.DL_SOURCE || 'auto').toLowerCase(),
   dlProvider: (process.env.DL_PROVIDER || 'auto').toLowerCase(),
 
+  // database housekeeping - Atlas M0 is 512MB and stops writing when full
+  dbRetainDays: Number(process.env.DB_RETAIN_DAYS || 90),
+  dbAutoClean: bool(process.env.DB_AUTOCLEAN, true),
+
   // VENOM SCHOOL
   schoolReward: Number(process.env.SCHOOL_REWARD || 100),
   // Invite link or jid of the only group allowed to hold classes.
