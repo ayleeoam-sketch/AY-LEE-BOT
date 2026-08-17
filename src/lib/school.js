@@ -44,6 +44,9 @@ const defaults = {
   index: 0,             // position in the syllabus
   windowMin: 20,        // how long the register stays open
   tagAbsent: true,
+  lock: false,          // hush the group while the lesson is being read
+  lockMin: 2,           // for how long
+  maxQuestions: 3,      // AI questions per student per class
   lastSlots: '',        // "2026-08-17:08:00,14:00" - what already ran today
   session: null         // the live session, kept here so a restart resumes it
 }
@@ -213,8 +216,19 @@ export async function startSession({ manual = false, slot = '' } = {}) {
     manual
   }
 
+  if (st.lock) {
+    session.locked = await setLock(st.group, true)
+    session.unlockAt = Date.now() + Math.max(1, st.lockMin) * 60_000
+  }
+
   await saveState({ session, index: st.index + 1 })
-  if (sock) await sock.sendMessage(st.group, { text: body })
+  if (sock) {
+    await sock.sendMessage(st.group, {
+      text: session.locked
+        ? `${body}\n\n🔇 _Group hushed for ${st.lockMin} min while you read. The floor opens right after._`
+        : body
+    })
+  }
   log.info(`School: taught .${lesson.plugin.name} (lesson ${lesson.number}/${lesson.total})`)
   return session
 }
@@ -274,6 +288,7 @@ export async function closeSession() {
   const s = st.session
   if (!s) return null
 
+  if (s.locked) await setLock(s.group, false) // never leave a group muted
   const rows = await DB.attendance.find({ session: s.id })
   const present = rows.map((r) => r.number)
   const correct = rows.filter((r) => r.correct === true).map((r) => r.number)
@@ -346,6 +361,178 @@ export async function classTop(limit = 10) {
     .slice(0, limit)
 }
 
+/* ------------------------------ Q & A ------------------------------ */
+
+/**
+ * Find the commands a question is actually about.
+ *
+ * This is what keeps answers honest: whatever the AI says, it is handed the
+ * real registry entries first, so it explains commands that exist instead of
+ * inventing ones that do not.
+ */
+export function searchCommands(question, limit = 6) {
+  const words = String(question)
+    .toLowerCase()
+    .replace(/[^a-z0-9\s.]/g, ' ')
+    .split(/\s+/)
+    .filter((w) => w.length > 2)
+
+  const all = syllabus()
+  const hays = all.map(
+    (p) => `${p.name} ${(p.alias || []).join(' ')} ${p.desc || ''} ${p.category}`.toLowerCase()
+  )
+
+  /*
+   * Weight words by how rare they are. Without this, "remove background from
+   * picture" matched .kick and .demote - because "remove" appears in dozens
+   * of descriptions while "background" appears in one. Common words are worth
+   * almost nothing; the distinctive one decides the answer.
+   */
+  const weight = (w) => {
+    const df = hays.reduce((n, h) => n + (h.includes(w) ? 1 : 0), 0)
+    if (!df) return 0
+    const ratio = df / hays.length
+    return ratio > 0.12 ? 0.25 : ratio > 0.04 ? 1 : 2.5
+  }
+  const weights = new Map(words.map((w) => [w, weight(w)]))
+
+  const scored = []
+  for (const [i, plugin] of all.entries()) {
+    let score = 0
+    let hits = 0
+    for (const w of words) {
+      if (plugin.name === w || (plugin.alias || []).includes(w)) {
+        score += 8
+        hits++
+      } else if (hays[i].includes(w)) {
+        score += weights.get(w) || 0
+        if ((weights.get(w) || 0) >= 1) hits++
+      }
+    }
+    // one common word in common is not a match, it is a coincidence
+    if (score >= 2 && hits > 0) scored.push({ plugin, score })
+  }
+  scored.sort((a, b) => b.score - a.score)
+  if (!scored.length) return []
+
+  // keep only what is genuinely close to the best hit - a long tail of weak
+  // matches makes the teacher look like it is guessing, which it would be
+  const top = scored[0].score
+  const cutoff = Math.max(3, top * 0.45)
+  return scored.filter((x) => x.score >= cutoff).slice(0, limit).map((x) => x.plugin)
+}
+
+/**
+ * Answer a student's question, teacher-style.
+ *
+ * With an AI key: grounded in the current lesson plus any matching commands,
+ * and told in the system prompt to stay inside this bot's world.
+ * Without one: a straight answer built from the registry - less charming,
+ * never wrong, and it still beats silence.
+ */
+export async function answerQuestion(question, { prefix = '.', lessonName = '' } = {}) {
+  const matches = searchCommands(question)
+  const lesson = lessonName ? commands.get(lessonName) : null
+
+  const facts = [
+    lesson ? `CURRENT LESSON: ${prefix}${lesson.name} - ${lesson.desc} (usage: ${lesson.usage})` : '',
+    ...matches.map((p) => `${prefix}${p.name} - ${p.desc} (usage: ${p.usage || prefix + p.name})`)
+  ].filter(Boolean).join('\n')
+
+  try {
+    const { text } = await chat(
+      `A student in your WhatsApp class asked: "${String(question).slice(0, 400)}"\n\n` +
+        `These are the ONLY real commands relevant to it:\n${facts || '(none matched)'}\n\n` +
+        `Answer as their teacher: warm, under 70 words, plain English. Show the exact command to type. ` +
+        `If nothing above answers it, say so and suggest ${prefix}menu - never invent a command.`,
+      {
+        system:
+          'You are the teacher for a WhatsApp bot class. You only discuss this bot and its commands. ' +
+          'Never invent commands that were not given to you. Keep it short and practical.',
+        maxTokens: 220,
+        temperature: 0.6
+      }
+    )
+    return { text: text.trim(), source: 'ai', matches }
+  } catch {
+    if (!matches.length) {
+      return {
+        text:
+          `🧑‍🏫 I could not match that to a command.\n\nTry *${prefix}menu* for the full list, ` +
+          `or ask about the command we are covering today.`,
+        source: 'registry',
+        matches
+      }
+    }
+    const body = matches
+      .slice(0, 3)
+      .map((p) => `▸ *${prefix}${p.name}* — ${p.desc}\n   \`${p.usage || prefix + p.name}\``)
+      .join('\n\n')
+    return {
+      text: `🧑‍🏫 That sounds like:\n\n${body}`,
+      source: 'registry',
+      matches
+    }
+  }
+}
+
+/** Per-student question budget, so one person cannot drain the AI key. */
+export async function useQuestionCredit(number) {
+  const st = await state()
+  const s = st.session
+  if (!s || Date.now() > s.endsAt) return { ok: false, reason: 'closed' }
+
+  const row = await DB.attendance.findOne({ session: s.id, number })
+  const used = row?.questions || 0
+  const cap = st.maxQuestions
+  if (used >= cap) return { ok: false, reason: 'limit', cap }
+
+  await DB.attendance.set(
+    { session: s.id, number },
+    { group: s.group, command: s.command, at: row?.at || Date.now(), correct: row?.correct ?? null, questions: used + 1 }
+  )
+  return { ok: true, used: used + 1, cap, lesson: s.command }
+}
+
+/* ------------------------------ hush ------------------------------- */
+
+/**
+ * Quiet the room while the lesson is being read, then open the floor.
+ *
+ * A real class is not a free-for-all during the lecture and silent after it -
+ * it is the other way round. The bot needs to be group admin; if it is not,
+ * the class still runs and the owner is told once rather than every session.
+ */
+async function setLock(group, on) {
+  if (!sock) return false
+  try {
+    await sock.groupSettingUpdate(group, on ? 'announcement' : 'not_announcement')
+    return true
+  } catch (e) {
+    log.warn(`School: could not ${on ? 'lock' : 'unlock'} the classroom (${e.message})`)
+    return false
+  }
+}
+
+/** Called by the ticker: reopen the floor once the hush is over. */
+async function maybeUnlock(st) {
+  const s = st.session
+  if (!s?.locked || !s.unlockAt || Date.now() < s.unlockAt) return
+  const ok = await setLock(s.group, false)
+  await saveState({ session: { ...s, locked: false } })
+  if (ok && sock) {
+    await sock
+      .sendMessage(s.group, {
+        text:
+          `🔊 *The floor is open.*\n\n` +
+          `▸ Answer the quiz — just type *A*, *B* or *C*\n` +
+          `▸ Ask me anything about today's lesson: *.askteacher how do I use it?*\n` +
+          `▸ Any message here marks you present`
+      })
+      .catch(() => {})
+  }
+}
+
 /* ------------------------------ clock ------------------------------ */
 
 /** "HH:MM" in the school's timezone. */
@@ -406,7 +593,10 @@ export async function tick() {
     await closeSession()
     return
   }
-  if (st.session) return // class in progress
+  if (st.session) {
+    await maybeUnlock(st)
+    return // class in progress
+  }
 
   const today = dateKey(st.tz)
   const [day, ran = ''] = String(st.lastSlots || '').split(':').length > 1
@@ -423,6 +613,7 @@ export async function tick() {
 
 export default {
   state, saveState, syllabus, lessonAt, buildQuiz, composeLesson,
+  answerQuestion, searchCommands, useQuestionCredit,
   startSession, markPresent, submitAnswer, closeSession, grades, classTop,
   attachSchool, tick, dueSlot, nowHHMM, dateKey
 }

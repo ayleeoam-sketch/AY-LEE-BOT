@@ -369,6 +369,7 @@ Three classes a day in your group:
 | Student | Owner |
 |---|---|
 | `.present` `.answer A` | `.school on/off` `.lesson` `.endclass` |
+| `.askteacher <question>` | `.classlock on 2` `.classquestions 3` |
 | `.mygrades` `.classtop` | `.classtime` `.classtz` |
 | `.attendance` `.syllabus` | |
 
@@ -376,7 +377,27 @@ Three classes a day in your group:
 
 Scoring is 1 point for attending, 2 for a correct answer, plus coins (`.setvar SCHOOL_REWARD 100`). Progress, the register and the current class all live in the database, so a restart mid-class resumes and still posts the register.
 
-**No API key needed.** Lessons come from the plugin registry itself, which is always accurate. If an AI key happens to be set, the bot adds a short "teacher's note" in plainer language — and if the AI is down, the lesson posts anyway.
+**Students can ask questions, and the bot answers like a teacher**
+
+```
+.askteacher how do I download a song?
+```
+
+During class you do not even need the command — **end any message with `?`** and the bot answers, because in a real class nobody types a command to raise their hand.
+
+Answers are **grounded in the live command registry**: the bot searches its own plugins first and hands those real entries to the AI, with instructions never to invent a command that does not exist. Word matching is weighted by rarity, so *"remove background from picture"* is decided by "background", not by "remove" appearing in forty descriptions.
+
+Each student gets a **question budget per class** (`.classquestions 3`) — that is what stops one person draining your AI key in a single lesson. Outside class hours, `.askteacher` is unlimited.
+
+**Should the group be locked?** Your call, and there is a middle path:
+
+```
+.classlock on 2      hush the group for 2 minutes, then open the floor
+```
+
+The bot mutes the group the moment the lesson lands so it is not buried under chat, then **unmutes and announces "the floor is open"**. It never locks during the quiz or the register — students must be able to talk to be marked present. The group is always unmuted when the register closes, even if the bot restarts mid-class. Needs the bot to be group admin; if it is not, class runs anyway without the hush.
+
+**No API key needed.** Lessons come from the plugin registry itself, which is always accurate. With a key, the bot adds a warmer "teacher's note" and answers free-form questions; without one it still answers from the registry — less charming, never wrong.
 
 ---
 

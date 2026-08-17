@@ -1,6 +1,7 @@
 import {
   state, saveState, syllabus, lessonAt, startSession, markPresent, submitAnswer,
-  closeSession, grades, classTop, nowHHMM, dateKey
+  closeSession, grades, classTop, nowHHMM, dateKey,
+  answerQuestion, useQuestionCredit
 } from '../../src/lib/school.js'
 import DB from '../../src/lib/database.js'
 import { getVar } from '../../src/lib/vars.js'
@@ -273,6 +274,104 @@ export default [
     }
   },
 
+  {
+    name: 'askteacher',
+    alias: ['qn', 'question', 'teacher'],
+    category: 'USER',
+    desc: 'Ask the bot a question about its commands',
+    usage: '.askteacher how do I download a song?',
+    cooldown: 5,
+    async run({ m, text, prefix }) {
+      const q = (text || m.quoted?.text || '').trim()
+      if (!q) {
+        return m.reply(
+          `🧑‍🏫 *Ask me anything about this bot*\n\n` +
+            `▸ ${prefix}askteacher how do I make a sticker?\n` +
+            `▸ ${prefix}askteacher what does .afk do?\n\n` +
+            `_During class you can just end a message with a question mark and I will answer._`
+        )
+      }
+
+      const st = await state()
+      const inClass = st.session && Date.now() <= st.session.endsAt && m.chat === st.session.group
+
+      // the budget only applies inside a live class; outside it, ask away
+      if (inClass) {
+        const credit = await useQuestionCredit(numberOf(m.sender))
+        if (!credit.ok && credit.reason === 'limit') {
+          return m.reply(
+            `🧑‍🏫 That is your *${credit.cap}* questions for this class, @${numberOf(m.sender)} — ` +
+              `let the others have a turn. Ask again after the register closes.`
+          )
+        }
+        await markPresent(numberOf(m.sender))
+      }
+
+      await m.react('🧑‍🏫')
+      const res = await answerQuestion(q, {
+        prefix,
+        lessonName: inClass ? st.session.command : ''
+      })
+      await m.reply(
+        `🧑‍🏫 *TEACHER*\n\n${res.text}` +
+          (res.source === 'registry' ? `\n\n_(answered from my command list — no AI key set)_` : '')
+      )
+      await m.react('✅')
+    }
+  },
+  {
+    name: 'classlock',
+    alias: ['classhush', 'lockclass'],
+    category: 'CONFIG',
+    desc: 'Hush the group while the lesson is read',
+    usage: '.classlock on 2  |  .classlock off',
+    owner: true,
+    async run({ m, args, prefix }) {
+      const st = await state()
+      const action = (args[0] || '').toLowerCase()
+
+      if (action !== 'on' && action !== 'off') {
+        return m.reply(
+          `🔇 *Class hush* — currently *${st.lock ? `on, ${st.lockMin} min` : 'off'}*\n\n` +
+            `When on, I mute the group the moment the lesson lands so it is not buried under chat, ` +
+            `then unmute and announce that the floor is open. The register and the quiz run on the ` +
+            `open floor — students must be able to talk to be marked present.\n\n` +
+            `▸ *${prefix}classlock on 2* — hush for 2 minutes\n` +
+            `▸ *${prefix}classlock off*\n\n` +
+            `_I must be a group admin. If I am not, class still runs, just without the hush._`
+        )
+      }
+
+      const minutes = Math.min(10, Math.max(1, parseInt(args[1]) || st.lockMin || 2))
+      await saveState({ lock: action === 'on', lockMin: minutes })
+      await m.reply(
+        action === 'on'
+          ? `🔇 Hush on. I will mute the group for *${minutes} min* at the start of each class, then open the floor.`
+          : `🔊 Hush off. The group stays open for the whole class.`
+      )
+    }
+  },
+  {
+    name: 'classquestions',
+    alias: ['qlimit', 'setqlimit'],
+    category: 'CONFIG',
+    desc: 'How many questions each student may ask per class',
+    usage: '.classquestions 3',
+    owner: true,
+    async run({ m, args, prefix }) {
+      const st = await state()
+      const n = parseInt(args[0])
+      if (!Number.isFinite(n) || n < 0 || n > 20) {
+        return m.reply(
+          `❓ *Usage:* ${prefix}classquestions <0-20>\n\nCurrently *${st.maxQuestions}* per student per class.\n\n` +
+            `_This is what stops one person burning through your AI key in a single lesson. 0 disables questions during class._`
+        )
+      }
+      await saveState({ maxQuestions: n })
+      await m.reply(`❓ Students may now ask *${n}* question${n === 1 ? '' : 's'} each per class.`)
+    }
+  },
+
   /* ----------------------------------------------------------------
    * Passive attendance: anyone who talks in the classroom while a class
    * is running is in the room, so mark them present. Bare A/B/C is taken
@@ -302,7 +401,29 @@ export default [
           }
           return
         }
+
         await markPresent(number)
+
+        /*
+         * A real class has questions. Anything ending in "?" during the
+         * lesson gets a teacher's answer - no command to remember, which is
+         * the whole point. Commands are skipped (they answer themselves),
+         * and each student has a per-class budget so one person cannot
+         * empty the AI key.
+         */
+        const prefix = String(getVar('PREFIX') || '.')
+        if (body.endsWith('?') && body.length > 10 && !body.startsWith(prefix)) {
+          const credit = await useQuestionCredit(number)
+          if (!credit.ok) {
+            if (credit.reason === 'limit') {
+              await m.reply(`🧑‍🏫 @${number}, that is your ${credit.cap} questions for this class. Others first — ask again after the register.`)
+            }
+            return
+          }
+          await m.react('🧑‍🏫').catch(() => {})
+          const res = await answerQuestion(body, { prefix, lessonName: st.session.command })
+          await m.reply(`🧑‍🏫 *TEACHER*\n\n${res.text}`)
+        }
       } catch {
         /* attendance must never break message handling */
       }
