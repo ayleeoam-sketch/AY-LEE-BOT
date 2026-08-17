@@ -2,6 +2,16 @@ import DB from '../../src/lib/database.js'
 import { getBuffer } from '../../src/lib/api.js'
 import { toJid, pick } from '../../src/lib/utils.js'
 
+/** Build a normal WhatsApp media payload from an unwrapped view-once message. */
+function revealedMedia(quoted, buffer, caption) {
+  if (quoted.type === 'imageMessage') return { image: buffer, caption }
+  if (quoted.type === 'videoMessage') return { video: buffer, caption }
+  if (quoted.type === 'audioMessage') {
+    return { audio: buffer, mimetype: 'audio/mpeg', ptt: true }
+  }
+  return null
+}
+
 export default [
   {
     name: 'vv',
@@ -12,15 +22,36 @@ export default [
     async run({ m }) {
       if (!m.quoted) return m.reply('👁️ Reply to a view-once message with *.vv*')
       try {
-        const buffer = await m.quoted.download()
-        const type = m.quoted.type
-        const caption = '👁️ *View-once revealed*'
-        if (type === 'imageMessage') await m.reply({ image: buffer, caption })
-        else if (type === 'videoMessage') await m.reply({ video: buffer, caption })
-        else if (type === 'audioMessage') await m.reply({ audio: buffer, mimetype: 'audio/mpeg', ptt: true })
-        else return m.reply('❌ That is not a view-once photo, video or voice note.')
+        const content = revealedMedia(m.quoted, await m.quoted.download(), '👁️ *View-once revealed*')
+        if (!content) return m.reply('❌ That is not a view-once photo, video or voice note.')
+        await m.reply(content)
       } catch (e) {
         await m.reply(`❌ Could not reveal it: ${e.message}`)
+      }
+    }
+  },
+  {
+    name: 'vvpr',
+    alias: ['viewonceprivate', 'revealprivate'],
+    category: 'TOOLS',
+    desc: 'Reveal view-once media privately in your DM',
+    usage: '.vvpr (reply to a view-once message)',
+    async run({ m, sock }) {
+      if (!m.quoted) return m.reply('🔒 Reply to a view-once message with *.vvpr*')
+      try {
+        const content = revealedMedia(
+          m.quoted,
+          await m.quoted.download(),
+          '🔒 *View-once revealed privately*'
+        )
+        if (!content) return m.reply('❌ That is not a view-once photo, video or voice note.')
+
+        // Never quote the group message here: the recovered media must exist only
+        // in the requester's one-to-one chat with the bot.
+        await sock.sendMessage(m.sender, content)
+        if (m.isGroup) await m.reply('🔒 Sent privately — check your DM with the bot.')
+      } catch (e) {
+        await m.reply(`❌ Could not send it privately: ${e.message}`)
       }
     }
   },

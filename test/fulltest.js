@@ -234,6 +234,7 @@ o = await run('.sticker');         t('sticker prompts for media', /Send an image
 o = await run('.tomp3');           t('tomp3 prompts', /Reply to/.test(txt(o)))
 o = await run('.nightcore');       t('nightcore prompts', /Reply to/.test(txt(o)))
 o = await run('.vv');              t('vv prompts', /Reply to/.test(txt(o)))
+o = await run('.vvpr');            t('vvpr prompts for private reveal', /Reply to/.test(txt(o)) && /vvpr/.test(txt(o)))
 o = await run('.photo');           t('photo prompts', /Reply to a sticker/.test(txt(o)))
 o = await run('.take');            t('take prompts', /Reply to a sticker/.test(txt(o)))
 
