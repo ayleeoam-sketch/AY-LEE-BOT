@@ -32,6 +32,8 @@ npm start
 > OWNER_NAME=Your Name
 > ```
 
+`OWNER_NUMBER` identifies the administrator of that deployment for permissions and private startup alerts. It does **not** replace the public original-creator credit: `.owner` and the menu always direct users to TAPRUSH EMP at `2348021016309`.
+
 **No API keys to hunt for.** Everything the bot needs ships in [`src/builtin-keys.js`](../src/builtin-keys.js) — database included — and is used whenever the environment leaves a value blank. Clone, set `OWNER_NUMBER`, run.
 
 | Want to override? | How |

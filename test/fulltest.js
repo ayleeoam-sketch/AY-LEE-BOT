@@ -105,12 +105,12 @@ await saveUser(seed)
 let o
 
 console.log('── CORE ──')
-o = await run('.menu');            t('menu renders with branding', /VENOM MD BOT/.test(txt(o)) && /TAPRUSH EMPIRE/.test(txt(o)))
+o = await run('.menu');            t('menu renders with creator branding', /VENOM MD BOT/.test(txt(o)) && /TAPRUSH EMP/.test(txt(o)) && /2348021016309/.test(txt(o)))
 o = await run('.menu economy');    t('menu category filter', /𝘣𝘢𝘭𝘢𝘯𝘤𝘦/.test(txt(o)))
 o = await run('.menu ping');       t('menu command help card', /Category: BOT/.test(txt(o)))
 o = await run('.ping');            t('ping', /Pong|Ping/.test(txt(o)))
 o = await run('.stats');           t('stats', /Plugins/.test(txt(o)))
-o = await run('.owner');           t('owner vcard', o.some((s) => s.contacts))
+o = await run('.owner');           t('owner vcard uses original creator', o.some((s) => s.contacts?.contacts?.[0]?.vcard?.includes('waid=2348021016309')))
 o = await run('.jid');             t('jid', /Chat:/.test(txt(o)))
 
 console.log('\n── UTILITIES (offline) ──')
