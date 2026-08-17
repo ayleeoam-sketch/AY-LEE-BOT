@@ -1,5 +1,6 @@
 import DB from './database.js'
 import log from './logger.js'
+import config from '../config.js'
 import { commands } from './pluginLoader.js'
 import { getVar } from './vars.js'
 import { addWallet } from './economy.js'
@@ -29,6 +30,74 @@ import { chat } from './ai.js'
 
 const STATE_KEY = 'state'
 const TICK_MS = 60_000
+
+/* -------------------------- the one classroom -------------------------- */
+
+/**
+ * VENOM SCHOOL teaches in exactly one group - the one pinned in
+ * src/builtin-keys.js (SCHOOL_GROUP) or .env. Every other group gets
+ * nothing: no lessons, no register, no AI questions eating the key.
+ *
+ * A link is resolved to a jid once and cached, because that is what people
+ * actually have to hand. A raw jid works too.
+ */
+let pinnedJid = ''
+let pinnedSubject = ''
+
+/** "https://chat.whatsapp.com/ABC123" -> "ABC123" */
+export const parseInviteCode = (raw) =>
+  String(raw || '').trim().match(/chat\.whatsapp\.com\/(?:invite\/)?([A-Za-z0-9]{10,})/)?.[1] || ''
+
+/** Is the classroom fixed in the code/env rather than chosen from chat? */
+export const isPinned = () => Boolean(config.schoolGroup)
+
+/**
+ * The jid of the pinned classroom, resolving the invite link on first use.
+ * @returns {Promise<string>} '' when nothing is pinned or it cannot resolve
+ */
+export async function pinnedClassroom() {
+  const raw = config.schoolGroup
+  if (!raw) return ''
+  if (pinnedJid) return pinnedJid
+
+  if (/@g\.us$/.test(raw)) {
+    pinnedJid = raw
+    return pinnedJid
+  }
+
+  const code = parseInviteCode(raw)
+  if (!code) {
+    log.warn(`SCHOOL_GROUP is neither a jid nor a chat.whatsapp.com link: ${raw}`)
+    return ''
+  }
+  if (!sock) return ''
+  try {
+    const info = await sock.groupGetInviteInfo(code)
+    if (info?.id) {
+      pinnedJid = info.id
+      pinnedSubject = info.subject || ''
+      log.ok(`School classroom pinned: ${pinnedSubject || pinnedJid}`)
+    }
+  } catch (e) {
+    log.warn(`Could not resolve SCHOOL_GROUP invite: ${e.message}`)
+  }
+  return pinnedJid
+}
+
+/** The classroom in force: the pinned one wins over anything set from chat. */
+export async function classroom() {
+  const pinned = await pinnedClassroom()
+  if (pinned) return pinned
+  return (await state()).group || ''
+}
+
+/** Guard used by every class command. */
+export async function isClassroom(jid) {
+  const room = await classroom()
+  return Boolean(room) && room === jid
+}
+
+export const pinnedName = () => pinnedSubject
 
 let sock = null
 let timer = null
@@ -197,7 +266,14 @@ const windowMinutes = async () => (await state()).windowMin
 /** Start a class now. Returns the session, or null when there is nothing to teach. */
 export async function startSession({ manual = false, slot = '' } = {}) {
   const st = await state()
-  if (!st.group) throw new Error('No classroom set. Run .school on in the group you want to teach in.')
+  const group = await classroom()
+  if (!group) {
+    throw new Error(
+      isPinned()
+        ? 'SCHOOL_GROUP is set but I could not resolve that group. Check the invite link in src/builtin-keys.js.'
+        : 'No classroom set. Run .school on in the group you want to teach in.'
+    )
+  }
 
   const lesson = lessonAt(st.index)
   if (!lesson) throw new Error('No teachable commands found.')
@@ -208,7 +284,7 @@ export async function startSession({ manual = false, slot = '' } = {}) {
 
   const session = {
     id: `${dateKey(st.tz)}-${slot || 'manual'}-${lesson.number}`,
-    group: st.group,
+    group,
     command: lesson.plugin.name,
     answer: quiz.answer,
     startedAt: Date.now(),
@@ -217,13 +293,13 @@ export async function startSession({ manual = false, slot = '' } = {}) {
   }
 
   if (st.lock) {
-    session.locked = await setLock(st.group, true)
+    session.locked = await setLock(group, true)
     session.unlockAt = Date.now() + Math.max(1, st.lockMin) * 60_000
   }
 
   await saveState({ session, index: st.index + 1 })
   if (sock) {
-    await sock.sendMessage(st.group, {
+    await sock.sendMessage(group, {
       text: session.locked
         ? `${body}\n\n🔇 _Group hushed for ${st.lockMin} min while you read. The floor opens right after._`
         : body
@@ -586,7 +662,8 @@ export function attachSchool(socket) {
 
 export async function tick() {
   const st = await state()
-  if (!st.enabled || !st.group) return
+  if (!st.enabled) return
+  if (!(await classroom())) return // nothing pinned and nothing chosen
 
   // close a register whose window has expired (also recovers after a restart)
   if (st.session && Date.now() > st.session.endsAt) {
@@ -613,6 +690,7 @@ export async function tick() {
 
 export default {
   state, saveState, syllabus, lessonAt, buildQuiz, composeLesson,
+  classroom, isClassroom, isPinned, pinnedClassroom,
   answerQuestion, searchCommands, useQuestionCredit,
   startSession, markPresent, submitAnswer, closeSession, grades, classTop,
   attachSchool, tick, dueSlot, nowHHMM, dateKey

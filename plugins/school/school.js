@@ -1,7 +1,8 @@
 import {
   state, saveState, syllabus, lessonAt, startSession, markPresent, submitAnswer,
   closeSession, grades, classTop, nowHHMM, dateKey,
-  answerQuestion, useQuestionCredit
+  answerQuestion, useQuestionCredit,
+  classroom, isClassroom, isPinned, pinnedName
 } from '../../src/lib/school.js'
 import DB from '../../src/lib/database.js'
 import { getVar } from '../../src/lib/vars.js'
@@ -14,6 +15,31 @@ import { getVar } from '../../src/lib/vars.js'
  */
 
 const numberOf = (jid) => String(jid).split('@')[0].split(':')[0]
+
+/**
+ * Class happens in ONE group and nowhere else.
+ *
+ * Returns a refusal string when this chat is not the classroom, so every
+ * command can start with a single guard line. Owner DMs pass for the admin
+ * commands - the owner should not have to stand in the classroom to change
+ * the timetable.
+ */
+async function wrongRoom(m, { allowOwnerDm = false } = {}) {
+  if (await isClassroom(m.chat)) return null
+  if (allowOwnerDm && !m.isGroup && m.isOwner) return null
+
+  const room = await classroom()
+  if (!room) {
+    return isPinned()
+      ? '🎓 A classroom is pinned in the bot files but I could not resolve it yet. Ask the owner to check SCHOOL_GROUP.'
+      : '🎓 No classroom has been set up yet.'
+  }
+  return (
+    `🎓 Class does not run here.\n\n` +
+    `VENOM SCHOOL teaches in one group only${pinnedName() ? `: *${pinnedName()}*` : ''}` +
+    `${isPinned() ? ' — pinned in the bot files and not changeable from chat.' : '.'}`
+  )
+}
 
 export default [
   {
@@ -29,6 +55,13 @@ export default [
       const st = await state()
 
       if (action === 'on' || action === 'start') {
+        if (isPinned() && !(await isClassroom(m.chat))) {
+          return m.reply(
+            `🔒 The classroom is pinned in the bot files${pinnedName() ? ` to *${pinnedName()}*` : ''}.\n\n` +
+              `I will only teach there. To move it, change *SCHOOL_GROUP* in \`src/builtin-keys.js\` and restart — ` +
+              `deliberately not changeable from chat, so nobody can hijack the class into another group.`
+          )
+        }
         await saveState({ group: m.chat, enabled: true })
         const all = syllabus()
         return m.reply(
@@ -57,7 +90,7 @@ export default [
       await m.reply(
         `╭━━━〔 🎓 *SCHOOL* 〕━━━╮\n` +
           `┃ ${st.enabled ? '🟢 In session' : '🔴 Dismissed'}\n` +
-          `┃ 🏫 Classroom: ${st.group ? (st.group === m.chat ? 'this group' : st.group.split('@')[0]) : 'not set'}\n` +
+          `┃ 🏫 Classroom: ${(await classroom()) ? ((await isClassroom(m.chat)) ? 'this group' : pinnedName() || (await classroom()).split('@')[0]) : 'not set'}${isPinned() ? ' 🔒 pinned in file' : ''}\n` +
           `┃ 🕒 Times: ${st.times} (${st.tz})\n` +
           `┃ 🕰️ Now: ${nowHHMM(st.tz)} · ${dateKey(st.tz)}\n` +
           `┃ 📚 Next: *.${lesson?.plugin.name || '—'}* (${lesson?.number || 0}/${all.length})\n` +
@@ -118,9 +151,11 @@ export default [
     owner: true,
     cooldown: 30,
     async run({ m }) {
+      const off = await wrongRoom(m, { allowOwnerDm: true })
+      if (off) return m.reply(off)
       try {
         const st = await state()
-        if (!st.group) await saveState({ group: m.chat, enabled: true })
+        if (!st.group && !isPinned()) await saveState({ group: m.chat, enabled: true })
         if (st.session) return m.reply('🎓 A class is already running — let the register close first.')
         await startSession({ manual: true })
       } catch (e) {
@@ -148,6 +183,8 @@ export default [
     desc: 'Mark yourself present in class',
     usage: '.present',
     async run({ m }) {
+      const off = await wrongRoom(m)
+      if (off) return m.reply(off)
       const res = await markPresent(numberOf(m.sender))
       if (res === 'closed') return m.reply('🎓 No class is running right now. Check *.school* for the timetable.')
       if (res === 'already') return m.reply('✅ You are already marked present.')
@@ -161,6 +198,8 @@ export default [
     desc: 'Answer the class question',
     usage: '.answer A',
     async run({ m, args, prefix }) {
+      const off = await wrongRoom(m)
+      if (off) return m.reply(off)
       const res = await submitAnswer(numberOf(m.sender), args[0])
       if (!res.ok) {
         const why = {
@@ -289,6 +328,14 @@ export default [
             `▸ ${prefix}askteacher how do I make a sticker?\n` +
             `▸ ${prefix}askteacher what does .afk do?\n\n` +
             `_During class you can just end a message with a question mark and I will answer._`
+        )
+      }
+
+      // other groups get nothing - that is what keeps the AI key for the class
+      if (m.isGroup && !(await isClassroom(m.chat))) {
+        return m.reply(
+          `🎓 I only take questions in the class group${pinnedName() ? ` (*${pinnedName()}*)` : ''}` +
+            ` or in my DM.`
         )
       }
 

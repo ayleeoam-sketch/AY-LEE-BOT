@@ -63,6 +63,14 @@ export const BUILTIN_KEYS = {
   // https://pixabay.com/api/docs/     — free, instant on signup
   PIXABAY_KEY: '',
 
+  /* ── CLASSROOM ── the ONE group VENOM SCHOOL is allowed to teach in ──
+   * Paste your group's invite link (or its raw jid, 1234567890@g.us).
+   * The bot resolves the link once and then refuses to run a class
+   * anywhere else - other groups get no lessons, no register, and no
+   * AI questions burning your key. Leave blank to pick the classroom
+   * from chat instead, with .school on.                                 */
+  SCHOOL_GROUP: '',
+
   /* ── DATABASE ── keeps balances/settings alive across restarts ─────
    * Everyone who leaves this in place shares one MongoDB account, so each
    * deploy is automatically given its own database inside it, named

@@ -131,6 +131,10 @@ export const config = {
 
   // VENOM SCHOOL
   schoolReward: Number(process.env.SCHOOL_REWARD || 100),
+  // Invite link or jid of the only group allowed to hold classes.
+  // Set here or in src/builtin-keys.js; blank means "whichever group ran
+  // .school on". When set, it cannot be overridden from chat.
+  schoolGroup: (process.env.SCHOOL_GROUP || '').trim(),
 
   // affiliate programme - .affiliate builds share links off this
   affiliateUrl: (process.env.AFFILIATE_URL || 'https://github.com/MykelGoal/VENOM-MD-BOT').trim(),

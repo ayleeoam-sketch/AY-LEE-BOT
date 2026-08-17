@@ -350,10 +350,18 @@ Set `BOT_ID` explicitly in `.env` if you run two bots from one owner number.
 
 A 380-command menu is unreadable, so people learn six commands and never find the rest. Dumping the menu on them does not fix that. **Teaching one command at a time, on a timetable, with a quiz and a register, does.**
 
-Three classes a day in your group:
+**One group, pinned in the code.** Put your class group's invite link in `SCHOOL_GROUP` (in [`src/builtin-keys.js`](src/builtin-keys.js) or `.env`) and school runs *there and nowhere else*:
+
+```js
+SCHOOL_GROUP: 'https://chat.whatsapp.com/YourClassGroupLink',
+```
+
+The link is resolved to a group id once, then enforced everywhere. Every other group the bot sits in gets **no lessons, no register, and no AI questions** — which is also what stops strangers draining your API keys. It cannot be moved from chat: `.school on` in another group is refused, and even a database edit loses to the pin. Leave it blank and the classroom is simply whichever group runs `.school on`.
+
+Three classes a day:
 
 ```
-.school on                     turn the classroom on here (owner)
+.school on                     confirm the classroom (owner)
 .classtime 08:00,14:00,20:00   timetable
 .classtz Africa/Lagos          timezone
 .lesson                        teach one right now
@@ -387,7 +395,7 @@ During class you do not even need the command — **end any message with `?`** a
 
 Answers are **grounded in the live command registry**: the bot searches its own plugins first and hands those real entries to the AI, with instructions never to invent a command that does not exist. Word matching is weighted by rarity, so *"remove background from picture"* is decided by "background", not by "remove" appearing in forty descriptions.
 
-Each student gets a **question budget per class** (`.classquestions 3`) — that is what stops one person draining your AI key in a single lesson. Outside class hours, `.askteacher` is unlimited.
+Each student gets a **question budget per class** (`.classquestions 3`) — that is what stops one person draining your AI key in a single lesson. Outside class hours `.askteacher` still works, but only in the class group or the bot's DM; in any other group it politely declines.
 
 **Should the group be locked?** Your call, and there is a middle path:
 
