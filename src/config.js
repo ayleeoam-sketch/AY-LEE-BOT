@@ -125,6 +125,12 @@ export const config = {
   // image shown above the menu - URL or local path; blank uses assets/menu.jpg
   menuImage: (process.env.MENU_IMAGE || '').trim(),
 
+  // affiliate programme - .affiliate builds share links off this
+  affiliateUrl: (process.env.AFFILIATE_URL || 'https://github.com/MykelGoal/VENOM-MD-BOT').trim(),
+  refReward: Number(process.env.REF_REWARD || 500),
+  refBonus: Number(process.env.REF_BONUS || 250),
+  refVipAt: Number(process.env.REF_VIP_AT || 5),
+
   // api keys
   keys: {
     openai: process.env.OPENAI_API_KEY || '',

@@ -252,6 +252,8 @@ export default {
 | `src/lib/pluginLoader.js` | Recursive auto-discovery + hot reload. |
 | `src/builtin-keys.js` | Keys + database URI that ship with the code — the one file to edit. |
 | `src/lib/mongoStore.js` | Persists a URI set with `.setmongo` outside the database. |
+| `src/lib/roles.js` | Staff ladder — who may run what. |
+| `src/lib/affiliate.js` | Referral codes, claims, rewards, leaderboard. |
 | `src/lib/database.js` | MongoDB with automatic JSON fallback. |
 | `src/lib/mongoAuth.js` | Session in Mongo — **survives Pterodactyl redeploys**. |
 | `src/lib/media.js` | Bundled ffmpeg: stickers, EXIF, audio FX, PTV. |
@@ -341,6 +343,60 @@ So another deployer cannot rename your bot or spend your users' coins by acciden
 Set `BOT_ID` explicitly in `.env` if you run two bots from one owner number.
 
 </details>
+
+---
+
+## 👥 Staff Roles
+
+Other people can help run the bot without holding the keys to it. Each rung inherits everything below it.
+
+<div align="center">
+
+| Role | Unlocks |
+|:---|:---|
+| 👑 **Owner** | everything — from `OWNER_NUMBER`, cannot be granted |
+| 🛡️ **Admin** | every command except the locked list |
+| ✏️ **Editor** | bot content: `.setcmd`, filters, welcome/goodbye — plus moderation |
+| 🔨 **Moderator** | `.ban` `.warn` `.kick` `.mute` `.lock` and group guards, **without being a WhatsApp admin** |
+| 💎 **VIP** | half cooldowns, answered even in private mode |
+| 👤 **User** | the default |
+
+</div>
+
+```
+.setrole @user editor     .delrole @user
+.roles                    .myrole          .rolehelp
+```
+
+**Locked to the owner forever**, whatever role anyone holds: `.setmongo` `.setkey` `.setrole` `.setsudo` `.restart` `.shutdown` `.plugin` `.reload` `.setpp` `.setname` `.block` `.addmoney` `.resetecon`. An Admin runs your bot; only you can *take* it.
+
+Existing `.setmod` moderators keep working — they read as 🔨 Moderator.
+
+---
+
+## 🤝 Affiliate Programme
+
+Give people a reason to spread the bot.
+
+```
+.affiliate      your code, link, invites and earnings
+.ref V7K2M9     claim the code of whoever invited you
+.reftop         leaderboard
+.refstats       who you invited, and who invited you
+.setaffiliate https://your-page.com     (owner)
+```
+
+Every user has a permanent code derived from their number — stable across restarts, and salted per deploy so codes from another bot never resolve here. Share links come out as `https://your-page.com?ref=V7K2M9`, so your host's analytics tell you who sent the traffic.
+
+A newcomer claims once: the inviter earns coins, the newcomer gets a starter bonus, and at the milestone the inviter is **auto-promoted to 💎 VIP**. Self-referral, double claims and A↔B loops are all rejected.
+
+Tune it live, no redeploy:
+
+```
+.setvar REF_REWARD 500     coins to the inviter
+.setvar REF_BONUS 250      coins to the newcomer
+.setvar REF_VIP_AT 5       invites needed for VIP (0 = off)
+```
 
 ---
 

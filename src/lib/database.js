@@ -212,7 +212,9 @@ export const DB = {
   session: collection('session'),    // baileys auth keys
   mods: collection('mods'),          // moderator tier below sudo
   filters: collection('filters'),    // autoreply keyword -> response
-  customcmd: collection('customcmd') // user defined commands (.setcmd)
+  customcmd: collection('customcmd'), // user defined commands (.setcmd)
+  roles: collection('roles'),        // staff ladder: admin/editor/mod/vip
+  referrals: collection('referrals') // affiliate programme claims
 }
 
 export default DB

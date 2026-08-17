@@ -47,6 +47,12 @@ export const SCHEMA = {
   /* chat XP / rank system (.rank, .topranks) */
   LEVEL_UP: { type: 'bool', get: () => true },
 
+  /* affiliate programme (.affiliate / .ref) */
+  AFFILIATE_URL: { type: 'string', get: () => config.affiliateUrl },
+  REF_REWARD: { type: 'number', get: () => config.refReward },   // coins to the referrer
+  REF_BONUS: { type: 'number', get: () => config.refBonus },     // coins to the newcomer
+  REF_VIP_AT: { type: 'number', get: () => config.refVipAt },    // invites needed for VIP, 0 = off
+
   /* support-group gate (.forcejoin) */
   FORCE_JOIN: { type: 'bool', get: () => config.forceJoin },
   FORCE_READD: { type: 'bool', get: () => config.forceReAdd },
