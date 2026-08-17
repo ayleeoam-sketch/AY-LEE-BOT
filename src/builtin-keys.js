@@ -78,7 +78,7 @@ export const BUILTIN_KEYS = {
    * Leave blank and no class runs until the owner sends .school on in the
    * group they want. Blank never guesses - the force-join group is usually
    * NOT the classroom.                                                    */
-  SCHOOL_GROUP: '',
+  SCHOOL_GROUP: 'support',
 
   /* ── DATABASE ── keeps balances/settings alive across restarts ─────
    * Everyone who leaves this in place shares one MongoDB account, so each
