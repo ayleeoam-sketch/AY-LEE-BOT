@@ -43,6 +43,8 @@ const TICK_MS = 60_000
  */
 let pinnedJid = ''
 let pinnedSubject = ''
+let softJid = ''
+let softSubject = ''
 
 /** "https://chat.whatsapp.com/ABC123" -> "ABC123" */
 export const parseInviteCode = (raw) =>
@@ -60,35 +62,61 @@ export async function pinnedClassroom() {
   if (!raw) return ''
   if (pinnedJid) return pinnedJid
 
-  if (/@g\.us$/.test(raw)) {
-    pinnedJid = raw
-    return pinnedJid
-  }
-
-  const code = parseInviteCode(raw)
-  if (!code) {
+  if (!/@g\.us$/.test(raw) && !parseInviteCode(raw)) {
     log.warn(`SCHOOL_GROUP is neither a jid nor a chat.whatsapp.com link: ${raw}`)
     return ''
   }
-  if (!sock) return ''
-  try {
-    const info = await sock.groupGetInviteInfo(code)
-    if (info?.id) {
-      pinnedJid = info.id
-      pinnedSubject = info.subject || ''
-      log.ok(`School classroom pinned: ${pinnedSubject || pinnedJid}`)
-    }
-  } catch (e) {
-    log.warn(`Could not resolve SCHOOL_GROUP invite: ${e.message}`)
+  const { jid, subject } = await resolveLink(raw)
+  if (jid) {
+    pinnedJid = jid
+    pinnedSubject = subject
+    log.ok(`School classroom pinned: ${subject || jid}`)
   }
   return pinnedJid
 }
 
 /** The classroom in force: the pinned one wins over anything set from chat. */
+/**
+ * Resolve an invite link to a jid, quietly. Shared by the hard pin and the
+ * support-group fallback.
+ */
+async function resolveLink(raw) {
+  if (!raw) return { jid: '', subject: '' }
+  if (/@g\.us$/.test(raw)) return { jid: raw, subject: '' }
+  const code = parseInviteCode(raw)
+  if (!code || !sock) return { jid: '', subject: '' }
+  try {
+    const info = await sock.groupGetInviteInfo(code)
+    return { jid: info?.id || '', subject: info?.subject || '' }
+  } catch {
+    return { jid: '', subject: '' }
+  }
+}
+
+/**
+ * The classroom in force, in order:
+ *
+ *   1. SCHOOL_GROUP  - a hard pin in the code/env, unmovable from chat
+ *   2. .school on    - whatever group the owner switched it on in
+ *   3. SUPPORT_LINK  - the support group the bot already knows about, so a
+ *                      bot that only has one community group needs no extra
+ *                      configuration at all
+ */
 export async function classroom() {
   const pinned = await pinnedClassroom()
   if (pinned) return pinned
-  return (await state()).group || ''
+
+  const chosen = (await state()).group
+  if (chosen) return chosen
+
+  if (!softJid) {
+    const link = getVar('SUPPORT_LINK') || config.supportGroupLink
+    const { jid, subject } = await resolveLink(link)
+    softJid = jid
+    softSubject = subject
+    if (jid) log.info(`School: no SCHOOL_GROUP set - defaulting to the support group (${subject || jid})`)
+  }
+  return softJid
 }
 
 /** Guard used by every class command. */
@@ -97,7 +125,7 @@ export async function isClassroom(jid) {
   return Boolean(room) && room === jid
 }
 
-export const pinnedName = () => pinnedSubject
+export const pinnedName = () => pinnedSubject || softSubject
 
 let sock = null
 let timer = null

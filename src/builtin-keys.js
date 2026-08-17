@@ -67,8 +67,11 @@ export const BUILTIN_KEYS = {
    * Paste your group's invite link (or its raw jid, 1234567890@g.us).
    * The bot resolves the link once and then refuses to run a class
    * anywhere else - other groups get no lessons, no register, and no
-   * AI questions burning your key. Leave blank to pick the classroom
-   * from chat instead, with .school on.                                 */
+   * AI questions burning your key.
+   *
+   * Leave blank and the classroom falls back to SUPPORT_GROUP_LINK (the
+   * group link already configured in .env / src/config.js), or to whichever
+   * group runs .school on. Set it here to lock it beyond doubt.          */
   SCHOOL_GROUP: '',
 
   /* ── DATABASE ── keeps balances/settings alive across restarts ─────
