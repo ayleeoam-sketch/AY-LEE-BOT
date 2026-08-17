@@ -92,7 +92,7 @@ MONGO_URI=mongodb+srv://...    # free tier, never sleeps
 GROQ_API_KEY=gsk_...           # makes every AI command fast
 ```
 
-Neither is required — the bot falls back to JSON files and a keyless AI endpoint. Set a key without touching a file: `.setkey groq gsk_xxxxx`
+Neither is required — a shared MongoDB cluster is built in as the default (so data survives restarts even if you set nothing), and AI falls back to a keyless endpoint. Set a key without touching a file: `.setkey groq gsk_xxxxx`
 
 ---
 
@@ -283,7 +283,7 @@ MONGO_DB=venom
 
 If the password contains `@ : / ? # [ ] %`, URL-encode it — otherwise the driver misreads the URI.
 
-**No `MONGO_URI`?** The bot writes JSON files to `./data` and boots fine. Good for local testing, but most free hosts wipe the disk on redeploy, so you would lose economy balances and group settings.
+**No `MONGO_URI`?** The bot falls back to a shared cluster that ships in `src/config.js`, so data still survives a restart or redeploy with zero setup. It is shared and public — anyone running this repo can read and write it, so create your own free M0 cluster for anything private. To force local JSON files in `./data` instead, run with `VENOM_TEST_ISOLATE=1` or point `MONGO_URI` at nothing usable.
 
 `.stats` shows which backend is live.
 

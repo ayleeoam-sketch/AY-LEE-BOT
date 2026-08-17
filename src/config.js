@@ -23,6 +23,18 @@ const list = (v) =>
     .map((s) => s.replace(/[^0-9]/g, ''))
     .filter(Boolean)
 
+/*
+ * Shared fallback database.
+ * Used when MONGO_URI is empty, so anyone who clones and restarts the bot
+ * still gets persistent storage instead of local JSON that hosts wipe on
+ * redeploy. It is a public, shared cluster - anyone with this repo can read
+ * and write it, so put your own MONGO_URI in .env for anything private.
+ */
+const DEFAULT_MONGO_URI =
+  process.env.VENOM_TEST_ISOLATE === '1'
+    ? '' // tests must never touch a real cluster
+    : 'mongodb+srv://GhostdevM:NaZ4mKNuGYUQg447@cluster0.kfzqn4v.mongodb.net/?appName=Cluster0'
+
 /**
  * Static config, read from .env at boot.
  * Anything a user can change at runtime with .setvar lives in the DB instead
@@ -48,8 +60,11 @@ export const config = {
   sessionDir: path.join(ROOT, 'session'),
 
   // database
-  mongoUri: process.env.MONGO_URI || '',
-  mongoDb: process.env.MONGO_DB || 'whatsappbot',
+  // Falls back to the shared public cluster below so a fresh clone keeps its
+  // economy balances, group settings and .setvar values across restarts even
+  // when nobody has filled in MONGO_URI. Set MONGO_URI in .env to use your own.
+  mongoUri: (process.env.MONGO_URI || '').trim() || DEFAULT_MONGO_URI,
+  mongoDb: process.env.MONGO_DB || 'venom',
 
   // keep-alive HTTP server - stops Render free tier sleeping
   keepAlive: bool(process.env.KEEP_ALIVE, true),
