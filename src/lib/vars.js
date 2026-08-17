@@ -24,6 +24,7 @@ export const SCHEMA = {
   STARTUP_MESSAGE: { type: 'bool', get: () => config.startupMessage },
   CMD_REACT: { type: 'bool', get: () => config.cmdReact },
   CMD_REACT_EMOJI: { type: 'string', get: () => config.cmdReactEmoji },
+  AUTO_DELETE_COMMANDS: { type: 'bool', get: () => config.autoDeleteCommands },
   BOT_NAME: { type: 'string', get: () => config.botName },
   OWNER_NAME: { type: 'string', get: () => config.ownerName },
   USER_TAG: { type: 'string', get: () => config.userTag },

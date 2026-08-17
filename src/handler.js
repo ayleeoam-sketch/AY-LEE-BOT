@@ -12,6 +12,74 @@ const cooldowns = new Map() // `${cmd}:${jid}` -> expiry ms
 let sudoCache = { at: 0, list: [] }
 let bannedCache = { at: 0, list: [] }
 
+/*
+ * WhatsApp reports our cleanup deletions through messages.update too. Keep a
+ * short-lived marker so anti-delete and snipe do not immediately restore the
+ * command messages that this feature intentionally removed.
+ */
+const commandCleanupKeys = new Map()
+const cleanupKey = (key, fallbackChat = '') => `${key?.remoteJid || fallbackChat}:${key?.id || ''}`
+
+function markCommandCleanup(key, chat) {
+  const now = Date.now()
+  commandCleanupKeys.set(cleanupKey(key, chat), now + 120_000)
+  if (commandCleanupKeys.size > 500) {
+    for (const [id, expires] of commandCleanupKeys) {
+      if (expires <= now) commandCleanupKeys.delete(id)
+    }
+  }
+}
+
+function forgetCommandCleanup(key, chat) {
+  commandCleanupKeys.delete(cleanupKey(key, chat))
+}
+
+export function isCommandCleanup(key) {
+  const id = cleanupKey(key)
+  const expires = commandCleanupKeys.get(id) || 0
+  if (expires > Date.now()) return true
+  if (expires) commandCleanupKeys.delete(id)
+  return false
+}
+
+async function removeForCommandCleanup(sock, chat, key) {
+  if (!key?.id) return
+  markCommandCleanup(key, chat)
+  try {
+    await sock.sendMessage(chat, { delete: key })
+  } catch {
+    forgetCommandCleanup(key, chat)
+  }
+}
+
+async function cleanupCommandMessages(sock, m) {
+  const seen = new Set()
+  for (const key of [...(m.commandResponses || []), m.key]) {
+    const id = cleanupKey(key, m.chat)
+    if (!key?.id || seen.has(id)) continue
+    seen.add(id)
+    await removeForCommandCleanup(sock, m.chat, key)
+  }
+}
+
+/** Track direct sock.sendMessage replies as well as m.reply/m.send replies. */
+function socketForCommand(sock, m) {
+  const sendMessage = async (jid, content, options) => {
+    const sent = await sock.sendMessage(jid, content, options)
+    const protocolOnly = content?.delete || content?.react
+    if (!protocolOnly && jid === m.chat && sent?.key?.id) m.commandResponses.push(sent.key)
+    return sent
+  }
+
+  return new Proxy(sock, {
+    get(target, property) {
+      if (property === 'sendMessage') return sendMessage
+      const value = Reflect.get(target, property, target)
+      return typeof value === 'function' ? value.bind(target) : value
+    }
+  })
+}
+
 async function getSudo() {
   if (Date.now() - sudoCache.at < 30_000) return sudoCache.list
   const rows = await DB.sudo.all()
@@ -54,6 +122,7 @@ function parse(body) {
 /* ----------------------------- handler ----------------------------- */
 
 export async function handleMessage(sock, raw, ctx = {}) {
+  let cleanupMessage = null
   try {
     const m = await serialize(sock, raw)
     if (!m) return
@@ -98,6 +167,7 @@ export async function handleMessage(sock, raw, ctx = {}) {
 
     const plugin = findCommand(command)
     if (!plugin) return
+    cleanupMessage = m
 
     const text = args.join(' ')
 
@@ -171,8 +241,9 @@ export async function handleMessage(sock, raw, ctx = {}) {
 
     let failed = false
     try {
+      const pluginSock = getVar('AUTO_DELETE_COMMANDS') ? socketForCommand(sock, m) : sock
       await plugin.run({
-        sock,
+        sock: pluginSock,
         m,
         args,
         text,
@@ -226,8 +297,13 @@ export async function handleMessage(sock, raw, ctx = {}) {
     }
 
     try {
-      await sock.sendMessage(raw.key.remoteJid, { text: friendly })
+      const sent = await sock.sendMessage(raw.key.remoteJid, { text: friendly })
+      if (cleanupMessage && sent?.key?.id) cleanupMessage.commandResponses.push(sent.key)
     } catch {}
+  } finally {
+    if (cleanupMessage && getVar('AUTO_DELETE_COMMANDS')) {
+      await cleanupCommandMessages(sock, cleanupMessage)
+    }
   }
 }
 

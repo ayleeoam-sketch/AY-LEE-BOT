@@ -85,7 +85,7 @@ export default [
   },
   {
     name: 'snipe',
-    alias: ['del', 'deletedmsg', 'readdeleted'],
+    alias: ['deletedmsg', 'readdeleted'],
     category: 'TOOLS',
     desc: 'Show the most recently deleted message in this chat',
     usage: '.snipe [number of entries]',

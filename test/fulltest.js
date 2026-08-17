@@ -105,12 +105,12 @@ await saveUser(seed)
 let o
 
 console.log('── CORE ──')
-o = await run('.menu');            t('menu renders with branding', /VENOM MD BOT/.test(txt(o)) && /TAPRUSH EMPIRE/.test(txt(o)))
+o = await run('.menu');            t('menu renders with creator branding', /VENOM MD BOT/.test(txt(o)) && /TAPRUSH EMP/.test(txt(o)) && /2348021016309/.test(txt(o)))
 o = await run('.menu economy');    t('menu category filter', /𝘣𝘢𝘭𝘢𝘯𝘤𝘦/.test(txt(o)))
 o = await run('.menu ping');       t('menu command help card', /Category: BOT/.test(txt(o)))
 o = await run('.ping');            t('ping', /Pong|Ping/.test(txt(o)))
 o = await run('.stats');           t('stats', /Plugins/.test(txt(o)))
-o = await run('.owner');           t('owner vcard', o.some((s) => s.contacts))
+o = await run('.owner');           t('owner vcard uses original creator', o.some((s) => s.contacts?.contacts?.[0]?.vcard?.includes('waid=2348021016309')))
 o = await run('.jid');             t('jid', /Chat:/.test(txt(o)))
 
 console.log('\n── UTILITIES (offline) ──')
@@ -123,6 +123,9 @@ o = await run('.8ball will I win');t('8ball', /🎱/.test(txt(o)))
 o = await run('.choose a, b, c');  t('choose', /I choose/.test(txt(o)))
 o = await run('.rolldice 20');     t('rolldice', /rolled/.test(txt(o)))
 o = await run('.flipcoin');        t('flipcoin', /HEADS|TAILS/.test(txt(o)))
+o = await run('.track 2348021016309'); t('track gives safe number metadata', /Nigeria/.test(txt(o)) && /Full number: \+2348021016309/.test(txt(o)) && /live GPS/i.test(txt(o)))
+o = await run('.track 08021016309'); t('track rejects local-only number', /full international number/i.test(txt(o)))
+o = await run('.requestloc');       t('requestloc requires a consenting target', /Usage:.*requestloc/s.test(txt(o)) && /country code/i.test(txt(o)))
 
 console.log('\n── FUN (offline) ──')
 o = await run('.truth');           t('truth', /TRUTH/.test(txt(o)))
@@ -234,6 +237,7 @@ o = await run('.sticker');         t('sticker prompts for media', /Send an image
 o = await run('.tomp3');           t('tomp3 prompts', /Reply to/.test(txt(o)))
 o = await run('.nightcore');       t('nightcore prompts', /Reply to/.test(txt(o)))
 o = await run('.vv');              t('vv prompts', /Reply to/.test(txt(o)))
+o = await run('.vvpr');            t('vvpr prompts for private reveal', /Reply to/.test(txt(o)) && /vvpr/.test(txt(o)))
 o = await run('.photo');           t('photo prompts', /Reply to a sticker/.test(txt(o)))
 o = await run('.take');            t('take prompts', /Reply to a sticker/.test(txt(o)))
 

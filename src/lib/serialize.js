@@ -130,20 +130,31 @@ export async function serialize(sock, raw, store) {
   m.download = () =>
     downloadMediaMessage(raw, 'buffer', {}, { reuploadRequest: sock.updateMediaMessage })
 
+  /* Outgoing command replies in this chat, used by optional auto-cleanup. */
+  m.commandResponses = []
+  const rememberResponse = (jid, sent, keep = false) => {
+    if (!keep && jid === m.chat && sent?.key?.id) m.commandResponses.push(sent.key)
+    return sent
+  }
+
   /** Reply to this message. Accepts a string or a full Baileys content object. */
   m.reply = async (text, options = {}) => {
     const content = typeof text === 'string' ? { text } : text
-    return sock.sendMessage(
-      options.jid || m.chat,
+    const { jid = m.chat, keep = false, quoted, ...sendOptions } = options
+    const sent = await sock.sendMessage(
+      jid,
       { ...content, ...(m.expiration ? { ephemeralExpiration: m.expiration } : {}) },
-      { quoted: options.quoted === null ? undefined : options.quoted || raw, ...options }
+      { quoted: quoted === null ? undefined : quoted || raw, ...sendOptions }
     )
+    return rememberResponse(jid, sent, keep)
   }
 
-  /** Send to this chat without quoting. */
+  /** Send without quoting. Pass keep: true to exempt it from command cleanup. */
   m.send = async (text, options = {}) => {
     const content = typeof text === 'string' ? { text } : text
-    return sock.sendMessage(options.jid || m.chat, content, options)
+    const { jid = m.chat, keep = false, ...sendOptions } = options
+    const sent = await sock.sendMessage(jid, content, sendOptions)
+    return rememberResponse(jid, sent, keep)
   }
 
   /**

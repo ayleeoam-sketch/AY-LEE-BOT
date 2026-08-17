@@ -2,6 +2,7 @@ import os from 'os'
 import { uptime, formatBytes } from '../../src/lib/utils.js'
 import { pluginCount } from '../../src/lib/pluginLoader.js'
 import { backend } from '../../src/lib/database.js'
+import { CREATOR } from '../../src/branding.js'
 
 export default [
   {
@@ -45,24 +46,30 @@ export default [
     name: 'owner',
     alias: ['creator'],
     category: 'BOT',
-    desc: 'Contact card of the bot owner',
+    desc: 'Contact the original VENOM MD creator and get your own bot',
     usage: '.owner',
     cooldown: 5,
     async run({ sock, m, config }) {
-      const number = config.ownerNumbers[0]
-      if (!number) return m.reply('⚠️ No owner number configured in .env')
+      await m.reply(
+        `👑 *ORIGINAL VENOM MD CREATOR*\n\n` +
+          `👤 ${CREATOR.name}\n` +
+          `📞 +${CREATOR.number}\n` +
+          `🔗 https://wa.me/${CREATOR.number}\n\n` +
+          `🤖 Want your own VENOM MD bot? Contact the creator using the card below.`
+      )
       await sock.sendMessage(
         m.chat,
         {
           contacts: {
-            displayName: config.ownerName,
+            displayName: CREATOR.name,
             contacts: [
               {
                 vcard:
                   `BEGIN:VCARD\nVERSION:3.0\n` +
-                  `FN:${config.ownerName}\n` +
-                  `ORG:${config.botName}\n` +
-                  `TEL;type=CELL;type=VOICE;waid=${number}:+${number}\n` +
+                  `FN:${CREATOR.name}\n` +
+                  `ORG:${config.botName} - Original Creator\n` +
+                  `TEL;type=CELL;type=VOICE;waid=${CREATOR.number}:+${CREATOR.number}\n` +
+                  `URL:${CREATOR.github}\n` +
                   `END:VCARD`
               }
             ]

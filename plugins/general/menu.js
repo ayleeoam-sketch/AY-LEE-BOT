@@ -5,6 +5,7 @@ import { ROOT } from '../../src/config.js'
 import { categories, pluginCount } from '../../src/lib/pluginLoader.js'
 import { font, uptime, formatBytes } from '../../src/lib/utils.js'
 import { getVar } from '../../src/lib/vars.js'
+import { CREATOR, creatorPromo } from '../../src/branding.js'
 
 /**
  * Auto-generated menu.
@@ -13,8 +14,8 @@ import { getVar } from '../../src/lib/vars.js'
  */
 
 const header = (config) => `\`\`\`┌────═━┈ ${config.botName} ┈━═────┐
- ✇ ▸ Owner: ${config.ownerName}
- ✇ ▸ Number: ${config.ownerNumbers[0] || 'not set'}
+ ✇ ▸ Creator: ${CREATOR.name}
+ ✇ ▸ Number: ${CREATOR.number}
  ✇ ▸ User: ${getVar('USER_TAG')}
  ✇ ▸ Plugins: ${pluginCount()}
  ✇ ▸ Uptime: ${uptime()}
@@ -127,7 +128,12 @@ export default {
 
       // a category?
       if (categories.has(query)) {
-        return sendMenu(sock, m, header(config) + block(query, categories.get(query)), config)
+        return sendMenu(
+          sock,
+          m,
+          header(config) + block(query, categories.get(query)) + `\n${creatorPromo(prefix)}`,
+          config
+        )
       }
 
       // a single command? show its help card
@@ -146,14 +152,15 @@ export default {
             (cmd.owner ? `│ 👑 Owner only\n` : '') +
             (cmd.admin ? `│ 🛡️ Admin only\n` : '') +
             (cmd.group ? `│ 👥 Groups only\n` : '') +
-            `╰────────────────`
+            `╰────────────────\n\n` +
+            creatorPromo(prefix)
         )
       }
 
       return m.reply(
         `❌ No category or command called *${text}*.\n\nAvailable categories:\n${sortCategories()
           .map((c) => `• ${c}`)
-          .join('\n')}`
+          .join('\n')}\n\n${creatorPromo(prefix)}`
       )
     }
 
@@ -163,7 +170,7 @@ export default {
     for (const cat of sortCategories()) {
       out += block(cat, categories.get(cat))
     }
-    out += `\nTip: Use ${prefix}menu [category] for specific commands`
+    out += `\n${creatorPromo(prefix)}`
 
     return sendMenu(sock, m, out, config)
   }

@@ -115,7 +115,9 @@ check(
   '.menu is sent as an image with a caption',
   out.some((s) => s.content?.image && s.content?.caption)
 )
-check('.menu header shows the owner number', /Number: \d{6,}/.test(menu))
+check('.menu shows the original creator number', menu.includes('2348021016309'))
+check('.menu does not advertise the deployer number', !menu.includes('2348011111111'))
+check('.menu advertises how to get a bot', /Want your own VENOM MD bot/i.test(menu))
 check('.menu shows plugin count', /Plugins: \d+/.test(menu))
 check('.menu shows uptime', /Uptime: /.test(menu))
 check('.menu renders category blocks', menu.includes('┏') && menu.includes('┕'))
@@ -126,6 +128,12 @@ check('.menu <category> filters', textOf(out).includes('𝘱𝘪𝘯𝘨') && !t
 
 out = await run('.menu ping')
 check('.menu <command> shows help card', /Category: BOT/.test(textOf(out)))
+
+out = await run('.owner')
+const creatorCard = out.find((s) => s.content?.contacts)?.content?.contacts?.contacts?.[0]?.vcard || ''
+check('.owner advertises the original creator', /ORIGINAL VENOM MD CREATOR/.test(textOf(out)))
+check('.owner always uses the creator number', /waid=2348021016309/.test(creatorCard))
+check('.owner never exposes the deployer number', !creatorCard.includes('2348011111111'))
 
 out = await run('.stats')
 check('.stats replies', /Plugins:/.test(textOf(out)))
