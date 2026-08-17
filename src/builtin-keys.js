@@ -28,7 +28,7 @@ export const BUILTIN_KEYS = {
 
   // Groq — best first pick. Free, very generous, fastest.
   //   https://console.groq.com/keys        (starts with gsk_)
-  GROQ_API_KEY: '',
+  GROQ_API_KEY: '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',
 
   // Gemini — free, very capable, also reads images and edits photos (.restyle).
   //   https://aistudio.google.com/apikey   (starts with AIza)
