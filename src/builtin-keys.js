@@ -30,7 +30,7 @@ export const BUILTIN_KEYS = {
   //   https://console.groq.com/keys        (starts with gsk_)
   GROQ_API_KEY: '',
 
-  // Gemini — free, very capable, also reads images.
+  // Gemini — free, very capable, also reads images and edits photos (.restyle).
   //   https://aistudio.google.com/apikey   (starts with AIza)
   GEMINI_API_KEY: '',
 

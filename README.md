@@ -107,7 +107,7 @@ Scan the QR, or use a pairing code with `npm run pair`. On panels with no termin
 | **CONFIG** · 35 | `setvar` `mode` `forcejoin` `setrole` `school` `setmongo` `antidelete` |
 | **IMAGE-MEME** · 29 | `fakechat` `wanted` `jail` `drake` `wasted` `triggered` `carbon` |
 | **DOWNLOADER** · 26 | `movie` `play` `music` `video` `spotify` `tiktok` `instagram` `apk` |
-| **AI** · 22 | 8 providers with failover — `ai` `gpt` `gemini` `groq` `imagine` |
+| **AI** · 23 | 8 providers with failover — `ai` `gpt` `gemini` `groq` `imagine` `restyle` |
 | **USER** · 36 | `clone` `unclone` `clonestatus` `cloneinfo` `pp` `rank` `affiliate` `mygrades` `classtop` |
 | **TOOLS** · 21 | `snipe` `afk` `remind` `schedule` `setcmd` `msgs` `listonline` |
 | **BOT** · 20 | `ping` `stats` `alive` `broadcast` `grouplist` `backup` `dbsize` |
