@@ -110,14 +110,22 @@ export default [
       else if (active && builtin && active === builtin) source = 'built-in shared cluster (src/builtin-keys.js)'
       else if (active) source = 'MONGO_URI from the environment / .env'
 
+      const shared = config.sharedCluster
+
       await m.reply(
         `╭━━━〔 *DATABASE* 〕━━━╮\n` +
           `┃ 🗄️ Backend: *${backend()}*\n` +
           `┃ 📛 Database: *${config.mongoDb}*\n` +
           `┃ 🔗 ${maskMongoUri(active)}\n` +
           `┃ 📍 Source: ${source}\n` +
+          `┃ 🔒 Namespace: *${config.botId}*\n` +
           (override.setAt ? `┃ 🕒 Set: ${new Date(override.setAt).toLocaleString()}\n` : '') +
           `╰━━━━━━━━━━━━━━━━╯\n\n` +
+          (shared
+            ? `⚠️ *Shared cluster.* Your data sits in its own database (*${config.mongoDb}*), ` +
+              `so no other deploy can read or overwrite it — but everyone with this repo has ` +
+              `the login. Use *${prefix}setmongo <uri>* for a database only you can reach.\n\n`
+            : '') +
           (isMongo()
             ? `_Data survives restarts._`
             : `⚠️ _Running on JSON files — most hosts wipe these on redeploy. Fix it with *${prefix}setmongo <uri>*._`) +

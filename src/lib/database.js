@@ -67,6 +67,13 @@ export async function connectDB() {
     await db.command({ ping: 1 })
     usingMongo = true
     log.ok(`MongoDB connected -> ${config.mongoDb}`)
+    if (config.sharedCluster) {
+      log.warn(
+        `Using the shared built-in cluster. Your data lives in its own database ` +
+          `(${config.mongoDb}), but anyone with this repo holds the credentials - ` +
+          `run .setmongo <your uri> for a private one.`
+      )
+    }
     return db
   } catch (e) {
     log.error('MongoDB connection failed:', e.message)

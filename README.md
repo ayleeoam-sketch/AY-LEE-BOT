@@ -321,6 +321,27 @@ Owner-only. Precedence: **panel/`.env` `MONGO_URI` → `.setmongo` → built-in 
 
 </details>
 
+<details>
+<summary><b>Sharing the built-in cluster — what other deployers can and cannot touch</b></summary>
+
+<br/>
+
+Everyone who leaves the built-in URI in place logs into the **same MongoDB account**, so each deploy is automatically given **its own database** inside it: `venom_<BOT_ID>`, where `BOT_ID` defaults to your `OWNER_NUMBER`.
+
+| | Shared? |
+|---|---|
+| `.setvar BOT_NAME`, `OWNER_NAME`, prefix, mode, menu image | ❌ private to your deploy |
+| Economy balances, XP, warns, AFK, notes, custom commands | ❌ private to your deploy |
+| Group settings (antilink, welcome, filters) | ❌ private to your deploy |
+| WhatsApp session when `SESSION_STORE=mongo` | ❌ private — namespaced by `BOT_ID` too |
+| The database **credentials** themselves | ✅ **shared — they are in the repo** |
+
+So another deployer cannot rename your bot or spend your users' coins by accident. But anyone reading the repo *does* hold the cluster login and could open your database deliberately. For anything you care about, run `.setmongo <your own uri>` — it takes three minutes and costs nothing.
+
+Set `BOT_ID` explicitly in `.env` if you run two bots from one owner number.
+
+</details>
+
 ---
 
 ## ⚙️ Runtime Configuration

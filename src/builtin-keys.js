@@ -63,9 +63,12 @@ export const BUILTIN_KEYS = {
   // https://pixabay.com/api/docs/     — free, instant on signup
   PIXABAY_KEY: '',
 
-  /* ── DATABASE ── keeps balances/settings alive across restarts ───── */
-  MONGO_URI: 'mongodb+srv://GhostdevM:NaZ4mKNuGYUQg447@cluster0.kfzqn4v.mongodb.net/?appName=Cluster0',
-  MONGO_DB: 'venom'
+  /* ── DATABASE ── keeps balances/settings alive across restarts ─────
+   * Everyone who leaves this in place shares one MongoDB account, so each
+   * deploy is automatically given its own database inside it, named
+   * venom_<owner number>. Nobody can see or overwrite another bot's
+   * settings, balances or session. Set MONGO_DB to override that.        */
+  MONGO_URI: 'mongodb+srv://GhostdevM:NaZ4mKNuGYUQg447@cluster0.kfzqn4v.mongodb.net/?appName=Cluster0'
 }
 
 /*

@@ -67,7 +67,8 @@ export async function startSocket() {
   }
 
   if (config.sessionStore === 'mongo') {
-    const auth = await useMongoAuthState('default')
+    // Namespaced per deploy: two bots on one cluster must never share creds.
+    const auth = await useMongoAuthState(config.botId || 'default')
     state = auth.state
     saveCreds = auth.saveCreds
     deleteSession = auth.deleteSession
