@@ -57,8 +57,55 @@ export const PROVIDERS = [
     name: 'ryzendesu',
     audio: (u) => `https://api.ryzendesu.vip/api/downloader/ytmp3?url=${encodeURIComponent(u)}`,
     video: (u) => `https://api.ryzendesu.vip/api/downloader/ytmp4?url=${encodeURIComponent(u)}`
+  },
+  {
+    name: 'nyxs',
+    audio: (u) => `https://api.nyxs.pw/dl/yt-direct?url=${encodeURIComponent(u)}&type=mp3`,
+    video: (u) => `https://api.nyxs.pw/dl/yt-direct?url=${encodeURIComponent(u)}&type=mp4`
+  },
+  {
+    name: 'delirius',
+    audio: (u) => `https://delirius-apiofc.vercel.app/download/ytmp3?url=${encodeURIComponent(u)}`,
+    video: (u) => `https://delirius-apiofc.vercel.app/download/ytmp4?url=${encodeURIComponent(u)}`
+  },
+  {
+    name: 'cobalt',
+    resolve: (u, { audio, quality }) => cobaltLink(u, { audio, quality })
   }
 ]
+
+const COBALT_HOSTS = [
+  'https://api.cobalt.tools/',
+  'https://cobalt-api.kwiatekmiki.com/'
+]
+
+/** Cobalt (what most "it just works" bots including SubZero-style stacks use). */
+async function cobaltLink(youtubeUrl, { audio = false, quality = 360 } = {}) {
+  let last = 'cobalt unreachable'
+  for (const host of COBALT_HOSTS) {
+    try {
+      const { data } = await axios.post(
+        host,
+        {
+          url: youtubeUrl,
+          downloadMode: audio ? 'audio' : 'auto',
+          videoQuality: String(quality),
+          audioFormat: 'mp3'
+        },
+        {
+          timeout: PROVIDER_TIMEOUT,
+          headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'User-Agent': UA }
+        }
+      )
+      const url = data?.url || data?.tunnel || findMedia(data)
+      if (!url) throw new Error('no url')
+      return { url, title: data?.filename || findTitle(data) || '', provider: 'cobalt' }
+    } catch (e) {
+      last = e.message
+    }
+  }
+  throw new Error(`cobalt: ${last}`)
+}
 
 /* ------------------------- response parsing ------------------------- */
 

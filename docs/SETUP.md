@@ -52,9 +52,9 @@ Order of precedence: **environment → `.setkey` → built-in**.
 
 <div align="center">
 
-[![Session ID](https://img.shields.io/badge/GENERATE%20SESSION%20ID-session--site-5500ff?style=for-the-badge&logo=key&logoColor=white)](https://session-site-2odn.onrender.com)
+Pair on the **official** VENOM MD with `.owner` then `.pair` — you get a short `SESSION_TOKEN`, not a giant session blob.
 
-**Generator:** <https://session-site-2odn.onrender.com>
+Official group (required): <https://chat.whatsapp.com/JQrMgboto6b3kbySokt8lP>
 
 </div>
 

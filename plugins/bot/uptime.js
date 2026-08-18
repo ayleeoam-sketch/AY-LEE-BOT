@@ -49,13 +49,18 @@ export default [
     desc: 'Contact the original VENOM MD creator and get your own bot',
     usage: '.owner',
     cooldown: 5,
-    async run({ sock, m, config }) {
+    always: true,
+    async run({ sock, m, config, prefix }) {
       await m.reply(
         `👑 *ORIGINAL VENOM MD CREATOR*\n\n` +
           `👤 ${CREATOR.name}\n` +
           `📞 +${CREATOR.number}\n` +
-          `🔗 https://wa.me/${CREATOR.number}\n\n` +
-          `🤖 Want your own VENOM MD bot? Contact the creator using the card below.`
+          `🔗 ${CREATOR.wa}\n\n` +
+          `🤖 *Want your own VENOM MD bot?*\n` +
+          `1. Join ${CREATOR.group}\n` +
+          `2. Send *${prefix}pair* on the official bot (not a copy)\n` +
+          `3. Deploy with the short token it gives you\n\n` +
+          `Full card: *${prefix}getbot*`
       )
       await sock.sendMessage(
         m.chat,

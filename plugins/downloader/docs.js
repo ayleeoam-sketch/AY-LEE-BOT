@@ -1,6 +1,6 @@
 import {
   youtubeInfo, youtubeAudio, youtubeVideo, youtubeSearch,
-  fmtDuration, fmtCount, hasYtdlp, isUrl
+  fmtDuration, fmtCount, hasYtdlp, isUrl, extractYoutubeUrl
 } from '../../src/lib/downloader.js'
 
 /**
@@ -10,13 +10,10 @@ import {
  * in the original menu were for.
  */
 
-const YT_URL = /(?:youtube\.com\/(?:watch\?v=|shorts\/|live\/|embed\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/
-
 async function resolve(input) {
-  if (isUrl(input)) {
-    if (!YT_URL.test(input)) throw new Error('That is not a YouTube link.')
-    return input
-  }
+  const extracted = extractYoutubeUrl(input)
+  if (extracted) return extracted
+  if (isUrl(String(input || '').trim())) throw new Error('That is not a YouTube link.')
   const [first] = await youtubeSearch(input, 1)
   if (!first) throw new Error(`No YouTube results for "${input}".`)
   return first.url

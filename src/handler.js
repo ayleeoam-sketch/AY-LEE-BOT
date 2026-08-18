@@ -5,6 +5,7 @@ import { getVar } from './lib/vars.js'
 import { serialize, resolvePermissions } from './lib/serialize.js'
 import { commands, middlewares, findCommand, pluginCount } from './lib/pluginLoader.js'
 import { resolveRole, canRunOwnerCommand, atLeast, cooldownFor, invalidateRoles, ROLES } from './lib/roles.js'
+import { withCommandFooter } from './branding.js'
 
 /* ---------------------------- caches ---------------------------- */
 
@@ -100,6 +101,16 @@ export const invalidateCaches = () => {
   invalidateRoles()
 }
 
+/**
+ * Every command reply gets a one-line "want this bot? .owner · .pair" footer.
+ * Media-only payloads (no text/caption) are left alone so videos stay clean.
+ */
+function stampCommandFooter(m, prefix) {
+  const wrap = (fn) => async (payload, options) => fn(withCommandFooter(payload, prefix), options)
+  m.reply = wrap(m.reply)
+  m.send = wrap(m.send)
+}
+
 /* --------------------------- prefix parse --------------------------- */
 
 function parse(body) {
@@ -175,9 +186,11 @@ export async function handleMessage(sock, raw, ctx = {}) {
     const mode = getVar('MODE')
     // staff and VIPs are trusted company: private mode still answers them
     const privileged = m.isSudo || atLeast(m.role, 'vip')
-    if (mode === 'private' && !privileged) return
-    if (mode === 'group' && !m.isGroup && !privileged) return
-    if (mode === 'inbox' && m.isGroup && !privileged) return
+    // .owner / .pair / .getbot must stay reachable on a private official hub
+    const bypassMode = plugin.always === true
+    if (mode === 'private' && !privileged && !bypassMode) return
+    if (mode === 'group' && !m.isGroup && !privileged && !bypassMode) return
+    if (mode === 'inbox' && m.isGroup && !privileged && !bypassMode) return
 
     /* a refusal is still an answer - react so the user sees it registered */
     const deny = async (why) => {
@@ -242,6 +255,7 @@ export async function handleMessage(sock, raw, ctx = {}) {
     let failed = false
     try {
       const pluginSock = getVar('AUTO_DELETE_COMMANDS') ? socketForCommand(sock, m) : sock
+      stampCommandFooter(m, prefix)
       await plugin.run({
         sock: pluginSock,
         m,

@@ -220,7 +220,13 @@ export const DB = {
   referrals: collection('referrals'), // affiliate programme claims
   tasks: collection('tasks'),        // reminders / scheduled messages
   school: collection('school'),      // classroom state (VENOM SCHOOL)
-  attendance: collection('attendance') // who showed up to each class
+  attendance: collection('attendance'), // who showed up to each class
+  voices: collection('voices'),          // saved voice-clone samples
+  deploys: collection('deploys'),         // local copy of .pair session tokens
+  hosted: collection('hosted')           // auto-deployed bots on the official hub
 }
+
+/** Underlying Mongo client (null on the JSON fallback). Used by the hub store. */
+export const mongoClient = () => client
 
 export default DB

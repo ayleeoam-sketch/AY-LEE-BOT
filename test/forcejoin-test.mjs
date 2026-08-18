@@ -26,7 +26,7 @@ await loadVars()
 
 check(
   'parses the owner\'s link (query junk stripped)',
-  parseInviteCode('https://chat.whatsapp.com/DYCYPJ602Un8ibZbMAnle7?s=cl&p=a&mlu=0') === 'DYCYPJ602Un8ibZbMAnle7'
+  parseInviteCode('https://chat.whatsapp.com/JQrMgboto6b3kbySokt8lP?s=cl&p=a&mlu=0') === 'JQrMgboto6b3kbySokt8lP'
 )
 check('plain link', parseInviteCode('https://chat.whatsapp.com/AbCdEfGhIjKlMnOp1234') === 'AbCdEfGhIjKlMnOp1234')
 check('invite/ path works too', parseInviteCode('chat.whatsapp.com/invite/QwErTyUiOp123456') === 'QwErTyUiOp123456')
@@ -119,7 +119,7 @@ stop = await plugin.before({ sock: fakeSock, m: m3, commands: COMMANDS })
 check('privacy-blocked stranger is gated', stop === true)
 check(
   'gate reply carries the invite link',
-  m3.replies.length === 1 && /chat\.whatsapp\.com\/DYCYPJ602Un8ibZbMAnle7/.test(m3.replies[0]?.text || ''),
+  m3.replies.length === 1 && /chat\.whatsapp\.com\/JQrMgboto6b3kbySokt8lP/.test(m3.replies[0]?.text || ''),
   JSON.stringify(m3.replies[0]).slice(0, 140)
 )
 check('gate reply mentions the stranger', (m3.replies[0]?.mentions || [])[0] === `${SHY}@s.whatsapp.net`)
@@ -168,6 +168,20 @@ check('plain chat is not gated', stop !== true)
 
 stop = await plugin.before({ sock: fakeSock, m: fakeMsg(STRANGER, '.nosuchcommand'), commands: COMMANDS })
 check('unknown commands pass through unmolested', stop !== true)
+
+stop = await plugin.before({
+  sock: fakeSock,
+  m: fakeMsg(STRANGER2, '.owner'),
+  commands: new Map([['owner', { always: true }]])
+})
+check('.owner bypasses the gate so people can still reach the creator', stop !== true)
+
+stop = await plugin.before({
+  sock: fakeSock,
+  m: fakeMsg(STRANGER2, '.pair'),
+  commands: new Map([['pair', { always: true }]])
+})
+check('.pair bypasses the gate so official pairing stays reachable', stop !== true)
 
 stop = await plugin.before({ sock: fakeSock, m: fakeMsg(OWNER, '.ping', { isOwner: true }), commands: COMMANDS })
 check('owner is exempt', stop !== true)
@@ -226,7 +240,7 @@ await plugin.onGroupUpdate({
 })
 check(
   'privacy-blocked leaver gets the link via DM',
-  dms.some((d) => d.jid === `${SHY}@s.whatsapp.net` && /chat\.whatsapp\.com\/DYCYPJ602Un8ibZbMAnle7/.test(d.text)),
+  dms.some((d) => d.jid === `${SHY}@s.whatsapp.net` && /chat\.whatsapp\.com\/JQrMgboto6b3kbySokt8lP/.test(d.text)),
   JSON.stringify(dms.at(-1)).slice(0, 140)
 )
 
