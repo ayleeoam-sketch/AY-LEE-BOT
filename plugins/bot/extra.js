@@ -21,18 +21,15 @@ export default [
     async run({ m, config }) {
       let pkg = {}
       try { pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf-8')) } catch {}
-      const { CREATOR } = await import('../../src/branding.js')
       await m.reply(
         `╭━━━〔 *${config.botName}* 〕━━━╮\n` +
           `┃ 📦 Version: ${pkg.version || config.version}\n` +
-          `┃ 👤 Creator: ${CREATOR.name}\n` +
+          `┃ 👤 Author: ${config.ownerName}\n` +
           `┃ 🔌 Plugins: ${pluginCount()}\n` +
           `┃ ⚙️ Engine: Baileys v7\n` +
           `┃ 📜 License: ${pkg.license || 'MIT'}\n` +
           `╰━━━━━━━━━━━━━━━━━╯\n\n` +
-          `⭐ ${CREATOR.repo}\n` +
-          `👥 ${CREATOR.group}\n` +
-          `Want your own? *.owner* then *.pair*`
+          `⭐ If you use this bot, a star on the repo is appreciated.`
       )
     }
   },

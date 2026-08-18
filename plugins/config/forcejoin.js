@@ -161,22 +161,6 @@ async function resolveGroup(sock, getVar) {
   return groupInfo
 }
 
-/** Is this jid currently in the official support group? Fail-open = false. */
-export async function isSupportMember(sock, userJid) {
-  const r = await checkSupportMember(sock, userJid)
-  return r.ok && r.member
-}
-
-/** Membership check that distinguishes "not in group" from "could not read group". */
-export async function checkSupportMember(sock, userJid) {
-  try {
-    const set = await memberNumbers(sock, getVar, { fresh: true })
-    return { ok: true, member: set.has(num(userJid)) }
-  } catch (e) {
-    return { ok: false, member: false, error: e.message }
-  }
-}
-
 /** Live member-number set for the support group. */
 async function memberNumbers(sock, getVar, { fresh = false } = {}) {
   if (!fresh && members && Date.now() - membersAt < MEMBERS_TTL) return members
@@ -306,9 +290,6 @@ export default {
     const prefix = prefixes().find((p) => p && m.body.startsWith(p))
     const name = m.body.slice(prefix.length).trim().split(/\s+/)[0]?.toLowerCase()
     if (!name || !commands.has(name)) return
-    // .owner / .pair / .getbot stay reachable so a stranger can still
-    // contact the creator and start pairing. Everything else stays gated.
-    if (commands.get(name)?.always) return
 
     // exempt the support group's own chat - senders there are members by definition
     let group

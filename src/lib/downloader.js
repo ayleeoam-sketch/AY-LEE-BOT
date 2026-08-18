@@ -115,7 +115,7 @@ const rm = (f) => { try { fs.existsSync(f) && fs.unlinkSync(f) } catch {} }
 /* --------------------------- url helpers --------------------------- */
 
 export const PLATFORM = {
-  youtube: /(?:(?:m\.|music\.|www\.)?youtube\.com\/(?:watch\?(?:[^#\s]*&)?v=|shorts\/|live\/|embed\/|v\/|live\/)|youtu\.be\/)/i,
+  youtube: /(?:youtube\.com\/(?:watch\?v=|shorts\/|live\/|embed\/)|youtu\.be\/)/i,
   tiktok: /(?:tiktok\.com|vm\.tiktok\.com|vt\.tiktok\.com)/i,
   instagram: /instagram\.com\/(?:p|reel|reels|tv)\//i,
   facebook: /(?:facebook\.com|fb\.watch)/i,
@@ -128,22 +128,6 @@ export function detectPlatform(url) {
 }
 
 export const isUrl = (s) => /^https?:\/\/\S+$/i.test(String(s || '').trim())
-
-
-/** 11-char video id from any messy YouTube URL (mobile, music, shorts, si=, lists). */
-export const YT_ID_RE =
-  /(?:youtube\.com\/(?:watch\?(?:[^#\s]*&)?v=|shorts\/|live\/|embed\/|v\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/i
-
-/** Pull the first YouTube watch URL out of free text or a quoted message. */
-export function extractYoutubeUrl(text) {
-  const m = String(text || '').match(YT_ID_RE)
-  return m ? `https://www.youtube.com/watch?v=${m[1]}` : null
-}
-
-export function extractYoutubeId(text) {
-  return String(text || '').match(YT_ID_RE)?.[1] || ''
-}
-
 
 /* ---------------------------- yt-dlp core ---------------------------- */
 
@@ -855,7 +839,7 @@ export const fmtCount = (n) => {
 }
 
 export default {
-  YTDLP, hasYtdlp, hasCookies, detectPlatform, isUrl, extractYoutubeUrl, extractYoutubeId, probe,
+  YTDLP, hasYtdlp, hasCookies, detectPlatform, isUrl, probe,
   youtubeInfo, youtubeAudio, youtubeVideo, youtubeSearch,
   youtubeInfoSmart, youtubeAudioSmart, youtubeVideoSmart, youtubeSearchSmart,
   soundcloudSearch, soundcloudAudio, audiomackSearch, audiomackAudio,

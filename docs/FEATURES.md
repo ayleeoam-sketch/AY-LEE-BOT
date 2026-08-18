@@ -103,27 +103,6 @@ Existing `.setmod` moderators keep working — they read as 🔨 Moderator.
 
 ---
 
-## 🎙️ Voice clone
-
-Reply to a voice note and the bot speaks *your* words in that voice's range — pitch, brightness, speed.
-
-```
-.voiceclone I will call you in five minutes     (reply to a VN)
-.savevoice mum                                  (reply to a VN)
-.usevoice mum I am on my way
-.myvoices   .delvoice mum
-.speak hello there        .speak yo: bawo ni
-.voiceprint                                     (reply to a VN)
-```
-
-## 🤖 Get your own bot — `.owner` then `.pair`
-
-Every command reply carries a one-line footer. `.owner` and `.pair` work even when the bot is in **private** mode, so a stranger who just saw `.vv` can still reach the creator.
-
-- `.pair` only runs on the **official** VENOM MD (TAPRUSH EMP), never on a random deployer's copy.
-- After a successful pair they must join https://chat.whatsapp.com/JQrMgboto6b3kbySokt8lP — other commands stay locked until they do.
-- They get a short `SESSION_TOKEN` and the official hub **starts their bot for them**. They can also paste a session ID or run `.autodeploy VNM-XXXXXX`. Render / Railway stay optional.
-
 ## 🤝 Affiliate Programme
 
 Give people a reason to spread the bot.

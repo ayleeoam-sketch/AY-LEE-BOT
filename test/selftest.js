@@ -116,9 +116,8 @@ check(
   out.some((s) => s.content?.image && s.content?.caption)
 )
 check('.menu shows the original creator number', menu.includes('2348021016309'))
-const menuCaption = out.find((s) => s.content?.caption)?.content.caption || ''
-check('.menu does not advertise the deployer number', menuCaption.includes('2348021016309') && !menuCaption.includes('2348011111111'))
-check('.menu advertises how to get a bot', /Want your own VENOM MD bot/i.test(menu) && /\.pair/i.test(menu))
+check('.menu does not advertise the deployer number', !menu.includes('2348011111111'))
+check('.menu advertises how to get a bot', /Want your own VENOM MD bot/i.test(menu))
 check('.menu shows plugin count', /Plugins: \d+/.test(menu))
 check('.menu shows uptime', /Uptime: /.test(menu))
 check('.menu renders category blocks', menu.includes('┏') && menu.includes('┕'))
@@ -135,28 +134,9 @@ const creatorCard = out.find((s) => s.content?.contacts)?.content?.contacts?.con
 check('.owner advertises the original creator', /ORIGINAL VENOM MD CREATOR/.test(textOf(out)))
 check('.owner always uses the creator number', /waid=2348021016309/.test(creatorCard))
 check('.owner never exposes the deployer number', !creatorCard.includes('2348011111111'))
-check('.owner tells people to .pair', /\.pair/.test(textOf(out)))
-
-out = await run('.getbot')
-check('.getbot explains official pair + group', /GET YOUR OWN VENOM MD/.test(textOf(out)) && /JQrMgboto6b3kbySokt8lP/.test(textOf(out)))
-
-out = await run('.pair')
-check('.pair refuses on a deployer copy', /official/i.test(textOf(out)))
-
-out = await run('.voiceclone')
-check('.voiceclone asks for a voice note', /voice note/i.test(textOf(out)) && /voiceclone/i.test(textOf(out)))
-
-out = await run('.autodeploy')
-check('.autodeploy is hub-only or explains paste', /official|AUTO DEPLOY/i.test(textOf(out)))
-
-out = await run('.ping')
-check('every command reply carries the get-bot footer', /Want this bot\? \*\.owner\* then \*\.pair\*/.test(textOf(out)))
 
 out = await run('.stats')
 check('.stats replies', /Plugins:/.test(textOf(out)))
-
-out = await run('.totalusers')
-check('.totalusers shows the network card', /VENOM NETWORK|Unique people/i.test(textOf(out)))
 
 out = await run('.allvar')
 check('.allvar lists settings', /MODE/.test(textOf(out)))
@@ -193,10 +173,6 @@ out = await run('.ping', { from: '2348022222222' })
 check('private mode blocks strangers', out.length === 0)
 out = await run('.ping', { from: '2348011111111' })
 check('private mode allows owner', out.length > 0)
-out = await run('.owner', { from: '2348022222222' })
-check('private mode still allows .owner so people can get the bot', /ORIGINAL VENOM MD CREATOR/.test(textOf(out)))
-out = await run('.pair', { from: '2348022222222' })
-check('private mode still allows .pair (hub-gated, not mode-gated)', out.length > 0)
 await setVar('MODE', 'public')
 
 console.log(`\n═══ ${pass} passed, ${fail} failed ═══\n`)
