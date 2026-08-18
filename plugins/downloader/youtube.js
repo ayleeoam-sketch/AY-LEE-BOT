@@ -1,22 +1,23 @@
 import {
   youtubeInfoSmart, youtubeAudioSmart, youtubeVideoSmart, youtubeSearchSmart,
-  musicAuto, fmtDuration, fmtCount, hasYtdlp, isUrl, extractYoutubeUrl
+  musicAuto, fmtDuration, fmtCount, hasYtdlp, isUrl
 } from '../../src/lib/downloader.js'
 import { probeProviders, PROVIDERS } from '../../src/lib/ytapi.js'
 import { getVar } from '../../src/lib/vars.js'
 import { getBuffer } from '../../src/lib/api.js'
 
-/** Accept a URL (even buried in extra words) or a search phrase. */
+const YT_URL = /(?:youtube\.com\/(?:watch\?v=|shorts\/|live\/|embed\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/
+
+/** Accept a URL or a search phrase; return a watch URL. */
 async function resolve(input) {
-  const extracted = extractYoutubeUrl(input)
-  if (extracted) return extracted
-  if (isUrl(String(input || '').trim())) throw new Error('That is not a YouTube link.')
+  if (isUrl(input)) {
+    if (!YT_URL.test(input)) throw new Error('That is not a YouTube link.')
+    return input
+  }
   const [first] = await youtubeSearchSmart(input, 1)
   if (!first) throw new Error(`No YouTube results for "${input}".`)
   return first.url
 }
-
-const inputOf = (m, text) => String(text || m.quoted?.text || '').trim()
 
 export default [
   {
@@ -27,13 +28,12 @@ export default [
     usage: '.play alan walker faded',
     cooldown: 20,
     async run({ m, text }) {
-      const query = inputOf(m, text)
-      if (!query) return m.reply('🎵 Give me a song name or YouTube link:\n*.play alan walker faded*\n\n_Or reply to a YouTube link._')
+      if (!text) return m.reply('🎵 Give me a song name or YouTube link:\n*.play alan walker faded*')
 
       await m.react('⏳')
       let ytTitle = null // kept for the multi-source fallback if YouTube refuses
       try {
-        const url = await resolve(query)
+        const url = await resolve(text)
         const info = await youtubeInfoSmart(url)
         ytTitle = info.title
 
@@ -71,8 +71,8 @@ export default [
          * Audiomack, which don't bot-check. If the user gave a bare link and
          * we never got a title, there's nothing to search elsewhere with.
          */
-        const fallbackQuery = ytTitle || (extractYoutubeUrl(query) ? null : query)
-        if (!fallbackQuery) {
+        const query = ytTitle || (isUrl(text) ? null : text)
+        if (!query) {
           await m.react('❌')
           return m.reply(
             `❌ YouTube failed: ${ytErr.message.split('\n')[0]}\n\n` +
@@ -82,7 +82,7 @@ export default [
 
         await m.reply(`⚠️ YouTube refused that download - searching *SoundCloud* and *Audiomack* instead...`)
         try {
-          const r = await musicAuto(fallbackQuery, { order: ['soundcloud', 'audiomack'] })
+          const r = await musicAuto(query, { order: ['soundcloud', 'audiomack'] })
           const caption =
             `╭━━━〔 *MUSIC* 〔${r.source}〕━━━╮\n` +
             `┃ 🎵 ${r.title}\n` +
@@ -114,15 +114,13 @@ export default [
     usage: '.video despacito  |  .video <link> 720',
     cooldown: 30,
     async run({ m, text, args, prefix }) {
-      const raw = inputOf(m, text)
-      if (!raw) return m.reply('🎬 Give me a video name or YouTube link:\n*.video despacito*\n*.ytv https://youtu.be/…*\n\nAdd a quality: *.video <link> 720*\n_Or reply to a YouTube link._')
+      if (!text) return m.reply('🎬 Give me a video name or YouTube link:\n*.video despacito*\n\nAdd a quality: *.video <link> 720*')
 
       // trailing number = requested quality
       const qualities = [144, 240, 360, 480, 720, 1080]
-      const bits = raw.split(/\s+/)
-      const last = parseInt(bits[bits.length - 1])
+      const last = parseInt(args[args.length - 1])
       const quality = qualities.includes(last) ? last : 360
-      const query = qualities.includes(last) ? bits.slice(0, -1).join(' ') : raw
+      const query = qualities.includes(last) ? args.slice(0, -1).join(' ') : text
 
       await m.react('⏳')
       try {

@@ -111,9 +111,6 @@ o = await run('.menu ping');       t('menu command help card', /Category: BOT/.t
 o = await run('.ping');            t('ping', /Pong|Ping/.test(txt(o)))
 o = await run('.stats');           t('stats', /Plugins/.test(txt(o)))
 o = await run('.owner');           t('owner vcard uses original creator', o.some((s) => s.contacts?.contacts?.[0]?.vcard?.includes('waid=2348021016309')))
-o = await run('.getbot');          t('getbot card', /GET YOUR OWN VENOM MD/.test(txt(o)) && /JQrMgboto6b3kbySokt8lP/.test(txt(o)))
-o = await run('.pair');            t('pair refuses on deployer', /official/i.test(txt(o)))
-o = await run('.voiceclone');      t('voiceclone prompts', /voice note/i.test(txt(o)))
 o = await run('.jid');             t('jid', /Chat:/.test(txt(o)))
 
 console.log('\n── UTILITIES (offline) ──')

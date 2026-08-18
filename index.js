@@ -29,20 +29,9 @@ async function main() {
   await loadKeys()   // AI keys saved via .setkey
   await loadPlugins()
   if (config.keepAlive) {
-    startKeepAlive({
-      port: config.keepAlivePort,
-      botName: config.botName,
-      version: config.version,
-      publicUrl: config.publicUrl
-    })
+    startKeepAlive({ port: config.keepAlivePort, botName: config.botName, version: config.version })
   }
   await startSocket()
-
-  // Official hub: bring back customer bots that were auto-deployed here.
-  if (!process.env.VENOM_HOSTED && (await import('./src/branding.js')).isCreatorHub()) {
-    const { resumeHosts } = await import('./src/lib/hosted.js')
-    await resumeHosts().catch((e) => log.warn('Could not resume hosted bots:', e.message))
-  }
 }
 
 /* keep the process alive on unexpected errors - a bot must not die */

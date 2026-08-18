@@ -1,14 +1,17 @@
 import http from 'http'
 import log from './logger.js'
-import { handleDeployHttp } from './deploySite.js'
 
 /*
- * Keep-alive HTTP server + VENOM MD deploy portal.
+ * Keep-alive HTTP server.
  *
  * Render's free tier puts a Web Service to sleep after ~15 minutes without
- * inbound traffic. This server answers 200 on /health (and /api/status) so
- * UptimeRobot can ping it. The same port serves the public deploy site on /
- * so people pair and launch a bot without copying a giant SESSION_ID.
+ * inbound traffic. A WhatsApp bot receives no HTTP traffic, so it sleeps.
+ * UptimeRobot (and cron-job.org etc.) can only ping an HTTP endpoint — so we
+ * expose one. Point a free monitor at this server every 5 minutes and Render
+ * counts it as traffic, so the instance never sleeps.
+ *
+ * The server answers 200 on every path (Render's health check hits "/") and
+ * returns a small JSON status so the endpoint doubles as a dashboard.
  */
 
 const state = {
@@ -40,65 +43,32 @@ const fmtUptime = (sec) => {
   return parts.join(' ')
 }
 
-function statusPayload(botName, version) {
-  const uptimeSec = Math.floor((Date.now() - state.startedAt) / 1000)
-  return {
-    ok: true,
-    name: botName,
-    version,
-    connected: state.connected,
-    uptime: fmtUptime(uptimeSec),
-    uptimeSeconds: uptimeSec,
-    lastMessageAt: state.lastMessageAt ? new Date(state.lastMessageAt).toISOString() : null,
-    time: new Date().toISOString()
-  }
-}
-
 /**
- * Start the keep-alive / deploy-site server.
- * @param {{port:number, botName:string, version:string, publicUrl?:string}} opts
+ * Start the keep-alive server.
+ * @param {{port:number, botName:string, version:string}} opts
+ * @returns {import('http').Server | null} the server, or null if it failed to bind
  */
-export function startKeepAlive({ port, botName, version, publicUrl }) {
-  const server = http.createServer(async (req, res) => {
-    try {
-      const url = new URL(req.url || '/', 'http://localhost')
-      if (url.pathname === '/health' || url.pathname === '/api/status' || url.pathname === '/status.json') {
-        const payload = statusPayload(botName, version)
-        const body = JSON.stringify(payload, null, 2)
-        res.writeHead(200, {
-          'Content-Type': 'application/json; charset=utf-8',
-          'Content-Length': Buffer.byteLength(body),
-          'Cache-Control': 'no-store',
-          'X-Content-Type-Options': 'nosniff'
-        })
-        res.end(body)
-        return
-      }
-
-      const handled = await handleDeployHttp(req, res, { publicUrl })
-      if (handled) return
-
-      // unknown API-ish path → JSON so monitors stay happy
-      if ((url.pathname || '').startsWith('/api/')) {
-        const body = JSON.stringify({ ok: false, error: 'not found' })
-        res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8', 'Content-Length': Buffer.byteLength(body) })
-        res.end(body)
-        return
-      }
-
-      const payload = statusPayload(botName, version)
-      const body = JSON.stringify(payload, null, 2)
-      res.writeHead(200, {
-        'Content-Type': 'application/json; charset=utf-8',
-        'Content-Length': Buffer.byteLength(body),
-        'Cache-Control': 'no-store'
-      })
-      res.end(body)
-    } catch (e) {
-      const body = JSON.stringify({ ok: false, error: e.message })
-      res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8', 'Content-Length': Buffer.byteLength(body) })
-      res.end(body)
+export function startKeepAlive({ port, botName, version }) {
+  const server = http.createServer((req, res) => {
+    const uptimeSec = Math.floor((Date.now() - state.startedAt) / 1000)
+    const payload = {
+      ok: true,
+      name: botName,
+      version,
+      connected: state.connected,
+      uptime: fmtUptime(uptimeSec),
+      uptimeSeconds: uptimeSec,
+      lastMessageAt: state.lastMessageAt ? new Date(state.lastMessageAt).toISOString() : null,
+      time: new Date().toISOString()
     }
+    const body = JSON.stringify(payload, null, 2)
+    res.writeHead(200, {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Content-Length': Buffer.byteLength(body),
+      'Cache-Control': 'no-store',
+      'X-Content-Type-Options': 'nosniff'
+    })
+    res.end(body)
   })
 
   server.on('error', (e) => {
@@ -110,8 +80,8 @@ export function startKeepAlive({ port, botName, version, publicUrl }) {
   })
 
   server.listen(port, '0.0.0.0', () => {
-    log.ok(`Keep-alive + deploy site listening on 0.0.0.0:${port}`)
-    log.info('Point UptimeRobot at /health every 5 min so Render never sleeps')
+    log.ok(`Keep-alive server listening on 0.0.0.0:${port}`)
+    log.info('Point UptimeRobot at this URL every 5 min so Render never sleeps')
   })
 
   return server

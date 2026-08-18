@@ -52,21 +52,6 @@ export async function startSocket() {
    * If one is set and we are not already linked, write it to disk so the
    * bot starts already authenticated - no QR needed on the server.
    */
-  if (config.sessionToken && !config.sessionId) {
-    try {
-      const { fetchSessionByToken } = await import('./lib/deployStore.js')
-      const pulled = await fetchSessionByToken(config.sessionToken)
-      if (pulled) {
-        config.sessionId = pulled
-        log.ok(`Session pulled from SESSION_TOKEN ${config.sessionToken}`)
-      } else {
-        log.error(`SESSION_TOKEN ${config.sessionToken} was not found on the hub`)
-      }
-    } catch (e) {
-      log.error(`Could not resolve SESSION_TOKEN: ${e.message}`)
-    }
-  }
-
   if (config.sessionId) {
     const credsPath = path.join(config.sessionDir, 'creds.json')
     if (!fs.existsSync(credsPath)) {

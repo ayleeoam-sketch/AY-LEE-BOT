@@ -20,7 +20,6 @@ const META = {
   ECONOMY: { e: '💰', about: 'coins, jobs, casino' },
   FUN: { e: '🎮', about: 'games, gifs, reactions' },
   DOWNLOADER: { e: '🎵', about: 'youtube, tiktok, music' },
-  VOICE: { e: '🎙️', about: 'clone, speak, saved voices' },
   AI: { e: '🤖', about: 'chat & image AI' },
   TEXTMAKER: { e: '🎨', about: 'text effects & stickers' },
   CONVERTER: { e: '🔧', about: 'stickers, audio, video' },
@@ -44,7 +43,7 @@ const META = {
 
 /** Categories the directory surfaces first - the rest append alphabetically. */
 const ORDER = [
-  'SPORTS', 'ECONOMY', 'FUN', 'DOWNLOADER', 'VOICE', 'AI', 'TEXTMAKER', 'CONVERTER',
+  'SPORTS', 'ECONOMY', 'FUN', 'DOWNLOADER', 'AI', 'TEXTMAKER', 'CONVERTER',
   'GROUP', 'SEARCH', 'UTILITIES', 'IMAGE-MEME', 'IMAGE', 'GAME', 'USER',
   'TOOLS', 'CONFIG', 'BOT', 'PRIVACY', 'AUTOREPLY', 'ANIME', 'MISC',
   'PLUGINS', 'PROCESS', 'HELP'

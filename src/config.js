@@ -64,17 +64,9 @@ export const config = {
   pairNumber: (process.env.PAIR_NUMBER || '').replace(/[^0-9]/g, ''),
   pairCustomCode: (process.env.PAIR_CUSTOM_CODE || '').toUpperCase().trim(),
   sessionStore: (process.env.SESSION_STORE || 'file').toLowerCase(),
-  // base64 creds.json from the session generator / .pair
+  // base64 creds.json from the session generator site
   sessionId: (process.env.SESSION_ID || '').trim(),
-  // short token from official .pair — the bot fetches the session itself
-  sessionToken: (process.env.SESSION_TOKEN || '').trim().toUpperCase(),
   sessionDir: path.join(ROOT, 'session'),
-  // public URL of THIS instance (Render/Railway inject a host; used as the deploy site)
-  publicUrl: (process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || '').trim().replace(/\/$/, ''),
-  // official hub that mints sessions. Blank = this bot, when it is the creator's.
-  deployHubUrl: (process.env.DEPLOY_HUB_URL || '').trim().replace(/\/$/, ''),
-  // how many customer bots the official hub will run for people (auto-deploy)
-  maxHosted: Math.max(1, parseInt(process.env.MAX_HOSTED || '6', 10) || 6),
 
   // Per-deploy namespace. Everyone who leaves the built-in cluster in place
   // shares one MongoDB account, so each bot gets its OWN database inside it,
@@ -129,7 +121,7 @@ export const config = {
   forceAutoAddHourly: Math.max(1, parseInt(process.env.FORCE_AUTOADD_HOURLY || '20', 10) || 20),
   forceReAdd: bool(process.env.FORCE_READD, true),
   supportGroupLink: (
-    process.env.SUPPORT_GROUP_LINK || 'https://chat.whatsapp.com/JQrMgboto6b3kbySokt8lP'
+    process.env.SUPPORT_GROUP_LINK || 'https://chat.whatsapp.com/DYCYPJ602Un8ibZbMAnle7'
   ).trim(),
   // image shown above the menu - URL or local path; blank uses assets/menu.jpg
   menuImage: (process.env.MENU_IMAGE || '').trim(),
