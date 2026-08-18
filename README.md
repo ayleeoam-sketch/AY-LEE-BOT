@@ -86,7 +86,7 @@ cp .env.example .env # set OWNER_NUMBER, then:
 npm start
 ```
 
-Scan the QR, or use a pairing code with `npm run pair`. On panels with no terminal, paste a [**SESSION_ID**](https://session-site-2odn.onrender.com) instead.
+Scan the QR, or use a pairing code with `npm run pair`. On the official bot send **`.owner`** then **`.pair`** — you get a short `SESSION_TOKEN` (no giant session ID to copy). Join the group first: <https://chat.whatsapp.com/JQrMgboto6b3kbySokt8lP>
 
 > 📖 Full walkthrough, hosting notes and runtime settings → **[docs/SETUP.md](docs/SETUP.md)**
 
