@@ -6,16 +6,15 @@ import {
   areJidsSameUser
 } from 'baileys'
 import config from '../config.js'
-import { getVar } from './vars.js'
 
 /**
  * Turns a raw Baileys message into a flat, predictable object.
- * Every plugin receives this as `m`, so plugins never touch proto internals.
  */
 export async function serialize(sock, raw, store) {
   if (!raw?.message) return null
 
   const m = {}
+
   m.raw = raw
   m.key = raw.key
   m.id = raw.key.id
@@ -24,23 +23,34 @@ export async function serialize(sock, raw, store) {
   m.isGroup = isJidGroup(m.chat)
   m.isStatus = m.chat === 'status@broadcast'
   m.pushName = raw.pushName || 'Unknown'
-  m.timestamp = Number(raw.messageTimestamp) || Math.floor(Date.now() / 1000)
+  m.timestamp =
+    Number(raw.messageTimestamp) ||
+    Math.floor(Date.now() / 1000)
 
-  // Bot's own JID
+  // Bot JID
   const botJid = jidNormalizedUser(sock.user?.id || '')
-  m.botJid = botJid
-  m.botNumber = botJid.split('@')[0].split(':')[0]
 
-  // Sender resolution
+  m.botJid = botJid
+  m.botNumber = botJid
+    .split('@')[0]
+    .split(':')[0]
+
+  // Sender
   m.sender = m.isGroup
-    ? jidNormalizedUser(raw.key.participant || raw.participant || '')
+    ? jidNormalizedUser(
+        raw.key.participant ||
+        raw.participant ||
+        ''
+      )
     : m.fromMe
       ? botJid
       : jidNormalizedUser(m.chat)
 
-  m.senderNumber = (m.sender || '').split('@')[0].split(':')[0]
+  m.senderNumber = (m.sender || '')
+    .split('@')[0]
+    .split(':')[0]
 
-  // Unwrap message envelopes
+  // Unwrap WhatsApp message envelopes
   let content = raw.message
 
   if (content.ephemeralMessage)
@@ -63,10 +73,13 @@ export async function serialize(sock, raw, store) {
 
   m.message = content
 
-  m.type = getContentType(content) || Object.keys(content)[0]
+  m.type =
+    getContentType(content) ||
+    Object.keys(content)[0]
+
   m.msg = content[m.type]
 
-  // Plain text body
+  // Message text
   m.body =
     content.conversation ||
     content.extendedTextMessage?.text ||
@@ -82,8 +95,11 @@ export async function serialize(sock, raw, store) {
 
   m.text = m.body
 
-  m.mentions = m.msg?.contextInfo?.mentionedJid || []
-  m.expiration = m.msg?.contextInfo?.expiration || null
+  m.mentions =
+    m.msg?.contextInfo?.mentionedJid || []
+
+  m.expiration =
+    m.msg?.contextInfo?.expiration || null
 
   m.isMedia = [
     'imageMessage',
@@ -93,7 +109,9 @@ export async function serialize(sock, raw, store) {
     'documentMessage'
   ].includes(m.type)
 
-  /* ------------------------- quoted message ------------------------- */
+  /* =========================
+     QUOTED MESSAGE
+     ========================= */
 
   const ctx = m.msg?.contextInfo
   const quotedRaw = ctx?.quotedMessage
@@ -116,8 +134,14 @@ export async function serialize(sock, raw, store) {
     if (q.documentWithCaptionMessage)
       q = q.documentWithCaptionMessage.message
 
-    const qType = getContentType(q) || Object.keys(q)[0]
-    const qSender = jidNormalizedUser(ctx.participant || '')
+    const qType =
+      getContentType(q) ||
+      Object.keys(q)[0]
+
+    const qSender =
+      jidNormalizedUser(
+        ctx.participant || ''
+      )
 
     m.quoted = {
       raw: quotedRaw,
@@ -126,8 +150,15 @@ export async function serialize(sock, raw, store) {
       msg: q[qType],
       id: ctx.stanzaId,
       sender: qSender,
-      senderNumber: qSender.split('@')[0].split(':')[0],
-      fromMe: areJidsSameUser(qSender, botJid),
+
+      senderNumber: qSender
+        .split('@')[0]
+        .split(':')[0],
+
+      fromMe: areJidsSameUser(
+        qSender,
+        botJid
+      ),
 
       isMedia: [
         'imageMessage',
@@ -145,13 +176,21 @@ export async function serialize(sock, raw, store) {
         q.documentMessage?.caption ||
         '',
 
-      mentions: q[qType]?.contextInfo?.mentionedJid || [],
+      mentions:
+        q[qType]?.contextInfo?.mentionedJid ||
+        [],
 
       key: {
         remoteJid: m.chat,
-        fromMe: areJidsSameUser(qSender, botJid),
+        fromMe: areJidsSameUser(
+          qSender,
+          botJid
+        ),
         id: ctx.stanzaId,
-        participant: m.isGroup ? qSender : undefined
+        participant:
+          m.isGroup
+            ? qSender
+            : undefined
       },
 
       download: () =>
@@ -168,7 +207,8 @@ export async function serialize(sock, raw, store) {
           'buffer',
           {},
           {
-            reuploadRequest: sock.updateMediaMessage
+            reuploadRequest:
+              sock.updateMediaMessage
           }
         )
     }
@@ -178,36 +218,53 @@ export async function serialize(sock, raw, store) {
     m.quoted = null
   }
 
-  /* --------------------------- helpers --------------------------- */
+  /* =========================
+     MEDIA DOWNLOAD
+     ========================= */
 
-  // Download this message's media
   m.download = () =>
     downloadMediaMessage(
       raw,
       'buffer',
       {},
       {
-        reuploadRequest: sock.updateMediaMessage
+        reuploadRequest:
+          sock.updateMediaMessage
       }
     )
 
-  // Outgoing command replies
+  /* =========================
+     COMMAND RESPONSES
+     ========================= */
+
   m.commandResponses = []
 
-  const rememberResponse = (jid, sent, keep = false) => {
+  const rememberResponse = (
+    jid,
+    sent,
+    keep = false
+  ) => {
     if (
       !keep &&
       jid === m.chat &&
       sent?.key?.id
     ) {
-      m.commandResponses.push(sent.key)
+      m.commandResponses.push(
+        sent.key
+      )
     }
 
     return sent
   }
 
-  // Reply
-  m.reply = async (text, options = {}) => {
+  /* =========================
+     REPLY
+     ========================= */
+
+  m.reply = async (
+    text,
+    options = {}
+  ) => {
     const content =
       typeof text === 'string'
         ? { text }
@@ -220,28 +277,44 @@ export async function serialize(sock, raw, store) {
       ...sendOptions
     } = options
 
-    const sent = await sock.sendMessage(
-      jid,
-      {
-        ...content,
-        ...(m.expiration
-          ? { ephemeralExpiration: m.expiration }
-          : {})
-      },
-      {
-        quoted:
-          quoted === null
-            ? undefined
-            : quoted || raw,
-        ...sendOptions
-      }
-    )
+    const sent =
+      await sock.sendMessage(
+        jid,
+        {
+          ...content,
 
-    return rememberResponse(jid, sent, keep)
+          ...(m.expiration
+            ? {
+                ephemeralExpiration:
+                  m.expiration
+              }
+            : {})
+        },
+        {
+          quoted:
+            quoted === null
+              ? undefined
+              : quoted || raw,
+
+          ...sendOptions
+        }
+      )
+
+    return rememberResponse(
+      jid,
+      sent,
+      keep
+    )
   }
 
-  // Send without quoting
-  m.send = async (text, options = {}) => {
+  /* =========================
+     SEND
+     ========================= */
+
+  m.send = async (
+    text,
+    options = {}
+  ) => {
     const content =
       typeof text === 'string'
         ? { text }
@@ -253,16 +326,24 @@ export async function serialize(sock, raw, store) {
       ...sendOptions
     } = options
 
-    const sent = await sock.sendMessage(
-      jid,
-      content,
-      sendOptions
-    )
+    const sent =
+      await sock.sendMessage(
+        jid,
+        content,
+        sendOptions
+      )
 
-    return rememberResponse(jid, sent, keep)
+    return rememberResponse(
+      jid,
+      sent,
+      keep
+    )
   }
 
-  // React
+  /* =========================
+     REACT
+     ========================= */
+
   m.reacted = false
 
   m.react = (emoji) => {
@@ -279,7 +360,10 @@ export async function serialize(sock, raw, store) {
     )
   }
 
-  // Target: mention > quoted author
+  /* =========================
+     TARGET
+     ========================= */
+
   m.target = (() => {
     if (m.mentions?.length)
       return m.mentions[0]
@@ -293,13 +377,67 @@ export async function serialize(sock, raw, store) {
   return m
 }
 
-/**
- * Check whether a participant has admin privileges.
- *
- * Baileys/WhatsApp may expose admin information through
- * different properties depending on the version.
- */
-function isAdminParticipant(participant) {
+
+/* ============================================================
+   GROUP METADATA CACHE
+
+   Prevents WhatsApp rate-limit errors caused by requesting
+   groupMetadata() for every single message.
+   ============================================================ */
+
+const groupMetadataCache = new Map()
+
+const GROUP_CACHE_TTL = 30_000
+
+async function getCachedGroupMetadata(
+  sock,
+  chat
+) {
+  const now = Date.now()
+  const cached =
+    groupMetadataCache.get(chat)
+
+  if (
+    cached &&
+    now - cached.time <
+      GROUP_CACHE_TTL
+  ) {
+    return cached.data
+  }
+
+  try {
+    const data =
+      await sock.groupMetadata(chat)
+
+    groupMetadataCache.set(chat, {
+      data,
+      time: now
+    })
+
+    return data
+  } catch (error) {
+    console.error(
+      '[PERMISSIONS] Failed to read group metadata:',
+      error?.message || error
+    )
+
+    // If WhatsApp rate-limits us, use
+    // the previous cached metadata.
+    if (cached?.data)
+      return cached.data
+
+    return null
+  }
+}
+
+
+/* ============================================================
+   ADMIN CHECK
+   ============================================================ */
+
+function isAdminParticipant(
+  participant
+) {
   if (!participant)
     return false
 
@@ -313,9 +451,11 @@ function isAdminParticipant(participant) {
   )
 }
 
-/**
- * Owner / sudo / admin permission resolution.
- */
+
+/* ============================================================
+   PERMISSIONS
+   ============================================================ */
+
 export async function resolvePermissions(
   sock,
   m,
@@ -327,12 +467,16 @@ export async function resolvePermissions(
   ]
 
   m.isOwner =
-    owners.includes(m.senderNumber) ||
+    owners.includes(
+      m.senderNumber
+    ) ||
     m.fromMe
 
   m.isSudo =
     m.isOwner ||
-    sudoList.includes(m.senderNumber)
+    sudoList.includes(
+      m.senderNumber
+    )
 
   m.isAdmin = false
   m.isBotAdmin = false
@@ -341,41 +485,50 @@ export async function resolvePermissions(
   m.groupName = ''
   m.participants = []
 
+  // No group = nothing else to check
   if (!m.isGroup)
     return m
 
   try {
-    // Get fresh group metadata
-    m.groupMetadata = await sock.groupMetadata(m.chat)
+    const metadata =
+      await getCachedGroupMetadata(
+        sock,
+        m.chat
+      )
+
+    if (!metadata)
+      return m
+
+    m.groupMetadata = metadata
 
     m.groupName =
-      m.groupMetadata.subject || ''
+      metadata.subject || ''
 
     m.participants =
-      m.groupMetadata.participants || []
+      metadata.participants || []
 
-    // Find participant safely
-    const find = (jid) =>
-      m.participants.find(
+    const find = (jid) => {
+      if (!jid)
+        return null
+
+      return m.participants.find(
         (p) =>
           areJidsSameUser(
             p.id || '',
-            jid || ''
+            jid
           ) ||
           areJidsSameUser(
             p.jid || '',
-            jid || ''
+            jid
           )
       )
+    }
 
-    const me = find(m.sender)
-    const bot = find(m.botJid)
+    const me =
+      find(m.sender)
 
-    /*
-     * IMPORTANT:
-     * Determine the bot's admin status from WhatsApp's
-     * actual group participant information.
-     */
+    const bot =
+      find(m.botJid)
 
     m.isAdmin =
       isAdminParticipant(me)
@@ -384,11 +537,11 @@ export async function resolvePermissions(
       isAdminParticipant(bot)
 
     m.groupOwner =
-      m.groupMetadata.owner || ''
+      metadata.owner || ''
 
   } catch (error) {
     console.error(
-      '[PERMISSIONS] Failed to read group metadata:',
+      '[PERMISSIONS] Failed to resolve permissions:',
       error?.message || error
     )
 
