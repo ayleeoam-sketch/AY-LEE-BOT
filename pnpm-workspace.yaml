@@ -1,4 +1,0 @@
-allowBuilds:
-  baileys: false
-  ffmpeg-static: false
-  protobufjs: false
