@@ -1,3 +1,4 @@
+```js
 import {
   getContentType,
   jidNormalizedUser,
@@ -5,23 +6,21 @@ import {
   isJidGroup,
   areJidsSameUser
 } from 'baileys'
-
 import config from '../config.js'
 
 /*
  * ============================================================
- * GROUP METADATA PROTECTION
+ * GROUP METADATA CACHE
  * ============================================================
  *
- * WhatsApp can rate-limit groupMetadata() when requested too
- * frequently.
+ * WhatsApp rate-limits groupMetadata() when it is requested
+ * repeatedly.
  *
- * Rules:
- * 1. Use cached metadata whenever possible.
- * 2. Only one metadata request per group at a time.
- * 3. After rate-overlimit, stop requesting that group temporarily.
- * 4. Never spam logs with rate-overlimit.
- * 5. Keep old metadata if a refresh fails.
+ * IMPORTANT:
+ * - Cache successful metadata.
+ * - Only allow ONE request per group at a time.
+ * - After rate-overlimit, wait before trying again.
+ * - Never spam the Render logs.
  */
 
 const groupMetadataCache = new Map()
@@ -29,71 +28,51 @@ const groupMetadataRequests = new Map()
 const groupMetadataBlocked = new Map()
 
 const GROUP_CACHE_TTL = 10 * 60 * 1000
-const RATE_LIMIT_COOLDOWN = 5 * 60 * 1000
+const RATE_LIMIT_COOLDOWN = 2 * 60 * 1000
 
 async function getCachedGroupMetadata(sock, jid) {
-  if (!jid || !isJidGroup(jid)) {
-    return null
-  }
+  if (!jid) return null
 
   const now = Date.now()
 
   /*
-   * ----------------------------------------------------------
-   * RATE LIMIT COOLDOWN
-   * ----------------------------------------------------------
+   * If WhatsApp recently rate-limited this group,
+   * DO NOT make another request.
    */
-
   const blockedUntil = groupMetadataBlocked.get(jid)
 
-  if (blockedUntil) {
-    if (now < blockedUntil) {
-      return groupMetadataCache.get(jid)?.metadata || null
-    }
+  if (blockedUntil && now < blockedUntil) {
+    return groupMetadataCache.get(jid)?.metadata || null
+  }
 
+  if (blockedUntil && now >= blockedUntil) {
     groupMetadataBlocked.delete(jid)
   }
 
   /*
-   * ----------------------------------------------------------
-   * CACHE
-   * ----------------------------------------------------------
+   * Return fresh cached metadata.
    */
-
   const cached = groupMetadataCache.get(jid)
 
   if (
     cached &&
-    cached.metadata &&
     now - cached.timestamp < GROUP_CACHE_TTL
   ) {
     return cached.metadata
   }
 
   /*
-   * ----------------------------------------------------------
-   * DUPLICATE REQUEST PROTECTION
-   * ----------------------------------------------------------
-   *
-   * If another message is already loading metadata for this
-   * group, wait for that same request.
+   * If another request for this same group is already
+   * running, wait for it instead of creating another one.
    */
-
-  const existingRequest = groupMetadataRequests.get(jid)
-
-  if (existingRequest) {
-    return existingRequest
+  if (groupMetadataRequests.has(jid)) {
+    return groupMetadataRequests.get(jid)
   }
-
-  /*
-   * ----------------------------------------------------------
-   * SINGLE REQUEST
-   * ----------------------------------------------------------
-   */
 
   const request = (async () => {
     try {
-      const metadata = await sock.groupMetadata(jid)
+      const metadata =
+        await sock.groupMetadata(jid)
 
       if (metadata) {
         groupMetadataCache.set(jid, {
@@ -101,6 +80,10 @@ async function getCachedGroupMetadata(sock, jid) {
           timestamp: Date.now()
         })
 
+        /*
+         * Successful request means the group is no
+         * longer blocked.
+         */
         groupMetadataBlocked.delete(jid)
       }
 
@@ -111,66 +94,57 @@ async function getCachedGroupMetadata(sock, jid) {
         String(error)
 
       /*
-       * ------------------------------------------------------
-       * WHATSAPP RATE LIMIT
-       * ------------------------------------------------------
+       * WhatsApp rate-limit.
+       *
+       * Do NOT print this on every message.
+       * Block requests for a while.
        */
-
       if (
-        message.includes('rate-overlimit') ||
-        message.includes('rate limit') ||
-        message.includes('429')
+        message.includes('rate-overlimit')
       ) {
-        /*
-         * Block this group temporarily.
-         *
-         * IMPORTANT:
-         * No console.error here.
-         * Otherwise every incoming message can flood logs.
-         */
-
         groupMetadataBlocked.set(
           jid,
           Date.now() + RATE_LIMIT_COOLDOWN
         )
 
+        /*
+         * Silently use old metadata if available.
+         */
         return (
-          groupMetadataCache.get(jid)?.metadata ||
-          null
+          groupMetadataCache.get(jid)
+            ?.metadata || null
         )
       }
 
       /*
-       * ------------------------------------------------------
-       * OTHER ERRORS
-       * ------------------------------------------------------
+       * Other errors can still be logged once.
        */
-
       console.error(
-        `[PERMISSIONS] Group metadata error for ${jid}:`,
+        '[PERMISSIONS] Group metadata error:',
         message
       )
 
       return (
-        groupMetadataCache.get(jid)?.metadata ||
-        null
+        groupMetadataCache.get(jid)
+          ?.metadata || null
       )
     } finally {
       groupMetadataRequests.delete(jid)
     }
   })()
 
-  groupMetadataRequests.set(jid, request)
+  groupMetadataRequests.set(
+    jid,
+    request
+  )
 
   return request
 }
 
-/*
- * ============================================================
- * SERIALIZE MESSAGE
- * ============================================================
+/**
+ * Turns a raw Baileys message into a flat,
+ * predictable object.
  */
-
 export async function serialize(
   sock,
   raw,
@@ -186,22 +160,21 @@ export async function serialize(
   m.chat = raw.key.remoteJid
   m.fromMe = !!raw.key.fromMe
   m.isGroup = isJidGroup(m.chat)
-  m.isStatus = m.chat === 'status@broadcast'
-  m.pushName = raw.pushName || 'Unknown'
+  m.isStatus =
+    m.chat === 'status@broadcast'
+  m.pushName =
+    raw.pushName || 'Unknown'
 
   m.timestamp =
     Number(raw.messageTimestamp) ||
     Math.floor(Date.now() / 1000)
 
-  /*
-   * ==========================================================
-   * BOT JID
-   * ==========================================================
-   */
+  /* ---------------- BOT JID ---------------- */
 
-  const botJid = jidNormalizedUser(
-    sock.user?.id || ''
-  )
+  const botJid =
+    jidNormalizedUser(
+      sock.user?.id || ''
+    )
 
   m.botJid = botJid
 
@@ -210,11 +183,7 @@ export async function serialize(
       .split('@')[0]
       .split(':')[0]
 
-  /*
-   * ==========================================================
-   * SENDER
-   * ==========================================================
-   */
+  /* ---------------- SENDER ---------------- */
 
   m.sender = m.isGroup
     ? jidNormalizedUser(
@@ -231,43 +200,35 @@ export async function serialize(
       .split('@')[0]
       .split(':')[0]
 
-  /*
-   * ==========================================================
-   * UNWRAP MESSAGE
-   * ==========================================================
-   */
+  /* ---------------- UNWRAP MESSAGE ---------------- */
 
   let content = raw.message
 
-  if (content.ephemeralMessage) {
+  if (content.ephemeralMessage)
     content =
       content.ephemeralMessage.message
-  }
 
-  if (content.viewOnceMessage) {
+  if (content.viewOnceMessage)
     content =
       content.viewOnceMessage.message
-  }
 
-  if (content.viewOnceMessageV2) {
+  if (content.viewOnceMessageV2)
     content =
       content.viewOnceMessageV2.message
-  }
 
-  if (content.viewOnceMessageV2Extension) {
+  if (
+    content.viewOnceMessageV2Extension
+  )
     content =
       content.viewOnceMessageV2Extension.message
-  }
 
-  if (content.documentWithCaptionMessage) {
+  if (content.documentWithCaptionMessage)
     content =
       content.documentWithCaptionMessage.message
-  }
 
-  if (content.deviceSentMessage) {
+  if (content.deviceSentMessage)
     content =
       content.deviceSentMessage.message
-  }
 
   m.message = content
 
@@ -277,11 +238,7 @@ export async function serialize(
 
   m.msg = content[m.type]
 
-  /*
-   * ==========================================================
-   * TEXT
-   * ==========================================================
-   */
+  /* ---------------- TEXT ---------------- */
 
   m.body =
     content.conversation ||
@@ -289,9 +246,13 @@ export async function serialize(
     content.imageMessage?.caption ||
     content.videoMessage?.caption ||
     content.documentMessage?.caption ||
-    content.buttonsResponseMessage?.selectedButtonId ||
-    content.listResponseMessage?.singleSelectReply?.selectedRowId ||
-    content.templateButtonReplyMessage?.selectedId ||
+    content.buttonsResponseMessage
+      ?.selectedButtonId ||
+    content.listResponseMessage
+      ?.singleSelectReply
+      ?.selectedRowId ||
+    content.templateButtonReplyMessage
+      ?.selectedId ||
     content.interactiveResponseMessage
       ?.nativeFlowResponseMessage
       ?.paramsJson ||
@@ -301,10 +262,12 @@ export async function serialize(
   m.text = m.body
 
   m.mentions =
-    m.msg?.contextInfo?.mentionedJid || []
+    m.msg?.contextInfo
+      ?.mentionedJid || []
 
   m.expiration =
-    m.msg?.contextInfo?.expiration || null
+    m.msg?.contextInfo
+      ?.expiration || null
 
   m.isMedia = [
     'imageMessage',
@@ -314,11 +277,7 @@ export async function serialize(
     'documentMessage'
   ].includes(m.type)
 
-  /*
-   * ==========================================================
-   * QUOTED MESSAGE
-   * ==========================================================
-   */
+  /* ---------------- QUOTED MESSAGE ---------------- */
 
   const ctx =
     m.msg?.contextInfo
@@ -329,30 +288,29 @@ export async function serialize(
   if (quotedRaw) {
     let q = quotedRaw
 
-    if (q.ephemeralMessage) {
+    if (q.ephemeralMessage)
       q =
         q.ephemeralMessage.message
-    }
 
-    if (q.viewOnceMessage) {
+    if (q.viewOnceMessage)
       q =
         q.viewOnceMessage.message
-    }
 
-    if (q.viewOnceMessageV2) {
+    if (q.viewOnceMessageV2)
       q =
         q.viewOnceMessageV2.message
-    }
 
-    if (q.viewOnceMessageV2Extension) {
+    if (
+      q.viewOnceMessageV2Extension
+    )
       q =
         q.viewOnceMessageV2Extension.message
-    }
 
-    if (q.documentWithCaptionMessage) {
+    if (
+      q.documentWithCaptionMessage
+    )
       q =
         q.documentWithCaptionMessage.message
-    }
 
     const qType =
       getContentType(q) ||
@@ -432,7 +390,8 @@ export async function serialize(
               remoteJid: m.chat,
               id: ctx.stanzaId,
               fromMe: false,
-              participant: qSender
+              participant:
+                qSender
             },
             message: q
           },
@@ -451,11 +410,7 @@ export async function serialize(
     m.quoted = null
   }
 
-  /*
-   * ==========================================================
-   * DOWNLOAD
-   * ==========================================================
-   */
+  /* ---------------- HELPERS ---------------- */
 
   m.download = () =>
     downloadMediaMessage(
@@ -467,12 +422,6 @@ export async function serialize(
           sock.updateMediaMessage
       }
     )
-
-  /*
-   * ==========================================================
-   * COMMAND RESPONSES
-   * ==========================================================
-   */
 
   m.commandResponses = []
 
@@ -494,11 +443,7 @@ export async function serialize(
     return sent
   }
 
-  /*
-   * ==========================================================
-   * REPLY
-   * ==========================================================
-   */
+  /* ---------------- REPLY ---------------- */
 
   m.reply = async (
     text,
@@ -546,11 +491,7 @@ export async function serialize(
     )
   }
 
-  /*
-   * ==========================================================
-   * SEND
-   * ==========================================================
-   */
+  /* ---------------- SEND ---------------- */
 
   m.send = async (
     text,
@@ -581,11 +522,7 @@ export async function serialize(
     )
   }
 
-  /*
-   * ==========================================================
-   * REACT
-   * ==========================================================
-   */
+  /* ---------------- REACT ---------------- */
 
   m.reacted = false
 
@@ -603,20 +540,14 @@ export async function serialize(
     )
   }
 
-  /*
-   * ==========================================================
-   * TARGET
-   * ==========================================================
-   */
+  /* ---------------- TARGET ---------------- */
 
   m.target = (() => {
-    if (m.mentions?.length) {
+    if (m.mentions?.length)
       return m.mentions[0]
-    }
 
-    if (m.quoted?.sender) {
+    if (m.quoted?.sender)
       return m.quoted.sender
-    }
 
     return null
   })()
@@ -624,16 +555,15 @@ export async function serialize(
   return m
 }
 
-/*
- * ============================================================
+/* ============================================================
  * ADMIN CHECK
- * ============================================================
- */
+ * ============================================================ */
 
-function isAdminParticipant(participant) {
-  if (!participant) {
+function isAdminParticipant(
+  participant
+) {
+  if (!participant)
     return false
-  }
 
   return (
     participant.admin === 'admin' ||
@@ -645,11 +575,9 @@ function isAdminParticipant(participant) {
   )
 }
 
-/*
- * ============================================================
+/* ============================================================
  * PERMISSIONS
- * ============================================================
- */
+ * ============================================================ */
 
 export async function resolvePermissions(
   sock,
@@ -657,17 +585,21 @@ export async function resolvePermissions(
   sudoList = []
 ) {
   const owners = [
-    ...(config.ownerNumbers || []),
+    ...config.ownerNumbers,
     m.botNumber
   ]
 
   m.isOwner =
-    owners.includes(m.senderNumber) ||
+    owners.includes(
+      m.senderNumber
+    ) ||
     m.fromMe
 
   m.isSudo =
     m.isOwner ||
-    sudoList.includes(m.senderNumber)
+    sudoList.includes(
+      m.senderNumber
+    )
 
   m.isAdmin = false
   m.isBotAdmin = false
@@ -675,26 +607,17 @@ export async function resolvePermissions(
   m.groupMetadata = null
   m.groupName = ''
   m.participants = []
-  m.groupOwner = ''
 
   /*
-   * DM = no metadata required.
+   * DMs don't need metadata.
    */
-
-  if (!m.isGroup) {
+  if (!m.isGroup)
     return m
-  }
 
   /*
-   * IMPORTANT:
-   *
-   * NEVER call:
-   *
-   * sock.groupMetadata(m.chat)
-   *
-   * directly here.
+   * Get metadata through the protected
+   * cache/request system.
    */
-
   const metadata =
     await getCachedGroupMetadata(
       sock,
@@ -702,17 +625,13 @@ export async function resolvePermissions(
     )
 
   /*
-   * Metadata unavailable.
+   * Metadata unavailable because WhatsApp
+   * rate-limited us.
    *
-   * This can happen because WhatsApp temporarily
-   * rate-limited the request.
-   *
-   * Do NOT retry.
+   * Don't throw an error and don't retry.
    */
-
-  if (!metadata) {
+  if (!metadata)
     return m
-  }
 
   m.groupMetadata =
     metadata
@@ -721,25 +640,20 @@ export async function resolvePermissions(
     metadata.subject || ''
 
   m.participants =
-    Array.isArray(metadata.participants)
-      ? metadata.participants
-      : []
+    metadata.participants || []
 
-  const find = (jid) => {
-    if (!jid) return null
-
-    return m.participants.find(
+  const find = (jid) =>
+    m.participants.find(
       (p) =>
         areJidsSameUser(
           p.id || '',
-          jid
+          jid || ''
         ) ||
         areJidsSameUser(
           p.jid || '',
-          jid
+          jid || ''
         )
     )
-  }
 
   const me =
     find(m.sender)
@@ -760,3 +674,4 @@ export async function resolvePermissions(
 }
 
 export default serialize
+```
