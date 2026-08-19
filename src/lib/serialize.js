@@ -26,33 +26,47 @@ export async function serialize(sock, raw, store) {
   m.pushName = raw.pushName || 'Unknown'
   m.timestamp = Number(raw.messageTimestamp) || Math.floor(Date.now() / 1000)
 
-  // bot's own jid
+  // Bot's own JID
   const botJid = jidNormalizedUser(sock.user?.id || '')
   m.botJid = botJid
   m.botNumber = botJid.split('@')[0].split(':')[0]
 
-  // sender resolution: in groups the participant is the real author
+  // Sender resolution
   m.sender = m.isGroup
     ? jidNormalizedUser(raw.key.participant || raw.participant || '')
     : m.fromMe
       ? botJid
       : jidNormalizedUser(m.chat)
+
   m.senderNumber = (m.sender || '').split('@')[0].split(':')[0]
 
-  // unwrap ephemeral / view-once / device-sent envelopes
+  // Unwrap message envelopes
   let content = raw.message
-  if (content.ephemeralMessage) content = content.ephemeralMessage.message
-  if (content.viewOnceMessage) content = content.viewOnceMessage.message
-  if (content.viewOnceMessageV2) content = content.viewOnceMessageV2.message
-  if (content.viewOnceMessageV2Extension) content = content.viewOnceMessageV2Extension.message
-  if (content.documentWithCaptionMessage) content = content.documentWithCaptionMessage.message
-  if (content.deviceSentMessage) content = content.deviceSentMessage.message
+
+  if (content.ephemeralMessage)
+    content = content.ephemeralMessage.message
+
+  if (content.viewOnceMessage)
+    content = content.viewOnceMessage.message
+
+  if (content.viewOnceMessageV2)
+    content = content.viewOnceMessageV2.message
+
+  if (content.viewOnceMessageV2Extension)
+    content = content.viewOnceMessageV2Extension.message
+
+  if (content.documentWithCaptionMessage)
+    content = content.documentWithCaptionMessage.message
+
+  if (content.deviceSentMessage)
+    content = content.deviceSentMessage.message
+
   m.message = content
 
   m.type = getContentType(content) || Object.keys(content)[0]
   m.msg = content[m.type]
 
-  // plain text body across every message shape
+  // Plain text body
   m.body =
     content.conversation ||
     content.extendedTextMessage?.text ||
@@ -65,22 +79,42 @@ export async function serialize(sock, raw, store) {
     content.interactiveResponseMessage?.nativeFlowResponseMessage?.paramsJson ||
     content.eventMessage?.name ||
     ''
+
   m.text = m.body
 
   m.mentions = m.msg?.contextInfo?.mentionedJid || []
   m.expiration = m.msg?.contextInfo?.expiration || null
-  m.isMedia = ['imageMessage', 'videoMessage', 'audioMessage', 'stickerMessage', 'documentMessage'].includes(m.type)
+
+  m.isMedia = [
+    'imageMessage',
+    'videoMessage',
+    'audioMessage',
+    'stickerMessage',
+    'documentMessage'
+  ].includes(m.type)
 
   /* ------------------------- quoted message ------------------------- */
+
   const ctx = m.msg?.contextInfo
   const quotedRaw = ctx?.quotedMessage
+
   if (quotedRaw) {
     let q = quotedRaw
-    if (q.ephemeralMessage) q = q.ephemeralMessage.message
-    if (q.viewOnceMessage) q = q.viewOnceMessage.message
-    if (q.viewOnceMessageV2) q = q.viewOnceMessageV2.message
-    if (q.viewOnceMessageV2Extension) q = q.viewOnceMessageV2Extension.message
-    if (q.documentWithCaptionMessage) q = q.documentWithCaptionMessage.message
+
+    if (q.ephemeralMessage)
+      q = q.ephemeralMessage.message
+
+    if (q.viewOnceMessage)
+      q = q.viewOnceMessage.message
+
+    if (q.viewOnceMessageV2)
+      q = q.viewOnceMessageV2.message
+
+    if (q.viewOnceMessageV2Extension)
+      q = q.viewOnceMessageV2Extension.message
+
+    if (q.documentWithCaptionMessage)
+      q = q.documentWithCaptionMessage.message
 
     const qType = getContentType(q) || Object.keys(q)[0]
     const qSender = jidNormalizedUser(ctx.participant || '')
@@ -94,7 +128,15 @@ export async function serialize(sock, raw, store) {
       sender: qSender,
       senderNumber: qSender.split('@')[0].split(':')[0],
       fromMe: areJidsSameUser(qSender, botJid),
-      isMedia: ['imageMessage', 'videoMessage', 'audioMessage', 'stickerMessage', 'documentMessage'].includes(qType),
+
+      isMedia: [
+        'imageMessage',
+        'videoMessage',
+        'audioMessage',
+        'stickerMessage',
+        'documentMessage'
+      ].includes(qType),
+
       body:
         q.conversation ||
         q.extendedTextMessage?.text ||
@@ -102,23 +144,35 @@ export async function serialize(sock, raw, store) {
         q.videoMessage?.caption ||
         q.documentMessage?.caption ||
         '',
+
       mentions: q[qType]?.contextInfo?.mentionedJid || [],
-      /** message key, needed to react/delete/reply to the quoted message */
+
       key: {
         remoteJid: m.chat,
         fromMe: areJidsSameUser(qSender, botJid),
         id: ctx.stanzaId,
         participant: m.isGroup ? qSender : undefined
       },
-      /** download the quoted media into a Buffer */
+
       download: () =>
         downloadMediaMessage(
-          { key: { remoteJid: m.chat, id: ctx.stanzaId, fromMe: false, participant: qSender }, message: q },
+          {
+            key: {
+              remoteJid: m.chat,
+              id: ctx.stanzaId,
+              fromMe: false,
+              participant: qSender
+            },
+            message: q
+          },
           'buffer',
           {},
-          { reuploadRequest: sock.updateMediaMessage }
+          {
+            reuploadRequest: sock.updateMediaMessage
+          }
         )
     }
+
     m.quoted.text = m.quoted.body
   } else {
     m.quoted = null
@@ -126,89 +180,222 @@ export async function serialize(sock, raw, store) {
 
   /* --------------------------- helpers --------------------------- */
 
-  /** Download this message's media as a Buffer. */
+  // Download this message's media
   m.download = () =>
-    downloadMediaMessage(raw, 'buffer', {}, { reuploadRequest: sock.updateMediaMessage })
+    downloadMediaMessage(
+      raw,
+      'buffer',
+      {},
+      {
+        reuploadRequest: sock.updateMediaMessage
+      }
+    )
 
-  /* Outgoing command replies in this chat, used by optional auto-cleanup. */
+  // Outgoing command replies
   m.commandResponses = []
+
   const rememberResponse = (jid, sent, keep = false) => {
-    if (!keep && jid === m.chat && sent?.key?.id) m.commandResponses.push(sent.key)
+    if (
+      !keep &&
+      jid === m.chat &&
+      sent?.key?.id
+    ) {
+      m.commandResponses.push(sent.key)
+    }
+
     return sent
   }
 
-  /** Reply to this message. Accepts a string or a full Baileys content object. */
+  // Reply
   m.reply = async (text, options = {}) => {
-    const content = typeof text === 'string' ? { text } : text
-    const { jid = m.chat, keep = false, quoted, ...sendOptions } = options
+    const content =
+      typeof text === 'string'
+        ? { text }
+        : text
+
+    const {
+      jid = m.chat,
+      keep = false,
+      quoted,
+      ...sendOptions
+    } = options
+
     const sent = await sock.sendMessage(
       jid,
-      { ...content, ...(m.expiration ? { ephemeralExpiration: m.expiration } : {}) },
-      { quoted: quoted === null ? undefined : quoted || raw, ...sendOptions }
+      {
+        ...content,
+        ...(m.expiration
+          ? { ephemeralExpiration: m.expiration }
+          : {})
+      },
+      {
+        quoted:
+          quoted === null
+            ? undefined
+            : quoted || raw,
+        ...sendOptions
+      }
     )
+
     return rememberResponse(jid, sent, keep)
   }
 
-  /** Send without quoting. Pass keep: true to exempt it from command cleanup. */
+  // Send without quoting
   m.send = async (text, options = {}) => {
-    const content = typeof text === 'string' ? { text } : text
-    const { jid = m.chat, keep = false, ...sendOptions } = options
-    const sent = await sock.sendMessage(jid, content, sendOptions)
+    const content =
+      typeof text === 'string'
+        ? { text }
+        : text
+
+    const {
+      jid = m.chat,
+      keep = false,
+      ...sendOptions
+    } = options
+
+    const sent = await sock.sendMessage(
+      jid,
+      content,
+      sendOptions
+    )
+
     return rememberResponse(jid, sent, keep)
   }
 
-  /**
-   * React to this message with an emoji.
-   *
-   * Sets m.reacted so the handler knows the plugin is managing its own
-   * feedback and should not append an automatic ✅/❌ on top.
-   */
+  // React
   m.reacted = false
+
   m.react = (emoji) => {
     m.reacted = true
-    return sock.sendMessage(m.chat, { react: { text: emoji, key: m.key } })
+
+    return sock.sendMessage(
+      m.chat,
+      {
+        react: {
+          text: emoji,
+          key: m.key
+        }
+      }
+    )
   }
 
-  /** The jid this command targets: mention > quoted author > argument. */
+  // Target: mention > quoted author
   m.target = (() => {
-    if (m.mentions?.length) return m.mentions[0]
-    if (m.quoted?.sender) return m.quoted.sender
+    if (m.mentions?.length)
+      return m.mentions[0]
+
+    if (m.quoted?.sender)
+      return m.quoted.sender
+
     return null
   })()
 
   return m
 }
 
-/** Owner / sudo / admin permission resolution for a serialized message. */
-export async function resolvePermissions(sock, m, sudoList = []) {
-  const owners = [...config.ownerNumbers, m.botNumber]
-  m.isOwner = owners.includes(m.senderNumber) || m.fromMe
-  m.isSudo = m.isOwner || sudoList.includes(m.senderNumber)
+/**
+ * Check whether a participant has admin privileges.
+ *
+ * Baileys/WhatsApp may expose admin information through
+ * different properties depending on the version.
+ */
+function isAdminParticipant(participant) {
+  if (!participant)
+    return false
+
+  return (
+    participant.admin === 'admin' ||
+    participant.admin === 'superadmin' ||
+    participant.admin === 'owner' ||
+    participant.isAdmin === true ||
+    participant.isSuperAdmin === true ||
+    participant.isOwner === true
+  )
+}
+
+/**
+ * Owner / sudo / admin permission resolution.
+ */
+export async function resolvePermissions(
+  sock,
+  m,
+  sudoList = []
+) {
+  const owners = [
+    ...config.ownerNumbers,
+    m.botNumber
+  ]
+
+  m.isOwner =
+    owners.includes(m.senderNumber) ||
+    m.fromMe
+
+  m.isSudo =
+    m.isOwner ||
+    sudoList.includes(m.senderNumber)
 
   m.isAdmin = false
   m.isBotAdmin = false
+
   m.groupMetadata = null
   m.groupName = ''
   m.participants = []
 
-  if (m.isGroup) {
-    try {
-      m.groupMetadata = await sock.groupMetadata(m.chat)
-      m.groupName = m.groupMetadata.subject
-      m.participants = m.groupMetadata.participants || []
+  if (!m.isGroup)
+    return m
 
-      const find = (jid) =>
-        m.participants.find((p) => areJidsSameUser(p.id, jid) || areJidsSameUser(p.jid || '', jid))
+  try {
+    // Get fresh group metadata
+    m.groupMetadata = await sock.groupMetadata(m.chat)
 
-      const me = find(m.sender)
-      const bot = find(m.botJid)
-      m.isAdmin = !!(me?.admin === 'admin' || me?.admin === 'superadmin' || me?.isAdmin || me?.isSuperAdmin)
-      m.isBotAdmin = !!(bot?.admin === 'admin' || bot?.admin === 'superadmin' || bot?.isAdmin || bot?.isSuperAdmin)
-      m.groupOwner = m.groupMetadata.owner
-    } catch {
-      /* metadata fetch can fail on huge groups - treat as non-admin */
-    }
+    m.groupName =
+      m.groupMetadata.subject || ''
+
+    m.participants =
+      m.groupMetadata.participants || []
+
+    // Find participant safely
+    const find = (jid) =>
+      m.participants.find(
+        (p) =>
+          areJidsSameUser(
+            p.id || '',
+            jid || ''
+          ) ||
+          areJidsSameUser(
+            p.jid || '',
+            jid || ''
+          )
+      )
+
+    const me = find(m.sender)
+    const bot = find(m.botJid)
+
+    /*
+     * IMPORTANT:
+     * Determine the bot's admin status from WhatsApp's
+     * actual group participant information.
+     */
+
+    m.isAdmin =
+      isAdminParticipant(me)
+
+    m.isBotAdmin =
+      isAdminParticipant(bot)
+
+    m.groupOwner =
+      m.groupMetadata.owner || ''
+
+  } catch (error) {
+    console.error(
+      '[PERMISSIONS] Failed to read group metadata:',
+      error?.message || error
+    )
+
+    m.isAdmin = false
+    m.isBotAdmin = false
   }
+
   return m
 }
 
