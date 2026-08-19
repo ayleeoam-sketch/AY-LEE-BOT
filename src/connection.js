@@ -1,69 +1,69 @@
-import makeWASocket, {
-  DisconnectReason,
-  fetchLatestBaileysVersion,
-  makeCacheableSignalKeyStore,
-  useMultiFileAuthState,
-  Browsers,
-  jidNormalizedUser
+```js
+import {
+  getContentType,
+  jidNormalizedUser,
+  downloadMediaMessage,
+  isJidGroup,
+  areJidsSameUser
 } from 'baileys'
-import { Boom } from '@hapi/boom'
-import qrcode from 'qrcode-terminal'
-import NodeCache from 'node-cache'
-import readline from 'readline'
-import fs from 'fs'
-import path from 'path'
-
-import config from './config.js'
-import log, { waLogger } from './lib/logger.js'
-import { setConnected, touchMessage } from './lib/keepalive.js'
-import { attachScheduler } from './lib/scheduler.js'
-import { attachSchool } from './lib/school.js'
-import { attachCleanup } from './lib/cleanup.js'
-import { useMongoAuthState } from './lib/mongoAuth.js'
-import { getVar } from './lib/vars.js'
-import { handleMessage, isCommandCleanup } from './handler.js'
-import { loadPlugins, middlewares, pluginCount } from './lib/pluginLoader.js'
+import config from '../config.js'
 
 /*
  * ============================================================
  * GROUP METADATA CACHE
  * ============================================================
  *
- * WhatsApp rate-limits repeated groupMetadata() requests.
+ * WhatsApp rate-limits groupMetadata() when it is requested
+ * repeatedly.
  *
- * Keep metadata in memory and let Baileys use this cache when
- * it needs group information for sending messages.
+ * IMPORTANT:
+ * - Cache successful metadata.
+ * - Only allow ONE request per group at a time.
+ * - After rate-overlimit, wait before trying again.
+ * - Never spam the Render logs.
  */
-const groupCache = new NodeCache({
-  stdTTL: 600,
-  checkperiod: 120,
-  useClones: false
-})
 
-/*
- * Prevent multiple simultaneous requests for the same group.
- *
- * If 20 messages arrive at once and metadata is missing, we
- * don't want 20 groupMetadata() requests.
- */
+const groupMetadataCache = new Map()
 const groupMetadataRequests = new Map()
+const groupMetadataBlocked = new Map()
 
-async function getGroupMetadata(sock, jid, options = {}) {
+const GROUP_CACHE_TTL = 10 * 60 * 1000
+const RATE_LIMIT_COOLDOWN = 2 * 60 * 1000
+
+async function getCachedGroupMetadata(sock, jid) {
   if (!jid) return null
 
-  const force = options.force === true
+  const now = Date.now()
 
-  if (!force) {
-    const cached = groupCache.get(jid)
+  /*
+   * If WhatsApp recently rate-limited this group,
+   * DO NOT make another request.
+   */
+  const blockedUntil = groupMetadataBlocked.get(jid)
 
-    if (cached) {
-      return cached
-    }
+  if (blockedUntil && now < blockedUntil) {
+    return groupMetadataCache.get(jid)?.metadata || null
+  }
+
+  if (blockedUntil && now >= blockedUntil) {
+    groupMetadataBlocked.delete(jid)
   }
 
   /*
-   * If another request for this group is already running,
-   * wait for that same request instead of making another one.
+   * Return fresh cached metadata.
+   */
+  const cached = groupMetadataCache.get(jid)
+
+  if (
+    cached &&
+    now - cached.timestamp < GROUP_CACHE_TTL
+  ) {
+    return cached.metadata
+  }
+
+  /*
+   * If another request for this same group is already
+   * running, wait for it instead of creating another one.
    */
   if (groupMetadataRequests.has(jid)) {
     return groupMetadataRequests.get(jid)
@@ -71,713 +71,607 @@ async function getGroupMetadata(sock, jid, options = {}) {
 
   const request = (async () => {
     try {
-      const metadata = await sock.groupMetadata(jid)
+      const metadata =
+        await sock.groupMetadata(jid)
 
       if (metadata) {
-        groupCache.set(jid, metadata)
+        groupMetadataCache.set(jid, {
+          metadata,
+          timestamp: Date.now()
+        })
+
+        /*
+         * Successful request means the group is no
+         * longer blocked.
+         */
+        groupMetadataBlocked.delete(jid)
       }
 
       return metadata || null
     } catch (error) {
-      /*
-       * Rate-limit errors are expected occasionally.
-       * Do not spam the Render log with the same error.
-       */
-      const message = error?.message || String(error)
+      const message =
+        error?.message ||
+        String(error)
 
-      if (!message.includes('rate-overlimit')) {
-        log.warn(`Group metadata failed for ${jid}: ${message}`)
+      /*
+       * WhatsApp rate-limit.
+       *
+       * Do NOT print this on every message.
+       * Block requests for a while.
+       */
+      if (
+        message.includes('rate-overlimit')
+      ) {
+        groupMetadataBlocked.set(
+          jid,
+          Date.now() + RATE_LIMIT_COOLDOWN
+        )
+
+        /*
+         * Silently use old metadata if available.
+         */
+        return (
+          groupMetadataCache.get(jid)
+            ?.metadata || null
+        )
       }
 
       /*
-       * If an older cache entry exists, use it.
+       * Other errors can still be logged once.
        */
-      const old = groupCache.get(jid)
+      console.error(
+        '[PERMISSIONS] Group metadata error:',
+        message
+      )
 
-      return old || null
+      return (
+        groupMetadataCache.get(jid)
+          ?.metadata || null
+      )
     } finally {
       groupMetadataRequests.delete(jid)
     }
   })()
 
-  groupMetadataRequests.set(jid, request)
+  groupMetadataRequests.set(
+    jid,
+    request
+  )
 
   return request
 }
 
-/*
- * Baileys can use this directly whenever it needs group metadata.
+/**
+ * Turns a raw Baileys message into a flat,
+ * predictable object.
  */
-const cachedGroupMetadata = async (jid) => {
-  return groupCache.get(jid) || undefined
-}
+export async function serialize(
+  sock,
+  raw,
+  store
+) {
+  if (!raw?.message) return null
 
-const msgRetryCounterCache = new NodeCache()
+  const m = {}
 
-/** in-memory message cache so Baileys can resend failed messages */
-const messageStore = new Map()
-const MAX_STORE = 3000
+  m.raw = raw
+  m.key = raw.key
+  m.id = raw.key.id
+  m.chat = raw.key.remoteJid
+  m.fromMe = !!raw.key.fromMe
+  m.isGroup = isJidGroup(m.chat)
+  m.isStatus =
+    m.chat === 'status@broadcast'
+  m.pushName =
+    raw.pushName || 'Unknown'
 
-const ask = (q) =>
-  new Promise((resolve) => {
-    const rl = readline.createInterface({
-      input: process.stdin,
-      output: process.stdout
-    })
+  m.timestamp =
+    Number(raw.messageTimestamp) ||
+    Math.floor(Date.now() / 1000)
 
-    rl.question(q, (ans) => {
-      rl.close()
-      resolve(ans.trim())
-    })
-  })
+  /* ---------------- BOT JID ---------------- */
 
-let reconnectAttempts = 0
-
-export async function startSocket() {
-  /* ------------------------- auth state ------------------------- */
-
-  let state
-  let saveCreds
-  let deleteSession
-
-  /*
-   * SESSION_ID support.
-   */
-  if (config.sessionId) {
-    const credsPath = path.join(
-      config.sessionDir,
-      'creds.json'
+  const botJid =
+    jidNormalizedUser(
+      sock.user?.id || ''
     )
 
-    if (!fs.existsSync(credsPath)) {
-      try {
-        const raw = Buffer.from(
-          config.sessionId.trim(),
-          'base64'
-        ).toString('utf-8')
+  m.botJid = botJid
 
-        const parsed = JSON.parse(raw)
+  m.botNumber =
+    botJid
+      .split('@')[0]
+      .split(':')[0]
 
-        if (!parsed?.me && !parsed?.noiseKey) {
-          throw new Error('missing expected fields')
-        }
+  /* ---------------- SENDER ---------------- */
 
-        fs.mkdirSync(
-          config.sessionDir,
-          { recursive: true }
-        )
-
-        fs.writeFileSync(
-          credsPath,
-          raw
-        )
-
-        log.ok('Session restored from SESSION_ID')
-      } catch (e) {
-        log.error(
-          `SESSION_ID is not valid: ${e.message}`
-        )
-
-        log.warn(
-          'Falling back to QR / pairing login.'
-        )
-      }
-    }
-  }
-
-  /* ------------------------- auth storage ------------------------- */
-
-  if (config.sessionStore === 'mongo') {
-    const auth = await useMongoAuthState(
-      config.botId || 'default'
-    )
-
-    state = auth.state
-    saveCreds = auth.saveCreds
-    deleteSession = auth.deleteSession
-
-    log.info(
-      'Session store: MongoDB (survives redeploys)'
-    )
-  } else {
-    if (!fs.existsSync(config.sessionDir)) {
-      fs.mkdirSync(
-        config.sessionDir,
-        { recursive: true }
+  m.sender = m.isGroup
+    ? jidNormalizedUser(
+        raw.key.participant ||
+        raw.participant ||
+        ''
       )
-    }
+    : m.fromMe
+      ? botJid
+      : jidNormalizedUser(m.chat)
 
-    const auth = await useMultiFileAuthState(
-      config.sessionDir
-    )
+  m.senderNumber =
+    (m.sender || '')
+      .split('@')[0]
+      .split(':')[0]
 
-    state = auth.state
-    saveCreds = auth.saveCreds
+  /* ---------------- UNWRAP MESSAGE ---------------- */
 
-    deleteSession = async () =>
-      fs.rmSync(
-        config.sessionDir,
-        {
-          recursive: true,
-          force: true
-        }
-      )
+  let content = raw.message
 
-    log.info(
-      `Session store: files (${config.sessionDir})`
-    )
-  }
+  if (content.ephemeralMessage)
+    content =
+      content.ephemeralMessage.message
 
-  const {
-    version,
-    isLatest
-  } = await fetchLatestBaileysVersion()
+  if (content.viewOnceMessage)
+    content =
+      content.viewOnceMessage.message
 
-  log.info(
-    `WhatsApp Web v${version.join('.')} ${
-      isLatest ? '(latest)' : '(outdated)'
-    }`
+  if (content.viewOnceMessageV2)
+    content =
+      content.viewOnceMessageV2.message
+
+  if (
+    content.viewOnceMessageV2Extension
   )
+    content =
+      content.viewOnceMessageV2Extension.message
 
-  const usePairing =
-    config.authMethod === 'pair' &&
-    !state.creds.registered
+  if (content.documentWithCaptionMessage)
+    content =
+      content.documentWithCaptionMessage.message
 
-  /* -------------------------- socket -------------------------- */
+  if (content.deviceSentMessage)
+    content =
+      content.deviceSentMessage.message
 
-  const sock = makeWASocket({
-    version,
+  m.message = content
 
-    logger: waLogger,
+  m.type =
+    getContentType(content) ||
+    Object.keys(content)[0]
 
-    auth: {
-      creds: state.creds,
+  m.msg = content[m.type]
 
-      keys: makeCacheableSignalKeyStore(
-        state.keys,
-        waLogger
+  /* ---------------- TEXT ---------------- */
+
+  m.body =
+    content.conversation ||
+    content.extendedTextMessage?.text ||
+    content.imageMessage?.caption ||
+    content.videoMessage?.caption ||
+    content.documentMessage?.caption ||
+    content.buttonsResponseMessage
+      ?.selectedButtonId ||
+    content.listResponseMessage
+      ?.singleSelectReply
+      ?.selectedRowId ||
+    content.templateButtonReplyMessage
+      ?.selectedId ||
+    content.interactiveResponseMessage
+      ?.nativeFlowResponseMessage
+      ?.paramsJson ||
+    content.eventMessage?.name ||
+    ''
+
+  m.text = m.body
+
+  m.mentions =
+    m.msg?.contextInfo
+      ?.mentionedJid || []
+
+  m.expiration =
+    m.msg?.contextInfo
+      ?.expiration || null
+
+  m.isMedia = [
+    'imageMessage',
+    'videoMessage',
+    'audioMessage',
+    'stickerMessage',
+    'documentMessage'
+  ].includes(m.type)
+
+  /* ---------------- QUOTED MESSAGE ---------------- */
+
+  const ctx =
+    m.msg?.contextInfo
+
+  const quotedRaw =
+    ctx?.quotedMessage
+
+  if (quotedRaw) {
+    let q = quotedRaw
+
+    if (q.ephemeralMessage)
+      q =
+        q.ephemeralMessage.message
+
+    if (q.viewOnceMessage)
+      q =
+        q.viewOnceMessage.message
+
+    if (q.viewOnceMessageV2)
+      q =
+        q.viewOnceMessageV2.message
+
+    if (
+      q.viewOnceMessageV2Extension
+    )
+      q =
+        q.viewOnceMessageV2Extension.message
+
+    if (
+      q.documentWithCaptionMessage
+    )
+      q =
+        q.documentWithCaptionMessage.message
+
+    const qType =
+      getContentType(q) ||
+      Object.keys(q)[0]
+
+    const qSender =
+      jidNormalizedUser(
+        ctx.participant || ''
       )
-    },
 
-    browser: usePairing
-      ? Browsers.ubuntu('Chrome')
-      : Browsers.macOS('Safari'),
+    m.quoted = {
+      raw: quotedRaw,
 
-    markOnlineOnConnect:
-      getVar('ALWAYS_ONLINE') ?? false,
+      message: q,
 
-    generateHighQualityLinkPreview: true,
+      type: qType,
 
-    syncFullHistory: false,
+      msg: q[qType],
 
-    msgRetryCounterCache,
+      id: ctx.stanzaId,
 
-    /*
-     * IMPORTANT:
-     *
-     * Baileys will read group metadata from our cache
-     * instead of repeatedly asking WhatsApp.
-     */
-    cachedGroupMetadata,
+      sender: qSender,
 
-    getMessage: async (key) =>
-      messageStore.get(key.id)?.message ||
-      undefined
-  })
+      senderNumber:
+        qSender
+          .split('@')[0]
+          .split(':')[0],
 
-  /* --------------------- pairing code login --------------------- */
+      fromMe:
+        areJidsSameUser(
+          qSender,
+          botJid
+        ),
 
-  if (usePairing) {
-    let number = config.pairNumber
+      isMedia: [
+        'imageMessage',
+        'videoMessage',
+        'audioMessage',
+        'stickerMessage',
+        'documentMessage'
+      ].includes(qType),
 
-    if (!number) {
-      number = (
-        await ask(
-          '\n📱 Enter your WhatsApp number (country code, no +): '
-        )
-      ).replace(/[^0-9]/g, '')
-    }
+      body:
+        q.conversation ||
+        q.extendedTextMessage?.text ||
+        q.imageMessage?.caption ||
+        q.videoMessage?.caption ||
+        q.documentMessage?.caption ||
+        '',
 
-    setTimeout(async () => {
-      try {
-        const custom =
-          config.pairCustomCode &&
-          /^[A-Z0-9]{8}$/.test(
-            config.pairCustomCode
-          )
-            ? config.pairCustomCode
+      mentions:
+        q[qType]
+          ?.contextInfo
+          ?.mentionedJid || [],
+
+      key: {
+        remoteJid: m.chat,
+
+        fromMe:
+          areJidsSameUser(
+            qSender,
+            botJid
+          ),
+
+        id: ctx.stanzaId,
+
+        participant:
+          m.isGroup
+            ? qSender
             : undefined
+      },
 
-        const code =
-          await sock.requestPairingCode(
-            number,
-            custom
-          )
-
-        const pretty =
-          code
-            ?.match(/.{1,4}/g)
-            ?.join('-') || code
-
-        log.banner(`
-╔══════════════════════════════════════╗
-║   PAIRING CODE:  ${pretty.padEnd(20)}║
-╚══════════════════════════════════════╝
-WhatsApp > Settings > Linked devices > Link with phone number
-`)
-      } catch (e) {
-        log.error(
-          'Could not get a pairing code:',
-          e.message
+      download: () =>
+        downloadMediaMessage(
+          {
+            key: {
+              remoteJid: m.chat,
+              id: ctx.stanzaId,
+              fromMe: false,
+              participant:
+                qSender
+            },
+            message: q
+          },
+          'buffer',
+          {},
+          {
+            reuploadRequest:
+              sock.updateMediaMessage
+          }
         )
-      }
-    }, 3000)
+    }
+
+    m.quoted.text =
+      m.quoted.body
+  } else {
+    m.quoted = null
   }
 
-  /* ------------------------- events ------------------------- */
+  /* ---------------- HELPERS ---------------- */
 
-  sock.ev.on(
-    'creds.update',
-    saveCreds
-  )
-
-  sock.ev.on(
-    'connection.update',
-    async (update) => {
-      const {
-        connection,
-        lastDisconnect,
-        qr
-      } = update
-
-      if (qr && !usePairing) {
-        log.info(
-          'Scan this QR with WhatsApp > Linked devices:\n'
-        )
-
-        qrcode.generate(
-          qr,
-          { small: true }
-        )
+  m.download = () =>
+    downloadMediaMessage(
+      raw,
+      'buffer',
+      {},
+      {
+        reuploadRequest:
+          sock.updateMediaMessage
       }
+    )
 
-      if (connection === 'connecting') {
-        log.info(
-          'Connecting to WhatsApp...'
-        )
-      }
+  m.commandResponses = []
 
-      if (connection === 'open') {
-        reconnectAttempts = 0
-
-        setConnected(true)
-
-        attachScheduler(sock)
-        attachSchool(sock)
-        attachCleanup()
-
-        const me =
-          jidNormalizedUser(
-            sock.user?.id || ''
-          )
-
-        log.ok(
-          `Connected as ${
-            sock.user?.name || 'bot'
-          } (${me.split('@')[0]})`
-        )
-
-        log.ok(
-          `${pluginCount()} plugins ready | prefix "${config.prefix}" | mode ${getVar('MODE')}`
-        )
-
-        if (getVar('STARTUP_MESSAGE')) {
-          const owner =
-            config.ownerNumbers[0]
-
-          if (owner) {
-            await sock
-              .sendMessage(
-                `${owner}@s.whatsapp.net`,
-                {
-                  text:
-                    `╭━━━〔 *${config.botName}* 〕━━━╮\n` +
-                    `┃ ✅ Bot is online\n` +
-                    `┃ 🔌 Plugins: ${pluginCount()}\n` +
-                    `┃ ⚙️ Prefix: ${config.prefix}\n` +
-                    `┃ 🌐 Mode: ${getVar('MODE')}\n` +
-                    `┃ 📦 Version: ${config.version}\n` +
-                    `╰━━━━━━━━━━━━━━━━━━━╯`
-                }
-              )
-              .catch(() => {})
-          }
-        }
-      }
-
-      if (connection === 'close') {
-        setConnected(false)
-
-        const code =
-          new Boom(
-            lastDisconnect?.error
-          )?.output?.statusCode
-
-        const reason =
-          Object.keys(
-            DisconnectReason
-          ).find(
-            (k) =>
-              DisconnectReason[k] === code
-          ) || code
-
-        if (
-          code ===
-          DisconnectReason.loggedOut
-        ) {
-          log.error(
-            'Logged out from WhatsApp. Clearing session - you must re-link.'
-          )
-
-          await deleteSession()
-
-          process.exit(0)
-        }
-
-        if (
-          code ===
-          DisconnectReason.badSession
-        ) {
-          log.error(
-            'Bad session file. Clearing session - you must re-link.'
-          )
-
-          await deleteSession()
-
-          process.exit(0)
-        }
-
-        reconnectAttempts++
-
-        const delay =
-          Math.min(
-            5000 * reconnectAttempts,
-            30000
-          )
-
-        log.warn(
-          `Connection closed (${reason}). Reconnecting in ${delay / 1000}s...`
-        )
-
-        setTimeout(
-          () =>
-            startSocket().catch(
-              (e) =>
-                log.error(
-                  'Reconnect failed:',
-                  e.message
-                )
-            ),
-          delay
-        )
-      }
+  const rememberResponse = (
+    jid,
+    sent,
+    keep = false
+  ) => {
+    if (
+      !keep &&
+      jid === m.chat &&
+      sent?.key?.id
+    ) {
+      m.commandResponses.push(
+        sent.key
+      )
     }
-  )
 
-  /*
-   * ============================================================
-   * GROUP EVENTS
-   * ============================================================
-   *
-   * IMPORTANT:
-   *
-   * These events update the cache, but we DO NOT immediately
-   * call groupMetadata() for every event.
-   *
-   * That was one of the causes of rate-overlimit.
-   */
+    return sent
+  }
 
-  sock.ev.on(
-    'groups.update',
-    async (events) => {
-      for (const event of events || []) {
-        if (!event?.id) continue
+  /* ---------------- REPLY ---------------- */
 
-        /*
-         * Only update the cache if we already have metadata.
-         *
-         * Do NOT force a WhatsApp metadata request here.
-         */
-        const cached =
-          groupCache.get(event.id)
+  m.reply = async (
+    text,
+    options = {}
+  ) => {
+    const content =
+      typeof text === 'string'
+        ? { text }
+        : text
 
-        if (cached) {
-          groupCache.set(
-            event.id,
-            {
-              ...cached,
-              ...event
-            }
-          )
-        }
-      }
-    }
-  )
+    const {
+      jid = m.chat,
+      keep = false,
+      quoted,
+      ...sendOptions
+    } = options
 
-  sock.ev.on(
-    'group-participants.update',
-    async (event) => {
-      if (!event?.id) return
-
-      /*
-       * Use cached metadata first.
-       */
-      let metadata =
-        groupCache.get(event.id)
-
-      /*
-       * If metadata is not cached, make ONE request.
-       * Multiple simultaneous requests are automatically
-       * collapsed by getGroupMetadata().
-       */
-      if (!metadata) {
-        metadata =
-          await getGroupMetadata(
-            sock,
-            event.id
-          )
-      }
-
-      if (!metadata) return
-
-      /*
-       * Update participants locally where possible.
-       */
-      const participants =
-        Array.isArray(
-          metadata.participants
-        )
-          ? [...metadata.participants]
-          : []
-
-      for (const participant of
-        event.participants || []) {
-
-        const index =
-          participants.findIndex(
-            (p) =>
-              p.id === participant ||
-              p.jid === participant
-          )
-
-        if (
-          event.action === 'remove'
-        ) {
-          if (index !== -1) {
-            participants.splice(
-              index,
-              1
-            )
-          }
-        } else if (index === -1) {
-          /*
-           * We don't know the complete participant
-           * object, so leave the cache unchanged.
-           *
-           * The next normal metadata request can refresh it.
-           */
-        }
-      }
-
-      /*
-       * Keep existing metadata.
-       */
-      groupCache.set(
-        event.id,
+    const sent =
+      await sock.sendMessage(
+        jid,
         {
-          ...metadata,
-          participants
+          ...content,
+
+          ...(m.expiration
+            ? {
+                ephemeralExpiration:
+                  m.expiration
+              }
+            : {})
+        },
+        {
+          quoted:
+            quoted === null
+              ? undefined
+              : quoted || raw,
+
+          ...sendOptions
         }
       )
 
-      /*
-       * Let plugins react to joins/leaves.
-       */
-      for (const mw of middlewares) {
-        if (
-          typeof mw.onGroupUpdate ===
-          'function'
-        ) {
-          await mw
-            .onGroupUpdate({
-              sock,
-              event,
-              metadata
-            })
-            .catch(() => {})
+    return rememberResponse(
+      jid,
+      sent,
+      keep
+    )
+  }
+
+  /* ---------------- SEND ---------------- */
+
+  m.send = async (
+    text,
+    options = {}
+  ) => {
+    const content =
+      typeof text === 'string'
+        ? { text }
+        : text
+
+    const {
+      jid = m.chat,
+      keep = false,
+      ...sendOptions
+    } = options
+
+    const sent =
+      await sock.sendMessage(
+        jid,
+        content,
+        sendOptions
+      )
+
+    return rememberResponse(
+      jid,
+      sent,
+      keep
+    )
+  }
+
+  /* ---------------- REACT ---------------- */
+
+  m.reacted = false
+
+  m.react = (emoji) => {
+    m.reacted = true
+
+    return sock.sendMessage(
+      m.chat,
+      {
+        react: {
+          text: emoji,
+          key: m.key
         }
       }
-    }
-  )
+    )
+  }
 
-  /* ---------------- incoming messages ---------------- */
+  /* ---------------- TARGET ---------------- */
 
-  sock.ev.on(
-    'messages.upsert',
-    async ({ messages, type }) => {
-      if (type !== 'notify') return
+  m.target = (() => {
+    if (m.mentions?.length)
+      return m.mentions[0]
 
-      for (const raw of messages) {
-        if (!raw.message) continue
+    if (m.quoted?.sender)
+      return m.quoted.sender
 
-        touchMessage()
+    return null
+  })()
 
-        /*
-         * Remember for retries + anti-delete.
-         */
-        messageStore.set(
-          raw.key.id,
-          raw
-        )
-
-        if (
-          messageStore.size >
-          MAX_STORE
-        ) {
-          messageStore.delete(
-            messageStore.keys()
-              .next()
-              .value
-          )
-        }
-
-        await handleMessage(
-          sock,
-          raw,
-          {
-            messageStore,
-            groupCache
-          }
-        )
-      }
-    }
-  )
-
-  /* ---------------- deletions ---------------- */
-
-  sock.ev.on(
-    'messages.update',
-    async (updates) => {
-      for (const {
-        key,
-        update
-      } of updates) {
-
-        const isRevoke =
-          update?.message === null ||
-          update?.messageStubType === 1
-
-        if (isRevoke) {
-          if (
-            isCommandCleanup(key)
-          ) {
-            continue
-          }
-
-          for (const mw of middlewares) {
-            if (
-              typeof mw.onDelete ===
-              'function'
-            ) {
-              await mw
-                .onDelete({
-                  sock,
-                  key,
-                  messageStore
-                })
-                .catch(() => {})
-            }
-          }
-
-          continue
-        }
-
-        /*
-         * Edited messages.
-         */
-        const edited =
-          update?.message
-            ?.editedMessage
-            ?.message ||
-          update?.message
-            ?.protocolMessage
-            ?.editedMessage
-
-        if (edited) {
-          for (const mw of middlewares) {
-            if (
-              typeof mw.onEdit ===
-              'function'
-            ) {
-              await mw
-                .onEdit({
-                  sock,
-                  key,
-                  edited,
-                  messageStore
-                })
-                .catch(() => {})
-            }
-          }
-        }
-      }
-    }
-  )
-
-  /* ---------------- incoming calls ---------------- */
-
-  sock.ev.on(
-    'call',
-    async (calls) => {
-      if (
-        !getVar('REJECT_CALL')
-      ) {
-        return
-      }
-
-      for (const call of calls) {
-        if (
-          call.status !== 'offer'
-        ) {
-          continue
-        }
-
-        await sock
-          .rejectCall(
-            call.id,
-            call.from
-          )
-          .catch(() => {})
-
-        await sock
-          .sendMessage(
-            call.from,
-            {
-              text:
-                `📵 Calls are not accepted by this bot.\n` +
-                `Your ${
-                  call.isVideo
-                    ? 'video'
-                    : 'voice'
-                } call was rejected automatically.`
-            }
-          )
-          .catch(() => {})
-      }
-    }
-  )
-
-  return sock
+  return m
 }
 
-export default startSocket
+/* ============================================================
+ * ADMIN CHECK
+ * ============================================================ */
+
+function isAdminParticipant(
+  participant
+) {
+  if (!participant)
+    return false
+
+  return (
+    participant.admin === 'admin' ||
+    participant.admin === 'superadmin' ||
+    participant.admin === 'owner' ||
+    participant.isAdmin === true ||
+    participant.isSuperAdmin === true ||
+    participant.isOwner === true
+  )
+}
+
+/* ============================================================
+ * PERMISSIONS
+ * ============================================================ */
+
+export async function resolvePermissions(
+  sock,
+  m,
+  sudoList = []
+) {
+  const owners = [
+    ...config.ownerNumbers,
+    m.botNumber
+  ]
+
+  m.isOwner =
+    owners.includes(
+      m.senderNumber
+    ) ||
+    m.fromMe
+
+  m.isSudo =
+    m.isOwner ||
+    sudoList.includes(
+      m.senderNumber
+    )
+
+  m.isAdmin = false
+  m.isBotAdmin = false
+
+  m.groupMetadata = null
+  m.groupName = ''
+  m.participants = []
+
+  /*
+   * DMs don't need metadata.
+   */
+  if (!m.isGroup)
+    return m
+
+  /*
+   * Get metadata through the protected
+   * cache/request system.
+   */
+  const metadata =
+    await getCachedGroupMetadata(
+      sock,
+      m.chat
+    )
+
+  /*
+   * Metadata unavailable because WhatsApp
+   * rate-limited us.
+   *
+   * Don't throw an error and don't retry.
+   */
+  if (!metadata)
+    return m
+
+  m.groupMetadata =
+    metadata
+
+  m.groupName =
+    metadata.subject || ''
+
+  m.participants =
+    metadata.participants || []
+
+  const find = (jid) =>
+    m.participants.find(
+      (p) =>
+        areJidsSameUser(
+          p.id || '',
+          jid || ''
+        ) ||
+        areJidsSameUser(
+          p.jid || '',
+          jid || ''
+        )
+    )
+
+  const me =
+    find(m.sender)
+
+  const bot =
+    find(m.botJid)
+
+  m.isAdmin =
+    isAdminParticipant(me)
+
+  m.isBotAdmin =
+    isAdminParticipant(bot)
+
+  m.groupOwner =
+    metadata.owner || ''
+
+  return m
+}
+
+export default serialize
+```
