@@ -7,55 +7,103 @@ import {
 } from 'baileys'
 import config from '../config.js'
 
-/**
- * Group metadata cache.
- *
- * WhatsApp rate-limits groupMetadata() when it is called repeatedly.
- * Cache metadata for a short period instead of requesting it
- * for every single message.
- */
-const groupMetadataCache = new Map()
+/* ============================================================
+ * GROUP METADATA CACHE
+ * ============================================================ */
 
-const GROUP_CACHE_TTL = 60 * 1000
+/*
+ * WhatsApp can rate-limit groupMetadata() if it is requested
+ * repeatedly.
+ *
+ * We use:
+ * 1. A cache
+ * 2. An in-flight request lock
+ * 3. A longer TTL
+ *
+ * This prevents multiple messages arriving at the same time
+ * from creating multiple groupMetadata() requests.
+ */
+
+const groupMetadataCache = new Map()
+const groupMetadataRequests = new Map()
+
+const GROUP_CACHE_TTL = 5 * 60 * 1000
 
 async function getCachedGroupMetadata(sock, jid) {
+  if (!jid) return null
+
+  const now = Date.now()
   const cached = groupMetadataCache.get(jid)
 
+  /* Use valid cached metadata */
   if (
     cached &&
-    Date.now() - cached.timestamp < GROUP_CACHE_TTL
+    cached.metadata &&
+    now - cached.timestamp < GROUP_CACHE_TTL
   ) {
     return cached.metadata
   }
 
-  try {
-    const metadata = await sock.groupMetadata(jid)
-
-    groupMetadataCache.set(jid, {
-      metadata,
-      timestamp: Date.now()
-    })
-
-    return metadata
-  } catch (error) {
-    console.error(
-      '[PERMISSIONS] Failed to read group metadata:',
-      error?.message || error
-    )
-
-    // Use old metadata if available.
-    if (cached?.metadata) {
-      return cached.metadata
-    }
-
-    return null
+  /*
+   * If another request for this same group is already running,
+   * wait for that request instead of creating another one.
+   */
+  if (groupMetadataRequests.has(jid)) {
+    return groupMetadataRequests.get(jid)
   }
+
+  const request = (async () => {
+    try {
+      const metadata = await sock.groupMetadata(jid)
+
+      if (metadata) {
+        groupMetadataCache.set(jid, {
+          metadata,
+          timestamp: Date.now()
+        })
+      }
+
+      return metadata || cached?.metadata || null
+    } catch (error) {
+      /*
+       * Do not spam the console when WhatsApp rate-limits us.
+       * The bot can continue using old cached metadata if available.
+       */
+      const message =
+        error?.message ||
+        String(error || '')
+
+      if (
+        message.includes('rate-overlimit') ||
+        message.includes('rate-over-limit')
+      ) {
+        if (cached?.metadata) {
+          return cached.metadata
+        }
+
+        return null
+      }
+
+      console.error(
+        '[PERMISSIONS] Group metadata error:',
+        message
+      )
+
+      return cached?.metadata || null
+    } finally {
+      groupMetadataRequests.delete(jid)
+    }
+  })()
+
+  groupMetadataRequests.set(jid, request)
+
+  return request
 }
 
-/**
- * Turns a raw Baileys message into a flat,
- * predictable object.
- */
+/* ============================================================
+ * MESSAGE SERIALIZER
+ * ============================================================ */
+
 export async function serialize(sock, raw, store) {
   if (!raw?.message) return null
 
@@ -74,7 +122,10 @@ export async function serialize(sock, raw, store) {
     Number(raw.messageTimestamp) ||
     Math.floor(Date.now() / 1000)
 
-  // Bot JID
+  /* ==========================================================
+   * BOT JID
+   * ========================================================== */
+
   const botJid = jidNormalizedUser(
     sock.user?.id || ''
   )
@@ -85,7 +136,10 @@ export async function serialize(sock, raw, store) {
     .split('@')[0]
     .split(':')[0]
 
-  // Sender
+  /* ==========================================================
+   * SENDER
+   * ========================================================== */
+
   m.sender = m.isGroup
     ? jidNormalizedUser(
         raw.key.participant ||
@@ -100,7 +154,10 @@ export async function serialize(sock, raw, store) {
     .split('@')[0]
     .split(':')[0]
 
-  // Unwrap message envelopes
+  /* ==========================================================
+   * UNWRAP MESSAGE
+   * ========================================================== */
+
   let content = raw.message
 
   if (content.ephemeralMessage)
@@ -116,10 +173,12 @@ export async function serialize(sock, raw, store) {
     content = content.viewOnceMessageV2Extension.message
 
   if (content.documentWithCaptionMessage)
-    content = content.documentWithCaptionMessage.message
+    content =
+      content.documentWithCaptionMessage.message
 
   if (content.deviceSentMessage)
-    content = content.deviceSentMessage.message
+    content =
+      content.deviceSentMessage.message
 
   m.message = content
 
@@ -129,7 +188,10 @@ export async function serialize(sock, raw, store) {
 
   m.msg = content[m.type]
 
-  // Message text
+  /* ==========================================================
+   * MESSAGE TEXT
+   * ========================================================== */
+
   m.body =
     content.conversation ||
     content.extendedTextMessage?.text ||
@@ -161,7 +223,9 @@ export async function serialize(sock, raw, store) {
     'documentMessage'
   ].includes(m.type)
 
-  /* ---------------- QUOTED MESSAGE ---------------- */
+  /* ==========================================================
+   * QUOTED MESSAGE
+   * ========================================================== */
 
   const ctx = m.msg?.contextInfo
   const quotedRaw = ctx?.quotedMessage
@@ -179,10 +243,12 @@ export async function serialize(sock, raw, store) {
       q = q.viewOnceMessageV2.message
 
     if (q.viewOnceMessageV2Extension)
-      q = q.viewOnceMessageV2Extension.message
+      q =
+        q.viewOnceMessageV2Extension.message
 
     if (q.documentWithCaptionMessage)
-      q = q.documentWithCaptionMessage.message
+      q =
+        q.documentWithCaptionMessage.message
 
     const qType =
       getContentType(q) ||
@@ -227,7 +293,8 @@ export async function serialize(sock, raw, store) {
         '',
 
       mentions:
-        q[qType]?.contextInfo?.mentionedJid || [],
+        q[qType]?.contextInfo?.mentionedJid ||
+        [],
 
       key: {
         remoteJid: m.chat,
@@ -269,9 +336,10 @@ export async function serialize(sock, raw, store) {
     m.quoted = null
   }
 
-  /* ---------------- HELPERS ---------------- */
+  /* ==========================================================
+   * HELPERS
+   * ========================================================== */
 
-  // Download message media.
   m.download = () =>
     downloadMediaMessage(
       raw,
@@ -283,7 +351,6 @@ export async function serialize(sock, raw, store) {
       }
     )
 
-  // Outgoing command responses.
   m.commandResponses = []
 
   const rememberResponse = (
@@ -302,7 +369,10 @@ export async function serialize(sock, raw, store) {
     return sent
   }
 
-  // Reply to message.
+  /* ==========================================================
+   * REPLY
+   * ========================================================== */
+
   m.reply = async (
     text,
     options = {}
@@ -348,7 +418,10 @@ export async function serialize(sock, raw, store) {
     )
   }
 
-  // Send message without quoting.
+  /* ==========================================================
+   * SEND
+   * ========================================================== */
+
   m.send = async (
     text,
     options = {}
@@ -377,7 +450,10 @@ export async function serialize(sock, raw, store) {
     )
   }
 
-  // React to message.
+  /* ==========================================================
+   * REACT
+   * ========================================================== */
+
   m.reacted = false
 
   m.react = (emoji) => {
@@ -394,8 +470,10 @@ export async function serialize(sock, raw, store) {
     )
   }
 
-  // Target:
-  // mention > quoted author
+  /* ==========================================================
+   * TARGET
+   * ========================================================== */
+
   m.target = (() => {
     if (m.mentions?.length)
       return m.mentions[0]
@@ -409,12 +487,13 @@ export async function serialize(sock, raw, store) {
   return m
 }
 
-/**
- * Check whether a participant has
- * admin privileges.
- */
+/* ============================================================
+ * ADMIN CHECK
+ * ============================================================ */
+
 function isAdminParticipant(participant) {
-  if (!participant) return false
+  if (!participant)
+    return false
 
   return (
     participant.admin === 'admin' ||
@@ -426,12 +505,10 @@ function isAdminParticipant(participant) {
   )
 }
 
-/**
- * Resolve owner, sudo and group permissions.
- *
- * Uses cached group metadata to avoid
- * WhatsApp rate-limit errors.
- */
+/* ============================================================
+ * PERMISSIONS
+ * ============================================================ */
+
 export async function resolvePermissions(
   sock,
   m,
@@ -457,22 +534,19 @@ export async function resolvePermissions(
   m.groupName = ''
   m.participants = []
 
-  // DMs don't need group metadata.
+  /* DMs do not need group metadata */
   if (!m.isGroup)
     return m
 
   /*
    * IMPORTANT:
    *
-   * Do NOT call:
-   *
-   * sock.groupMetadata(m.chat)
-   *
+   * Never call sock.groupMetadata(m.chat)
    * directly here.
    *
-   * The cached function prevents repeated
-   * WhatsApp metadata requests.
+   * Always use the cache + request lock.
    */
+
   const metadata =
     await getCachedGroupMetadata(
       sock,
