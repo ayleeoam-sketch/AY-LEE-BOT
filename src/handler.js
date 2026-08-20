@@ -24,17 +24,18 @@ const cooldowns = new Map()
 let sudoCache = { at: 0, list: [] }
 let bannedCache = { at: 0, list: [] }
 
-/*
- * WhatsApp reports cleanup deletions through messages.update too.
- * Keep a short-lived marker so anti-delete/snipe do not restore
- * messages intentionally deleted by command cleanup.
- */
 const commandCleanupKeys = new Map()
 
-const cleanupKey = (key, fallbackChat = '') =>
+const cleanupKey = (
+  key,
+  fallbackChat = ''
+) =>
   `${key?.remoteJid || fallbackChat}:${key?.id || ''}`
 
-function markCommandCleanup(key, chat) {
+function markCommandCleanup(
+  key,
+  chat
+) {
   const now = Date.now()
 
   commandCleanupKeys.set(
@@ -51,7 +52,10 @@ function markCommandCleanup(key, chat) {
   }
 }
 
-function forgetCommandCleanup(key, chat) {
+function forgetCommandCleanup(
+  key,
+  chat
+) {
   commandCleanupKeys.delete(
     cleanupKey(key, chat)
   )
@@ -118,20 +122,23 @@ async function cleanupCommandMessages(
 }
 
 /*
- * Track direct sock.sendMessage replies as well as
- * m.reply/m.send replies.
+ * Track direct sock.sendMessage replies.
  */
-function socketForCommand(sock, m) {
+function socketForCommand(
+  sock,
+  m
+) {
   const sendMessage = async (
     jid,
     content,
     options
   ) => {
-    const sent = await sock.sendMessage(
-      jid,
-      content,
-      options
-    )
+    const sent =
+      await sock.sendMessage(
+        jid,
+        content,
+        options
+      )
 
     const protocolOnly =
       content?.delete ||
@@ -142,7 +149,9 @@ function socketForCommand(sock, m) {
       jid === m.chat &&
       sent?.key?.id
     ) {
-      m.commandResponses.push(sent.key)
+      m.commandResponses.push(
+        sent.key
+      )
     }
 
     return sent
@@ -150,7 +159,9 @@ function socketForCommand(sock, m) {
 
   return new Proxy(sock, {
     get(target, property) {
-      if (property === 'sendMessage') {
+      if (
+        property === 'sendMessage'
+      ) {
         return sendMessage
       }
 
@@ -177,11 +188,14 @@ async function getSudo() {
     return sudoCache.list
   }
 
-  const rows = await DB.sudo.all()
+  const rows =
+    await DB.sudo.all()
 
   sudoCache = {
     at: Date.now(),
-    list: rows.map((r) => r.number)
+    list: rows.map(
+      (r) => r.number
+    )
   }
 
   return sudoCache.list
@@ -195,11 +209,14 @@ async function getBanned() {
     return bannedCache.list
   }
 
-  const rows = await DB.banned.all()
+  const rows =
+    await DB.banned.all()
 
   bannedCache = {
     at: Date.now(),
-    list: rows.map((r) => r.id)
+    list: rows.map(
+      (r) => r.id
+    )
   }
 
   return bannedCache.list
@@ -217,20 +234,17 @@ function parse(body) {
   const list = prefixes()
 
   for (const p of list) {
-    /*
-     * Empty prefix means every message can technically
-     * be parsed as a command. Owner-only protection below
-     * prevents other people from triggering anything.
-     */
     if (p === '') {
       const parts =
         body.trim().split(/\s+/)
 
-      const cmd = parts.shift() || ''
+      const cmd =
+        parts.shift() || ''
 
       return {
         prefix: '',
-        command: cmd.toLowerCase(),
+        command:
+          cmd.toLowerCase(),
         args: parts
       }
     }
@@ -246,11 +260,13 @@ function parse(body) {
       const parts =
         withoutPrefix.split(/\s+/)
 
-      const cmd = parts.shift() || ''
+      const cmd =
+        parts.shift() || ''
 
       return {
         prefix: p,
-        command: cmd.toLowerCase(),
+        command:
+          cmd.toLowerCase(),
         args: parts
       }
     }
@@ -269,18 +285,13 @@ export async function handleMessage(
   let cleanupMessage = null
 
   try {
-    const m = await serialize(
-      sock,
-      raw
-    )
+    const m =
+      await serialize(sock, raw)
 
-    if (!m) {
-      return
-    }
+    if (!m) return
 
     /*
-     * Status broadcasts never run commands.
-     * Keep status middleware behavior unchanged.
+     * STATUS
      */
     if (m.isStatus) {
       for (const mw of middlewares) {
@@ -306,7 +317,19 @@ export async function handleMessage(
     }
 
     /*
-     * Resolve the actual sender first.
+     * Resolve permissions BEFORE middleware.
+     *
+     * IMPORTANT:
+     * Do NOT return here when !m.isOwner.
+     *
+     * Moderation middleware such as:
+     * - antilink
+     * - antidelete
+     * - AFK
+     * - anti-spam
+     * - chatbot
+     *
+     * must still work for normal members.
      */
     await resolvePermissions(
       sock,
@@ -314,37 +337,12 @@ export async function handleMessage(
       await getSudo()
     )
 
-    /*
-     * ============================================================
-     * OWNER-ONLY MODE
-     * ============================================================
-     *
-     * THIS IS THE IMPORTANT FIX.
-     *
-     * Nobody except the configured bot owner can trigger:
-     *
-     * - commands
-     * - command reactions
-     * - command middleware
-     * - command replies
-     * - command plugins
-     *
-     * Other group members are silently ignored.
-     *
-     * m.isOwner comes from serialize.js / resolvePermissions().
-     */
-    if (!m.isOwner) {
-      return
-    }
-
-    /*
-     * Only the owner reaches the role system.
-     */
     await resolveRole(m)
 
     /* -------------------------- hard bans -------------------------- */
 
-    const banned = await getBanned()
+    const banned =
+      await getBanned()
 
     if (
       !m.isOwner &&
@@ -358,13 +356,17 @@ export async function handleMessage(
 
     /* -------------------------- presence -------------------------- */
 
-    if (getVar('AUTO_READ')) {
+    if (
+      getVar('AUTO_READ')
+    ) {
       await sock
         .readMessages([m.key])
         .catch(() => {})
     }
 
-    if (getVar('ALWAYS_ONLINE')) {
+    if (
+      getVar('ALWAYS_ONLINE')
+    ) {
       sock
         .sendPresenceUpdate(
           'available'
@@ -373,24 +375,27 @@ export async function handleMessage(
     }
 
     /*
-     * ------------------------------------------------------------
-     * MIDDLEWARES
-     * ------------------------------------------------------------
+     * ============================================================
+     * MIDDLEWARE
+     * ============================================================
      *
-     * These now run only for the owner because of the owner gate
-     * above.
+     * EVERYONE reaches this section.
+     *
+     * This is what allows antilink to delete links sent by
+     * ordinary group members.
      */
     for (const mw of middlewares) {
       try {
-        const stop = await mw.before({
-          sock,
-          m,
-          config,
-          DB,
-          getVar,
-          commands,
-          categories: null
-        })
+        const stop =
+          await mw.before({
+            sock,
+            m,
+            config,
+            DB,
+            getVar,
+            commands,
+            categories: null
+          })
 
         if (stop === true) {
           return
@@ -405,13 +410,16 @@ export async function handleMessage(
       }
     }
 
-    /* -------------------------- message -------------------------- */
+    /*
+     * From here downward is COMMAND processing.
+     */
 
     if (!m.body) {
       return
     }
 
-    const parsed = parse(m.body)
+    const parsed =
+      parse(m.body)
 
     if (!parsed) {
       return
@@ -434,29 +442,145 @@ export async function handleMessage(
       return
     }
 
+    /*
+     * ============================================================
+     * OWNER-ONLY COMMANDS
+     * ============================================================
+     *
+     * This is deliberately AFTER middleware.
+     *
+     * Therefore:
+     *
+     * Normal member:
+     *   antilink works
+     *   command ignored
+     *
+     * Bot owner:
+     *   antilink works
+     *   command works
+     */
+    if (!m.isOwner) {
+      return
+    }
+
     cleanupMessage = m
 
     const text =
       args.join(' ')
 
-    /* --------------------- OWNER ONLY MODE --------------------- */
+    /* --------------------- command access --------------------- */
 
-if (!m.isOwner) {
-  return
-}
+    const mode =
+      getVar('MODE')
 
-/*
- * From this point onward, ONLY the bot owner can execute commands.
- *
- * This intentionally blocks:
- * - normal group members
- * - WhatsApp group admins
- * - moderators
- * - VIPs
- * - sudo users
- *
- * They can send .menu, .ping, .group, etc., but the bot will ignore them.
- */
+    const privileged =
+      m.isSudo ||
+      atLeast(
+        m.role,
+        'vip'
+      )
+
+    if (
+      mode === 'private' &&
+      !privileged
+    ) {
+      return
+    }
+
+    if (
+      mode === 'group' &&
+      !m.isGroup &&
+      !privileged
+    ) {
+      return
+    }
+
+    if (
+      mode === 'inbox' &&
+      m.isGroup &&
+      !privileged
+    ) {
+      return
+    }
+
+    /*
+     * Refusal helper.
+     */
+    const deny = async (
+      why
+    ) => {
+      if (
+        getVar('CMD_REACT')
+      ) {
+        await m
+          .react('🚫')
+          .catch(() => {})
+      }
+
+      return m.reply(why)
+    }
+
+    /*
+     * Existing role restrictions.
+     */
+    if (
+      plugin.owner &&
+      !m.isSudo &&
+      !canRunOwnerCommand(
+        m.role,
+        plugin.name
+      )
+    ) {
+      return deny(
+        m.roleLevel > 0
+          ? `🚫 *${plugin.name}* is above your ${ROLES[m.role].emoji} ${ROLES[m.role].label} role.`
+          : '🚫 This command is for the owner only.'
+      )
+    }
+
+    if (
+      plugin.group &&
+      !m.isGroup
+    ) {
+      return deny(
+        '🚫 This command only works in groups.'
+      )
+    }
+
+    if (
+      plugin.private &&
+      m.isGroup
+    ) {
+      return deny(
+        '🚫 This command only works in DM.'
+      )
+    }
+
+    if (
+      plugin.admin &&
+      m.isGroup &&
+      !m.isAdmin &&
+      !m.isSudo &&
+      !atLeast(
+        m.role,
+        'mod'
+      )
+    ) {
+      return deny(
+        '🚫 You need to be a group admin to use this.'
+      )
+    }
+
+    if (
+      plugin.botAdmin &&
+      m.isGroup &&
+      !m.isBotAdmin
+    ) {
+      return deny(
+        '🚫 I need to be a group admin to do that.'
+      )
+    }
+
     /* ------------------------ cooldown ------------------------ */
 
     const wait =
@@ -528,7 +652,7 @@ if (!m.isOwner) {
     }
 
     /*
-     * Command feedback reactions.
+     * Command reaction.
      */
     const wantReact =
       getVar('CMD_REACT')
@@ -576,10 +700,6 @@ if (!m.isOwner) {
       failed = true
       throw e
     } finally {
-      /*
-       * Only send the central success/failure reaction if
-       * the plugin didn't handle its own reaction.
-       */
       if (
         wantReact &&
         !m.reacted
@@ -595,7 +715,7 @@ if (!m.isOwner) {
     }
   } catch (e) {
     /*
-     * Full error stays in the terminal.
+     * Log full error to terminal.
      */
     log.error(
       'Handler error:',
@@ -604,9 +724,6 @@ if (!m.isOwner) {
         e
     )
 
-    /*
-     * Users should never receive internal stack traces.
-     */
     const raw_msg =
       String(
         e?.message || e
@@ -663,10 +780,9 @@ if (!m.isOwner) {
     }
 
     try {
-      /*
-       * Only send an error reply if we actually have a raw message.
-       */
-      if (raw?.key?.remoteJid) {
+      if (
+        raw?.key?.remoteJid
+      ) {
         const sent =
           await sock.sendMessage(
             raw.key.remoteJid,
@@ -686,6 +802,12 @@ if (!m.isOwner) {
       }
     } catch {}
   } finally {
+    /*
+     * Only command messages get command cleanup.
+     *
+     * Antilink messages are NOT put into commandResponses,
+     * so normal middleware behavior is preserved.
+     */
     if (
       cleanupMessage &&
       getVar(
