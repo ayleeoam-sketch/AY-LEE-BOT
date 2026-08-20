@@ -9,8 +9,8 @@ import { getBuffer } from '../../src/lib/api.js'
  * Every plain message earns 1-5 XP, throttled to one grant per 20 seconds.
  * Commands do not count.
  *
- * Group metadata is NOT fetched here.
- * It comes from m.groupMetadata, which is populated by serialize.js.
+ * Level-ups still happen and coins are still awarded,
+ * but NO automatic level-up announcement is sent.
  */
 
 const lastGrant = new Map()
@@ -53,6 +53,7 @@ async function grantChatXp(m) {
     leveledUp = true
   }
 
+  // Level-up coin bonus remains active
   if (leveledUp) {
     u.wallet += u.level * 50
   }
@@ -99,32 +100,18 @@ export default [
     name: 'levelsystem',
     hidden: true,
 
-    async before({ sock, m, getVar }) {
+    async before({ m, getVar }) {
+      // LEVEL_UP setting must still be enabled
+      // so the XP system continues working.
       if (!getVar('LEVEL_UP')) return
       if (!m.body || m.fromMe || !m.sender) return
 
       // Commands do not earn XP.
       if (isCommand(m.body)) return
 
-      const level = await grantChatXp(m)
-
-      if (level === null) return
-
-      await sock
-        .sendMessage(
-          m.chat,
-          {
-            text:
-              `🏆 @${m.senderNumber} just reached *Level ${level}*!\n` +
-              `+${level * 50} coins bonus added to your wallet 💰\n` +
-              `_Check your card with .rank_`,
-            mentions: [m.sender]
-          },
-          {
-            quoted: m.raw
-          }
-        )
-        .catch(() => {})
+      // Grant XP and process level-up.
+      // No announcement is sent.
+      await grantChatXp(m)
     }
   },
 
@@ -220,19 +207,6 @@ export default [
       try {
         let rows = await rankedUsers()
         let title = 'GLOBAL RANKS'
-
-        /*
-         * IMPORTANT:
-         *
-         * Do NOT call:
-         *
-         * await sock.groupMetadata(m.chat)
-         *
-         * here.
-         *
-         * serialize.js already loads and caches
-         * the group metadata.
-         */
 
         if (m.isGroup) {
           const meta = m.groupMetadata
