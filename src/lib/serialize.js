@@ -11,19 +11,6 @@ import config from '../config.js'
  * GROUP METADATA CACHE
  * ============================================================ */
 
-/*
- * WhatsApp can rate-limit groupMetadata() if it is requested
- * repeatedly.
- *
- * We use:
- * 1. A cache
- * 2. An in-flight request lock
- * 3. A longer TTL
- *
- * This prevents multiple messages arriving at the same time
- * from creating multiple groupMetadata() requests.
- */
-
 const groupMetadataCache = new Map()
 const groupMetadataRequests = new Map()
 
@@ -35,7 +22,6 @@ async function getCachedGroupMetadata(sock, jid) {
   const now = Date.now()
   const cached = groupMetadataCache.get(jid)
 
-  /* Use valid cached metadata */
   if (
     cached &&
     cached.metadata &&
@@ -44,10 +30,6 @@ async function getCachedGroupMetadata(sock, jid) {
     return cached.metadata
   }
 
-  /*
-   * If another request for this same group is already running,
-   * wait for that request instead of creating another one.
-   */
   if (groupMetadataRequests.has(jid)) {
     return groupMetadataRequests.get(jid)
   }
@@ -65,10 +47,6 @@ async function getCachedGroupMetadata(sock, jid) {
 
       return metadata || cached?.metadata || null
     } catch (error) {
-      /*
-       * Do not spam the console when WhatsApp rate-limits us.
-       * The bot can continue using old cached metadata if available.
-       */
       const message =
         error?.message ||
         String(error || '')
@@ -77,11 +55,7 @@ async function getCachedGroupMetadata(sock, jid) {
         message.includes('rate-overlimit') ||
         message.includes('rate-over-limit')
       ) {
-        if (cached?.metadata) {
-          return cached.metadata
-        }
-
-        return null
+        return cached?.metadata || null
       }
 
       console.error(
@@ -122,9 +96,9 @@ export async function serialize(sock, raw, store) {
     Number(raw.messageTimestamp) ||
     Math.floor(Date.now() / 1000)
 
-  /* ==========================================================
+  /* ============================================================
    * BOT JID
-   * ========================================================== */
+   * ============================================================ */
 
   const botJid = jidNormalizedUser(
     sock.user?.id || ''
@@ -136,9 +110,9 @@ export async function serialize(sock, raw, store) {
     .split('@')[0]
     .split(':')[0]
 
-  /* ==========================================================
+  /* ============================================================
    * SENDER
-   * ========================================================== */
+   * ============================================================ */
 
   m.sender = m.isGroup
     ? jidNormalizedUser(
@@ -154,9 +128,9 @@ export async function serialize(sock, raw, store) {
     .split('@')[0]
     .split(':')[0]
 
-  /* ==========================================================
+  /* ============================================================
    * UNWRAP MESSAGE
-   * ========================================================== */
+   * ============================================================ */
 
   let content = raw.message
 
@@ -188,9 +162,9 @@ export async function serialize(sock, raw, store) {
 
   m.msg = content[m.type]
 
-  /* ==========================================================
+  /* ============================================================
    * MESSAGE TEXT
-   * ========================================================== */
+   * ============================================================ */
 
   m.body =
     content.conversation ||
@@ -223,9 +197,9 @@ export async function serialize(sock, raw, store) {
     'documentMessage'
   ].includes(m.type)
 
-  /* ==========================================================
+  /* ============================================================
    * QUOTED MESSAGE
-   * ========================================================== */
+   * ============================================================ */
 
   const ctx = m.msg?.contextInfo
   const quotedRaw = ctx?.quotedMessage
@@ -336,9 +310,9 @@ export async function serialize(sock, raw, store) {
     m.quoted = null
   }
 
-  /* ==========================================================
+  /* ============================================================
    * HELPERS
-   * ========================================================== */
+   * ============================================================ */
 
   m.download = () =>
     downloadMediaMessage(
@@ -369,9 +343,9 @@ export async function serialize(sock, raw, store) {
     return sent
   }
 
-  /* ==========================================================
+  /* ============================================================
    * REPLY
-   * ========================================================== */
+   * ============================================================ */
 
   m.reply = async (
     text,
@@ -418,9 +392,9 @@ export async function serialize(sock, raw, store) {
     )
   }
 
-  /* ==========================================================
+  /* ============================================================
    * SEND
-   * ========================================================== */
+   * ============================================================ */
 
   m.send = async (
     text,
@@ -450,9 +424,9 @@ export async function serialize(sock, raw, store) {
     )
   }
 
-  /* ==========================================================
+  /* ============================================================
    * REACT
-   * ========================================================== */
+   * ============================================================ */
 
   m.reacted = false
 
@@ -470,9 +444,9 @@ export async function serialize(sock, raw, store) {
     )
   }
 
-  /* ==========================================================
+  /* ============================================================
    * TARGET
-   * ========================================================== */
+   * ============================================================ */
 
   m.target = (() => {
     if (m.mentions?.length)
@@ -495,10 +469,14 @@ function isAdminParticipant(participant) {
   if (!participant)
     return false
 
+  const admin =
+    String(participant.admin || '')
+      .toLowerCase()
+
   return (
-    participant.admin === 'admin' ||
-    participant.admin === 'superadmin' ||
-    participant.admin === 'owner' ||
+    admin === 'admin' ||
+    admin === 'superadmin' ||
+    admin === 'owner' ||
     participant.isAdmin === true ||
     participant.isSuperAdmin === true ||
     participant.isOwner === true
@@ -534,18 +512,16 @@ export async function resolvePermissions(
   m.groupName = ''
   m.participants = []
 
-  /* DMs do not need group metadata */
+  /* ============================================================
+   * DMs
+   * ============================================================ */
+
   if (!m.isGroup)
     return m
 
-  /*
-   * IMPORTANT:
-   *
-   * Never call sock.groupMetadata(m.chat)
-   * directly here.
-   *
-   * Always use the cache + request lock.
-   */
+  /* ============================================================
+   * GET GROUP METADATA
+   * ============================================================ */
 
   const metadata =
     await getCachedGroupMetadata(
@@ -564,27 +540,74 @@ export async function resolvePermissions(
   m.participants =
     metadata.participants || []
 
-  const find = (jid) =>
-    m.participants.find(
-      (p) =>
-        areJidsSameUser(
-          p.id || '',
-          jid || ''
-        ) ||
-        areJidsSameUser(
-          p.jid || '',
-          jid || ''
-        )
-    )
+  /* ============================================================
+   * FIND PARTICIPANT
+   * ============================================================ */
 
-  const me = find(m.sender)
-  const bot = find(m.botJid)
+  const findParticipant = (jid) => {
+    if (!jid)
+      return null
+
+    const normalized =
+      jidNormalizedUser(jid)
+
+    const number =
+      normalized
+        .split('@')[0]
+        .split(':')[0]
+
+    return m.participants.find((p) => {
+      const ids = [
+        p.id,
+        p.jid,
+        p.lid
+      ].filter(Boolean)
+
+      return ids.some((id) => {
+        try {
+          if (
+            areJidsSameUser(
+              jidNormalizedUser(id),
+              normalized
+            )
+          ) {
+            return true
+          }
+        } catch {}
+
+        const participantNumber =
+          String(id)
+            .split('@')[0]
+            .split(':')[0]
+
+        return participantNumber === number
+      })
+    }) || null
+  }
+
+  /* ============================================================
+   * USER ADMIN
+   * ============================================================ */
+
+  const me =
+    findParticipant(m.sender)
 
   m.isAdmin =
     isAdminParticipant(me)
 
+  /* ============================================================
+   * BOT ADMIN
+   * ============================================================ */
+
+  const bot =
+    findParticipant(m.botJid)
+
   m.isBotAdmin =
     isAdminParticipant(bot)
+
+  /* ============================================================
+   * GROUP OWNER
+   * ============================================================ */
 
   m.groupOwner =
     metadata.owner || ''
