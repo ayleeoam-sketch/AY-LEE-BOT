@@ -484,6 +484,96 @@ function isAdminParticipant(participant) {
 }
 
 /* ============================================================
+ * JID / PARTICIPANT MATCHING
+ * ============================================================ */
+
+function normalizeJid(value = '') {
+  if (!value)
+    return ''
+
+  try {
+    return jidNormalizedUser(String(value))
+  } catch {
+    return String(value)
+  }
+}
+
+function jidNumber(value = '') {
+  const jid = normalizeJid(value)
+
+  return jid
+    .split('@')[0]
+    .split(':')[0]
+}
+
+function participantMatches(participant, jid) {
+  if (!participant || !jid)
+    return false
+
+  const target = normalizeJid(jid)
+  const targetNumber = jidNumber(jid)
+
+  const ids = [
+    participant.id,
+    participant.jid,
+    participant.lid,
+    participant.phoneNumber
+  ].filter(Boolean)
+
+  for (const id of ids) {
+    const normalizedId = normalizeJid(id)
+
+    try {
+      if (
+        normalizedId &&
+        areJidsSameUser(
+          normalizedId,
+          target
+        )
+      ) {
+        return true
+      }
+    } catch {}
+
+    /*
+     * Fallback for normal phone-number JIDs.
+     */
+    if (
+      targetNumber &&
+      jidNumber(id) === targetNumber
+    ) {
+      return true
+    }
+  }
+
+  return false
+}
+
+/* ============================================================
+ * FIND PARTICIPANT
+ * ============================================================ */
+
+function findGroupParticipant(
+  participants = [],
+  jids = []
+) {
+  const validJids =
+    jids.filter(Boolean)
+
+  for (const jid of validJids) {
+    const participant =
+      participants.find((p) =>
+        participantMatches(p, jid)
+      )
+
+    if (participant)
+      return participant
+  }
+
+  return null
+}
+
+/* ============================================================
  * PERMISSIONS
  * ============================================================ */
 
@@ -492,8 +582,14 @@ export async function resolvePermissions(
   m,
   sudoList = []
 ) {
+  /* ==========================================================
+   * OWNER / SUDO
+   * ========================================================== */
+
   const owners = [
-    ...config.ownerNumbers,
+    ...(Array.isArray(config.ownerNumbers)
+      ? config.ownerNumbers
+      : []),
     m.botNumber
   ]
 
@@ -505,23 +601,28 @@ export async function resolvePermissions(
     m.isOwner ||
     sudoList.includes(m.senderNumber)
 
+  /* ==========================================================
+   * DEFAULT PERMISSIONS
+   * ========================================================== */
+
   m.isAdmin = false
   m.isBotAdmin = false
 
   m.groupMetadata = null
   m.groupName = ''
   m.participants = []
+  m.groupOwner = ''
 
-  /* ============================================================
+  /* ==========================================================
    * DMs
-   * ============================================================ */
+   * ========================================================== */
 
   if (!m.isGroup)
     return m
 
-  /* ============================================================
+  /* ==========================================================
    * GET GROUP METADATA
-   * ============================================================ */
+   * ========================================================== */
 
   const metadata =
     await getCachedGroupMetadata(
@@ -538,81 +639,77 @@ export async function resolvePermissions(
     metadata.subject || ''
 
   m.participants =
-    metadata.participants || []
+    Array.isArray(metadata.participants)
+      ? metadata.participants
+      : []
 
-  /* ============================================================
-   * FIND PARTICIPANT
-   * ============================================================ */
-
-  const findParticipant = (jid) => {
-    if (!jid)
-      return null
-
-    const normalized =
-      jidNormalizedUser(jid)
-
-    const number =
-      normalized
-        .split('@')[0]
-        .split(':')[0]
-
-    return m.participants.find((p) => {
-      const ids = [
-        p.id,
-        p.jid,
-        p.lid
-      ].filter(Boolean)
-
-      return ids.some((id) => {
-        try {
-          if (
-            areJidsSameUser(
-              jidNormalizedUser(id),
-              normalized
-            )
-          ) {
-            return true
-          }
-        } catch {}
-
-        const participantNumber =
-          String(id)
-            .split('@')[0]
-            .split(':')[0]
-
-        return participantNumber === number
-      })
-    }) || null
-  }
-
-  /* ============================================================
-   * USER ADMIN
-   * ============================================================ */
+  /* ==========================================================
+   * CURRENT USER ADMIN CHECK
+   * ========================================================== */
 
   const me =
-    findParticipant(m.sender)
+    findGroupParticipant(
+      m.participants,
+      [
+        m.sender,
+        m.senderNumber
+      ]
+    )
 
   m.isAdmin =
     isAdminParticipant(me)
 
-  /* ============================================================
-   * BOT ADMIN
-   * ============================================================ */
+  /* ==========================================================
+   * BOT ADMIN CHECK
+   * ========================================================== */
+
+  const botIds = [
+    m.botJid,
+    m.botNumber,
+    sock.user?.id,
+    sock.user?.lid
+  ].filter(Boolean)
 
   const bot =
-    findParticipant(m.botJid)
+    findGroupParticipant(
+      m.participants,
+      botIds
+    )
 
   m.isBotAdmin =
     isAdminParticipant(bot)
 
-  /* ============================================================
+  /* ==========================================================
    * GROUP OWNER
-   * ============================================================ */
+   * ========================================================== */
 
   m.groupOwner =
     metadata.owner || ''
+
+  /*
+   * Extra safety:
+   * If WhatsApp identifies the bot as the group owner,
+   * the bot is automatically an admin.
+   */
+  if (
+    m.groupOwner &&
+    botIds.some((jid) => {
+      try {
+        return areJidsSameUser(
+          normalizeJid(jid),
+          normalizeJid(m.groupOwner)
+        )
+      } catch {
+        return jidNumber(jid) ===
+          jidNumber(m.groupOwner)
+      }
+    })
+  ) {
+    m.isBotAdmin = true
+  }
 
   return m
 }
 
 export default serialize
+
