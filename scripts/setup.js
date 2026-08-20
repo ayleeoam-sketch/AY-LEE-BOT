@@ -1,13 +1,12 @@
 /**
- * Downloads / updates the yt-dlp binary into ./bin.
+ * Downloads / updates the standalone yt-dlp binary into ./bin.
  *
- *   npm run setup       install or update
+ * Run:
+ *   npm run setup
  *
- * yt-dlp ships as a single self-contained binary, so this works on
- * Pterodactyl, Termux, Heroku and plain VPS boxes with no system packages.
- * Run it periodically: YouTube changes its internals often and an outdated
- * yt-dlp is the single most common cause of "download failed".
+ * No Python is required.
  */
+
 import fs from 'fs'
 import path from 'path'
 import https from 'https'
@@ -16,77 +15,184 @@ import { fileURLToPath } from 'url'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const BIN_DIR = path.join(ROOT, 'bin')
-const isWindows = process.platform === 'win32'
-const TARGET = path.join(BIN_DIR, isWindows ? 'yt-dlp.exe' : 'yt-dlp')
+
+const platform = process.platform
+const isWindows = platform === 'win32'
+
+const TARGET = path.join(
+  BIN_DIR,
+  isWindows ? 'yt-dlp.exe' : 'yt-dlp'
+)
 
 const URLS = {
-  win32: 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe',
-  darwin: 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos',
-  linux: 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp'
+  win32:
+    'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe',
+
+  darwin:
+    'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos',
+
+  linux:
+    'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp'
 }
 
 function download(url, dest, redirects = 0) {
   return new Promise((resolve, reject) => {
-    if (redirects > 6) return reject(new Error('too many redirects'))
-    https
-      .get(url, { headers: { 'User-Agent': 'venom-md-bot' } }, (res) => {
-        if ([301, 302, 303, 307, 308].includes(res.statusCode)) {
-          res.resume()
-          return resolve(download(res.headers.location, dest, redirects + 1))
+    if (redirects > 10) {
+      return reject(new Error('Too many redirects'))
+    }
+
+    https.get(
+      url,
+      {
+        headers: {
+          'User-Agent': 'AY-LEE-BOT'
         }
+      },
+      (res) => {
+        if ([301, 302, 303, 307, 308].includes(res.statusCode)) {
+          const location = res.headers.location
+          res.resume()
+
+          if (!location) {
+            return reject(new Error('Redirect location missing'))
+          }
+
+          return resolve(
+            download(location, dest, redirects + 1)
+          )
+        }
+
         if (res.statusCode !== 200) {
           res.resume()
-          return reject(new Error(`HTTP ${res.statusCode}`))
+          return reject(
+            new Error(`HTTP ${res.statusCode}`)
+          )
         }
-        const total = parseInt(res.headers['content-length'] || '0', 10)
-        let got = 0
+
         const file = fs.createWriteStream(dest)
-        res.on('data', (c) => {
-          got += c.length
+
+        const total = Number(
+          res.headers['content-length'] || 0
+        )
+
+        let downloaded = 0
+
+        res.on('data', (chunk) => {
+          downloaded += chunk.length
+
           if (total) {
-            const pct = Math.round((got / total) * 100)
-            process.stdout.write(`\r  downloading yt-dlp... ${pct}%`)
+            const percent = Math.round(
+              (downloaded / total) * 100
+            )
+
+            process.stdout.write(
+              `\rDownloading yt-dlp... ${percent}%`
+            )
           }
         })
+
         res.pipe(file)
-        file.on('finish', () => file.close(() => { process.stdout.write('\n'); resolve() }))
-        file.on('error', reject)
-      })
-      .on('error', reject)
+
+        file.on('finish', () => {
+          file.close(() => {
+            process.stdout.write('\n')
+            resolve()
+          })
+        })
+
+        file.on('error', (err) => {
+          try {
+            fs.unlinkSync(dest)
+          } catch {}
+
+          reject(err)
+        })
+
+        res.on('error', (err) => {
+          try {
+            fs.unlinkSync(dest)
+          } catch {}
+
+          reject(err)
+        })
+      }
+    ).on('error', reject)
+  })
+}
+
+function checkBinary() {
+  return new Promise((resolve, reject) => {
+    execFile(
+      TARGET,
+      ['--version'],
+      {
+        timeout: 30000
+      },
+      (error, stdout, stderr) => {
+        if (error) {
+          return reject(
+            new Error(
+              stderr?.trim() ||
+              error.message ||
+              'yt-dlp could not be executed'
+            )
+          )
+        }
+
+        resolve(stdout.trim())
+      }
+    )
   })
 }
 
 async function main() {
-  console.log('\n🔧 VENOM MD BOT — downloader setup\n')
-  fs.mkdirSync(BIN_DIR, { recursive: true })
+  console.log('\n======================================')
+  console.log('      AY-LEE BOT — yt-dlp setup')
+  console.log('======================================\n')
 
-  const url = URLS[process.platform] || URLS.linux
-  console.log(`  platform: ${process.platform}`)
+  fs.mkdirSync(BIN_DIR, {
+    recursive: true
+  })
+
+  const url =
+    URLS[platform] || URLS.linux
+
+  console.log(`Platform: ${platform}`)
+  console.log(`Target: ${TARGET}\n`)
+
+  if (fs.existsSync(TARGET)) {
+    console.log('Removing old yt-dlp...')
+
+    try {
+      fs.unlinkSync(TARGET)
+    } catch (e) {
+      console.log(
+        `⚠️ Could not remove old yt-dlp: ${e.message}`
+      )
+    }
+  }
 
   try {
-    await download(url, TARGET)
-    if (!isWindows) fs.chmodSync(TARGET, 0o755)
+    console.log('Downloading standalone yt-dlp...')
 
-    execFile(TARGET, ['--version'], (err, stdout) => {
-      if (err) {
-        console.log('\n❌ yt-dlp downloaded but will not run:', err.message)
-        console.log('   On some hosts you may need Python 3.9+ installed.')
-        process.exit(1)
-      }
-      console.log(`\n✅ yt-dlp ${stdout.trim()} ready at ./bin/`)
-      console.log('\n   Working out of the box:')
-      console.log('     • YouTube  .play  .video  .ytsearch')
-      console.log('     • TikTok   .tiktok  .ttmp3')
-      console.log('     • Twitter/X, Facebook, +1800 sites  .autodl')
-      console.log('\n   Instagram needs a login session:')
-      console.log('     export cookies with the "Get cookies.txt LOCALLY"')
-      console.log('     browser extension and save as cookies.txt here.\n')
-    })
-  } catch (e) {
-    console.log(`\n❌ Setup failed: ${e.message}`)
-    console.log('   Manual fix: download yt-dlp from')
-    console.log('   https://github.com/yt-dlp/yt-dlp/releases/latest')
-    console.log(`   and place it at ${TARGET}\n`)
+    await download(url, TARGET)
+
+    if (!isWindows) {
+      fs.chmodSync(TARGET, 0o755)
+    }
+
+    console.log('\nChecking yt-dlp...')
+
+    const version = await checkBinary()
+
+    console.log(`\n✅ yt-dlp ${version} is working.`)
+    console.log(`📁 Location: ${TARGET}`)
+
+    console.log('\nNo Python installation is required.\n')
+  } catch (error) {
+    console.log('\n❌ yt-dlp setup failed.')
+    console.log(`\n${error.message}\n`)
+
     process.exit(1)
   }
 }
