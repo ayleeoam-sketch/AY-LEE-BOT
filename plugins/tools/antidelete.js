@@ -71,7 +71,9 @@ function unwrapMessage(message) {
 function getText(message) {
   const m = unwrapMessage(message)
 
-  if (!m) return ''
+  if (!m) {
+    return ''
+  }
 
   if (m.conversation) {
     return m.conversation
@@ -103,17 +105,45 @@ function getText(message) {
 function getType(message) {
   const m = unwrapMessage(message)
 
-  if (!m) return 'unknown'
+  if (!m) {
+    return 'unknown'
+  }
 
-  if (m.conversation) return 'text'
-  if (m.extendedTextMessage) return 'text'
-  if (m.imageMessage) return 'image'
-  if (m.videoMessage) return 'video'
-  if (m.audioMessage) return 'audio'
-  if (m.documentMessage) return 'document'
-  if (m.stickerMessage) return 'sticker'
-  if (m.contactMessage) return 'contact'
-  if (m.locationMessage) return 'location'
+  if (m.conversation) {
+    return 'text'
+  }
+
+  if (m.extendedTextMessage) {
+    return 'text'
+  }
+
+  if (m.imageMessage) {
+    return 'image'
+  }
+
+  if (m.videoMessage) {
+    return 'video'
+  }
+
+  if (m.audioMessage) {
+    return 'audio'
+  }
+
+  if (m.documentMessage) {
+    return 'document'
+  }
+
+  if (m.stickerMessage) {
+    return 'sticker'
+  }
+
+  if (m.contactMessage) {
+    return 'contact'
+  }
+
+  if (m.locationMessage) {
+    return 'location'
+  }
 
   return 'unknown'
 }
@@ -123,17 +153,22 @@ function getType(message) {
  * ============================================================ */
 
 function getArchiveDestination() {
-  const configured = getVar('ANTI_DELETE_ARCHIVE')
+  const configured =
+    getVar(
+      'ANTI_DELETE_ARCHIVE'
+    )
 
   if (!configured) {
     return ''
   }
 
-  return normalizeDestination(configured)
+  return normalizeDestination(
+    configured
+  )
 }
 
 /* ============================================================
- * ID HELPERS
+ * JID HELPERS
  * ============================================================ */
 
 function isGroupJid(jid) {
@@ -160,7 +195,10 @@ function isUserJid(jid) {
 function getChatJid(stored, key) {
   const candidates = [
     stored?.key?.remoteJid,
-    key?.remoteJid
+    key?.remoteJid,
+
+    stored?.key?.remoteJidAlt,
+    key?.remoteJidAlt
   ]
 
   for (const jid of candidates) {
@@ -175,11 +213,7 @@ function getChatJid(stored, key) {
 /* ============================================================
  * GET SENDER JID
  *
- * Prefer the actual phone-number JID when WhatsApp provides
- * an alternate mapping.
- *
- * If WhatsApp only provides an @lid, preserve that value rather
- * than incorrectly converting the LID into a phone number.
+ * Prefer a real phone-number JID where available.
  * ============================================================ */
 
 function getSenderJid(stored, key) {
@@ -189,7 +223,10 @@ function getSenderJid(stored, key) {
     )
 
   const candidates = [
-    // Preferred phone-number mappings
+    /* ========================================================
+     * REAL PHONE NUMBER ALTERNATIVES
+     * ======================================================== */
+
     stored?.key?.participantAlt,
     key?.participantAlt,
 
@@ -199,42 +236,63 @@ function getSenderJid(stored, key) {
     stored?.key?.remoteJidAlt,
     key?.remoteJidAlt,
 
-    // Context information
-    message?.extendedTextMessage?.contextInfo?.participant,
-    message?.imageMessage?.contextInfo?.participant,
-    message?.videoMessage?.contextInfo?.participant,
-    message?.documentMessage?.contextInfo?.participant,
-    message?.audioMessage?.contextInfo?.participant,
+    /* ========================================================
+     * ORIGINAL PARTICIPANT
+     * ======================================================== */
 
-    // Original participant
     stored?.key?.participant,
     key?.participant,
 
-    // Private chat fallback
-    !isGroupJid(stored?.key?.remoteJid)
+    /* ========================================================
+     * CONTEXT PARTICIPANT
+     * ======================================================== */
+
+    message?.extendedTextMessage?.contextInfo?.participant,
+
+    message?.imageMessage?.contextInfo?.participant,
+
+    message?.videoMessage?.contextInfo?.participant,
+
+    message?.documentMessage?.contextInfo?.participant,
+
+    message?.audioMessage?.contextInfo?.participant,
+
+    /* ========================================================
+     * PRIVATE CHAT FALLBACK
+     * ======================================================== */
+
+    !isGroupJid(
+      stored?.key?.remoteJid
+    )
       ? stored?.key?.remoteJid
       : null,
 
-    !isGroupJid(key?.remoteJid)
+    !isGroupJid(
+      key?.remoteJid
+    )
       ? key?.remoteJid
       : null
   ]
 
   /* ==========================================================
-   * FIRST: REAL PHONE JID
+   * FIRST CHOICE:
+   * ACTUAL PHONE JID
    * ========================================================== */
 
   for (const jid of candidates) {
     if (
       jid &&
-      String(jid).endsWith('@s.whatsapp.net')
+      String(jid).endsWith(
+        '@s.whatsapp.net'
+      )
     ) {
       return String(jid)
     }
   }
 
   /* ==========================================================
-   * SECOND: LID / OTHER ID
+   * SECOND CHOICE:
+   * WHATEVER WHATSAPP SUPPLIED
    * ========================================================== */
 
   for (const jid of candidates) {
@@ -282,6 +340,53 @@ function getChatName(stored, key) {
 }
 
 /* ============================================================
+ * BUILD DELETED MESSAGE HEADER
+ * ============================================================ */
+
+function buildHeader(
+  stored,
+  key
+) {
+  const sender =
+    getSenderJid(
+      stored,
+      key
+    )
+
+  const name =
+    getSenderName(
+      stored
+    )
+
+  const chatJid =
+    getChatJid(
+      stored,
+      key
+    )
+
+  const chatName =
+    getChatName(
+      stored,
+      key
+    )
+
+  return (
+    '🗑️ *DELETED MESSAGE*\n\n' +
+    '👤 *From:* ' +
+    name +
+    '\n' +
+    '🆔 *Sender:* ' +
+    sender +
+    '\n' +
+    '💬 *Chat:* ' +
+    chatName +
+    '\n' +
+    '🔗 *Chat JID:* ' +
+    chatJid
+  )
+}
+
+/* ============================================================
  * SEND DELETED TEXT
  * ============================================================ */
 
@@ -296,42 +401,11 @@ async function sendDeletedText(
       stored.message
     )
 
-  const sender =
-    getSenderJid(
-      stored,
-      key
-    )
-
-  const name =
-    getSenderName(
-      stored
-    )
-
-  const chatJid =
-    getChatJid(
-      stored,
-      key
-    )
-
-  const chatName =
-    getChatName(
-      stored,
-      key
-    )
-
   const output =
-    '🗑️ *DELETED MESSAGE*\n\n' +
-    '👤 *From:* ' +
-    name +
-    '\n' +
-    '🆔 *Sender:* ' +
-    sender +
-    '\n' +
-    '💬 *Chat:* ' +
-    chatName +
-    '\n' +
-    '🔗 *Chat JID:* ' +
-    chatJid +
+    buildHeader(
+      stored,
+      key
+    ) +
     '\n\n' +
     '📝 *Message:*\n' +
     (
@@ -345,234 +419,27 @@ async function sendDeletedText(
       text: output
     }
   )
-}
 
-/* ============================================================
- * SEND DELETED MEDIA
- * ============================================================ */
-
-async function sendDeletedMedia(
-  sock,
-  destination,
-  stored,
-  key
-) {
-  const message =
-    unwrapMessage(
-      stored.message
-    )
-
-  const sender =
-    getSenderJid(
-      stored,
-      key
-    )
-
-  const name =
-    getSenderName(
-      stored
-    )
-
-  const chatJid =
-    getChatJid(
-      stored,
-      key
-    )
-
-  const chatName =
-    getChatName(
-      stored,
-      key
-    )
-
-  const type =
-    getType(
-      message
-    )
-
-  const caption =
-    '🗑️ *DELETED MESSAGE*\n\n' +
-    '👤 *From:* ' +
-    name +
-    '\n' +
-    '🆔 *Sender:* ' +
-    sender +
-    '\n' +
-    '💬 *Chat:* ' +
-    chatName +
-    '\n' +
-    '🔗 *Chat JID:* ' +
-    chatJid +
-    '\n' +
-    '📦 *Type:* ' +
-    type +
-    '\n\n' +
-    '📝 *Caption:*\n' +
-    (
-      getText(message) ||
-      '(none)'
-    )
-
-  /* ==========================================================
-   * IMAGE
-   * ========================================================== */
-
-  if (message?.imageMessage) {
-    const media =
-      await downloadMediaMessageSafe(
-        stored
-      )
-
-    if (media) {
-      await sock.sendMessage(
-        destination,
-        {
-          image: media,
-          caption
-        }
-      )
-
-      return true
-    }
-  }
-
-  /* ==========================================================
-   * VIDEO
-   * ========================================================== */
-
-  if (message?.videoMessage) {
-    const media =
-      await downloadMediaMessageSafe(
-        stored
-      )
-
-    if (media) {
-      await sock.sendMessage(
-        destination,
-        {
-          video: media,
-          caption
-        }
-      )
-
-      return true
-    }
-  }
-
-  /* ==========================================================
-   * AUDIO
-   * ========================================================== */
-
-  if (message?.audioMessage) {
-    const media =
-      await downloadMediaMessageSafe(
-        stored
-      )
-
-    if (media) {
-      await sock.sendMessage(
-        destination,
-        {
-          audio: media,
-          mimetype:
-            message.audioMessage.mimetype ||
-            'audio/mp4',
-          ptt:
-            Boolean(
-              message.audioMessage.ptt
-            )
-        }
-      )
-
-      await sock.sendMessage(
-        destination,
-        {
-          text: caption
-        }
-      )
-
-      return true
-    }
-  }
-
-  /* ==========================================================
-   * DOCUMENT
-   * ========================================================== */
-
-  if (message?.documentMessage) {
-    const media =
-      await downloadMediaMessageSafe(
-        stored
-      )
-
-    if (media) {
-      await sock.sendMessage(
-        destination,
-        {
-          document: media,
-          mimetype:
-            message.documentMessage.mimetype ||
-            'application/octet-stream',
-          fileName:
-            message.documentMessage.fileName ||
-            'deleted-file',
-          caption
-        }
-      )
-
-      return true
-    }
-  }
-
-  /* ==========================================================
-   * STICKER
-   * ========================================================== */
-
-  if (message?.stickerMessage) {
-    const media =
-      await downloadMediaMessageSafe(
-        stored
-      )
-
-    if (media) {
-      await sock.sendMessage(
-        destination,
-        {
-          sticker: media
-        }
-      )
-
-      await sock.sendMessage(
-        destination,
-        {
-          text: caption
-        }
-      )
-
-      return true
-    }
-  }
-
-  return false
+  return true
 }
 
 /* ============================================================
  * MEDIA DOWNLOADER
  * ============================================================ */
 
-async function downloadMediaMessageSafe(message) {
+async function downloadMediaMessageSafe(
+  message
+) {
   try {
     const baileys =
-      await import('baileys')
+      await import(
+        'baileys'
+      )
 
     if (
       typeof baileys.downloadContentFromMessage !==
       'function'
     ) {
-      console.log(
-        '[ANTI-DELETE] downloadContentFromMessage unavailable'
-      )
-
       return null
     }
 
@@ -588,29 +455,72 @@ async function downloadMediaMessageSafe(message) {
     let mediaMessage = null
     let mediaType = null
 
-    if (raw.imageMessage) {
+    /* ========================================================
+     * IMAGE
+     * ======================================================== */
+
+    if (
+      raw.imageMessage
+    ) {
       mediaMessage =
         raw.imageMessage
+
       mediaType =
         'image'
-    } else if (raw.videoMessage) {
+    }
+
+    /* ========================================================
+     * VIDEO
+     * ======================================================== */
+
+    else if (
+      raw.videoMessage
+    ) {
       mediaMessage =
         raw.videoMessage
+
       mediaType =
         'video'
-    } else if (raw.audioMessage) {
+    }
+
+    /* ========================================================
+     * AUDIO
+     * ======================================================== */
+
+    else if (
+      raw.audioMessage
+    ) {
       mediaMessage =
         raw.audioMessage
+
       mediaType =
         'audio'
-    } else if (raw.documentMessage) {
+    }
+
+    /* ========================================================
+     * DOCUMENT
+     * ======================================================== */
+
+    else if (
+      raw.documentMessage
+    ) {
       mediaMessage =
         raw.documentMessage
+
       mediaType =
         'document'
-    } else if (raw.stickerMessage) {
+    }
+
+    /* ========================================================
+     * STICKER
+     * ======================================================== */
+
+    else if (
+      raw.stickerMessage
+    ) {
       mediaMessage =
         raw.stickerMessage
+
       mediaType =
         'sticker'
     }
@@ -636,11 +546,17 @@ async function downloadMediaMessageSafe(message) {
       chunks.push(chunk)
     }
 
+    if (
+      !chunks.length
+    ) {
+      return null
+    }
+
     return Buffer.concat(
       chunks
     )
   } catch (error) {
-    console.log(
+    console.error(
       '[ANTI-DELETE] Media download failed: ' +
         (
           error?.message ||
@@ -653,14 +569,204 @@ async function downloadMediaMessageSafe(message) {
 }
 
 /* ============================================================
+ * SEND DELETED MEDIA
+ * ============================================================ */
+
+async function sendDeletedMedia(
+  sock,
+  destination,
+  stored,
+  key
+) {
+  const message =
+    unwrapMessage(
+      stored.message
+    )
+
+  if (!message) {
+    return false
+  }
+
+  const type =
+    getType(
+      message
+    )
+
+  const caption =
+    buildHeader(
+      stored,
+      key
+    ) +
+    '\n' +
+    '📦 *Type:* ' +
+    type +
+    '\n\n' +
+    '📝 *Caption:*\n' +
+    (
+      getText(message) ||
+      '(none)'
+    )
+
+  /* ==========================================================
+   * DOWNLOAD MEDIA
+   * ========================================================== */
+
+  const media =
+    await downloadMediaMessageSafe(
+      stored
+    )
+
+  /* ==========================================================
+   * IMAGE
+   * ========================================================== */
+
+  if (
+    message.imageMessage
+  ) {
+    if (!media) {
+      return false
+    }
+
+    await sock.sendMessage(
+      destination,
+      {
+        image: media,
+        caption
+      }
+    )
+
+    return true
+  }
+
+  /* ==========================================================
+   * VIDEO
+   * ========================================================== */
+
+  if (
+    message.videoMessage
+  ) {
+    if (!media) {
+      return false
+    }
+
+    await sock.sendMessage(
+      destination,
+      {
+        video: media,
+        caption
+      }
+    )
+
+    return true
+  }
+
+  /* ==========================================================
+   * AUDIO
+   * ========================================================== */
+
+  if (
+    message.audioMessage
+  ) {
+    if (!media) {
+      return false
+    }
+
+    await sock.sendMessage(
+      destination,
+      {
+        audio: media,
+        mimetype:
+          message.audioMessage.mimetype ||
+          'audio/mp4',
+        ptt:
+          Boolean(
+            message.audioMessage.ptt
+          )
+      }
+    )
+
+    await sock.sendMessage(
+      destination,
+      {
+        text: caption
+      }
+    )
+
+    return true
+  }
+
+  /* ==========================================================
+   * DOCUMENT
+   * ========================================================== */
+
+  if (
+    message.documentMessage
+  ) {
+    if (!media) {
+      return false
+    }
+
+    await sock.sendMessage(
+      destination,
+      {
+        document: media,
+        mimetype:
+          message.documentMessage.mimetype ||
+          'application/octet-stream',
+        fileName:
+          message.documentMessage.fileName ||
+          'deleted-file',
+        caption
+      }
+    )
+
+    return true
+  }
+
+  /* ==========================================================
+   * STICKER
+   * ========================================================== */
+
+  if (
+    message.stickerMessage
+  ) {
+    if (!media) {
+      return false
+    }
+
+    await sock.sendMessage(
+      destination,
+      {
+        sticker: media
+      }
+    )
+
+    await sock.sendMessage(
+      destination,
+      {
+        text: caption
+      }
+    )
+
+    return true
+  }
+
+  return false
+}
+
+/* ============================================================
  * PLUGIN
+ *
+ * IMPORTANT:
+ * Do NOT add "ad" to aliases.
+ *
+ * Another plugin already owns "ad".
  * ============================================================ */
 
 const antidelete = {
   name: 'antidelete',
 
   alias: [
-    'ad',
     'antidel'
   ],
 
@@ -736,7 +842,9 @@ const antidelete = {
      * ON
      * ======================================================== */
 
-    if (action === 'on') {
+    if (
+      action === 'on'
+    ) {
       await setVar(
         'ANTI_DELETE',
         true
@@ -765,7 +873,9 @@ const antidelete = {
      * OFF
      * ======================================================== */
 
-    if (action === 'off') {
+    if (
+      action === 'off'
+    ) {
       await setVar(
         'ANTI_DELETE',
         false
@@ -786,7 +896,9 @@ const antidelete = {
      * ARCHIVE
      * ======================================================== */
 
-    if (action === 'archive') {
+    if (
+      action === 'archive'
+    ) {
       const raw =
         args
           ?.slice(1)
@@ -833,7 +945,7 @@ const antidelete = {
             '🆔 ' +
             destination +
             '\n\n' +
-            '🗑️ Deleted messages will now be sent to this group.'
+            '🗑️ Deleted messages will now be sent to this destination.'
         }
       )
 
@@ -876,10 +988,6 @@ const antidelete = {
         'ANTI_DELETE'
       )
     ) {
-      console.log(
-        '[ANTI-DELETE] Disabled.'
-      )
-
       return
     }
 
@@ -888,10 +996,6 @@ const antidelete = {
      * ======================================================== */
 
     if (!key?.id) {
-      console.log(
-        '[ANTI-DELETE] Delete event has no message ID.'
-      )
-
       return
     }
 
@@ -903,10 +1007,6 @@ const antidelete = {
       getArchiveDestination()
 
     if (!destination) {
-      console.log(
-        '[ANTI-DELETE] No archive destination configured.'
-      )
-
       return
     }
 
@@ -920,18 +1020,12 @@ const antidelete = {
       )
 
     if (!stored?.message) {
-      console.log(
-        '[ANTI-DELETE] Original message not found: ' +
-          key.id
-      )
-
       return
     }
 
-    console.log(
-      '[ANTI-DELETE] Forwarding deleted message: ' +
-        key.id
-    )
+    /* ========================================================
+     * PROCESS
+     * ======================================================== */
 
     try {
       const type =
@@ -940,67 +1034,46 @@ const antidelete = {
         )
 
       /* ======================================================
-       * DEBUG INFORMATION
-       * ====================================================== */
-
-      console.log(
-        '[ANTI-DELETE] Sender: ' +
-          getSenderJid(
-            stored,
-            key
-          )
-      )
-
-      console.log(
-        '[ANTI-DELETE] Chat: ' +
-          getChatJid(
-            stored,
-            key
-          )
-      )
-
-      /* ======================================================
        * TEXT
        * ====================================================== */
 
-      if (type === 'text') {
+      if (
+        type === 'text'
+      ) {
         await sendDeletedText(
           sock,
           destination,
           stored,
           key
         )
-      } else {
-        /* ====================================================
-         * MEDIA
-         * ==================================================== */
 
-        const mediaSent =
-          await sendDeletedMedia(
-            sock,
-            destination,
-            stored,
-            key
-          )
-
-        /* ====================================================
-         * FALLBACK TO TEXT
-         * ==================================================== */
-
-        if (!mediaSent) {
-          await sendDeletedText(
-            sock,
-            destination,
-            stored,
-            key
-          )
-        }
+        return
       }
 
-      console.log(
-        '[ANTI-DELETE] Deleted message forwarded successfully: ' +
-          key.id
-      )
+      /* ======================================================
+       * MEDIA
+       * ====================================================== */
+
+      const mediaSent =
+        await sendDeletedMedia(
+          sock,
+          destination,
+          stored,
+          key
+        )
+
+      /* ======================================================
+       * FALLBACK
+       * ====================================================== */
+
+      if (!mediaSent) {
+        await sendDeletedText(
+          sock,
+          destination,
+          stored,
+          key
+        )
+      }
     } catch (error) {
       console.error(
         '[ANTI-DELETE] Forward failed: ' +
