@@ -42,24 +42,17 @@ const msgRetryCounterCache = new NodeCache()
  *
  * Stores original messages so anti-delete handlers can recover
  * them after WhatsApp sends a revoke/delete event.
+ *
+ * IMPORTANT:
+ * WhatsApp Status messages are intentionally NOT stored.
  * ============================================================ */
 
 const messageStore = new Map()
 
-/*
- * Keep this reasonably large, but don't allow unlimited memory
- * usage.
- */
 const MAX_STORE = 10000
 
 /* ============================================================
  * DELETE EVENT DEDUPLICATION
- *
- * WhatsApp/Baileys can sometimes expose the same deletion through
- * both messages.delete and messages.update.
- *
- * This prevents the anti-delete handler from sending the same
- * recovered message twice.
  * ============================================================ */
 
 const processedDeletes = new NodeCache({
@@ -704,10 +697,7 @@ WhatsApp > Settings > Linked devices > Link with phone number
    * IMPORTANT:
    * Store the complete raw message BEFORE handleMessage().
    *
-   * NO per-message log here.
-   *
-   * This is important for Railway because logging every incoming
-   * message can very quickly exceed the platform log limit.
+   * STATUS MESSAGES ARE NOT STORED.
    * ============================================================ */
 
   sock.ev.on(
@@ -735,10 +725,26 @@ WhatsApp > Settings > Linked devices > Link with phone number
           raw.key?.id
 
         /* ======================================================
+         * STATUS PROTECTION
+         *
+         * WhatsApp Status uses status@broadcast.
+         *
+         * Do not store Status messages in the anti-delete
+         * message store.
+         * ====================================================== */
+
+        const isStatus =
+          raw.key?.remoteJid ===
+          'status@broadcast'
+
+        /* ======================================================
          * STORE MESSAGE
          * ====================================================== */
 
-        if (messageId) {
+        if (
+          messageId &&
+          !isStatus
+        ) {
           messageStore.set(
             messageId,
             raw
@@ -770,6 +776,11 @@ WhatsApp > Settings > Linked devices > Link with phone number
 
         /* ======================================================
          * NORMAL MESSAGE HANDLER
+         *
+         * We still pass the message to handleMessage().
+         * This means the Status filter ONLY affects the
+         * anti-delete store and does not interfere with the
+         * rest of your message processing.
          * ====================================================== */
 
         try {
@@ -808,6 +819,21 @@ WhatsApp > Settings > Linked devices > Link with phone number
         return
       }
 
+      /* ========================================================
+       * STATUS PROTECTION
+       *
+       * Never process deleted WhatsApp Status messages.
+       * This is the second safety layer in case a Status somehow
+       * reaches the delete processor.
+       * ======================================================== */
+
+      if (
+        key?.remoteJid ===
+        'status@broadcast'
+      ) {
+        return
+      }
+
       const messageId =
         String(
           key.id
@@ -815,9 +841,6 @@ WhatsApp > Settings > Linked devices > Link with phone number
 
       /* ========================================================
        * DEDUPLICATE DELETE EVENTS
-       *
-       * messages.delete and messages.update can represent the
-       * same deletion.
        * ======================================================== */
 
       if (
@@ -838,16 +861,24 @@ WhatsApp > Settings > Linked devices > Link with phone number
         )
 
       if (!storedMessage) {
-        /*
-         * Don't log every miss.
-         *
-         * A missing message is expected sometimes because:
-         * - bot joined later
-         * - message was received before restart
-         * - message was not decryptable
-         * - store was already evicted
-         * - WhatsApp generated an event for another device
-         */
+        return
+      }
+
+      /* ========================================================
+       * EXTRA SAFETY
+       *
+       * Even if a Status message somehow entered the store,
+       * refuse to process it.
+       * ======================================================== */
+
+      if (
+        storedMessage?.key?.remoteJid ===
+        'status@broadcast'
+      ) {
+        messageStore.delete(
+          messageId
+        )
+
         return
       }
 
@@ -861,12 +892,10 @@ WhatsApp > Settings > Linked devices > Link with phone number
         return
       }
 
-      /*
-       * Mark before running handlers.
-       *
-       * This prevents duplicate processing if another delete event
-       * arrives while the first handler is still running.
-       */
+      /* ========================================================
+       * MARK BEFORE RUNNING HANDLERS
+       * ======================================================== */
+
       processedDeletes.set(
         messageId,
         true
@@ -909,13 +938,10 @@ WhatsApp > Settings > Linked devices > Link with phone number
         }
       }
 
-      /*
-       * Optional cleanup.
-       *
-       * We can remove the original after successful processing.
-       * The message itself has already been supplied to the
-       * anti-delete handlers.
-       */
+      /* ========================================================
+       * CLEANUP
+       * ======================================================== */
+
       messageStore.delete(
         messageId
       )
@@ -934,12 +960,6 @@ WhatsApp > Settings > Linked devices > Link with phone number
    * MESSAGES.DELETE
    *
    * Primary revoke/delete listener.
-   *
-   * Official shape:
-   *
-   * {
-   *   keys: WAMessageKey[]
-   * }
    * ============================================================ */
 
   sock.ev.on(
@@ -1010,6 +1030,20 @@ WhatsApp > Settings > Linked devices > Link with phone number
             }
 
             /* ==================================================
+             * STATUS PROTECTION
+             *
+             * Ignore Status deletion updates before they can
+             * reach the anti-delete processor.
+             * ================================================== */
+
+            if (
+              key?.remoteJid ===
+              'status@broadcast'
+            ) {
+              continue
+            }
+
+            /* ==================================================
              * EXPLICIT REVOKE INDICATORS
              * ================================================== */
 
@@ -1032,11 +1066,6 @@ WhatsApp > Settings > Linked devices > Link with phone number
 
             /* ==================================================
              * EMPTY UPDATE
-             *
-             * Only treat an empty update as a possible deletion
-             * when the message actually exists in our store.
-             *
-             * This is intentionally quiet to avoid log spam.
              * ================================================== */
 
             const isEmptyUpdate =
