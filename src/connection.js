@@ -40,86 +40,33 @@ const msgRetryCounterCache = new NodeCache()
 /* ============================================================
  * MESSAGE STORE
  *
- * Original messages are kept here so anti-delete handlers
- * can recover them when WhatsApp sends a revoke event.
+ * Stores original messages so anti-delete handlers can recover
+ * them after WhatsApp sends a revoke/delete event.
  * ============================================================ */
 
 const messageStore = new Map()
 
+/*
+ * Keep this reasonably large, but don't allow unlimited memory
+ * usage.
+ */
 const MAX_STORE = 10000
 
 /* ============================================================
- * STORE MESSAGE
- * ============================================================ */
-
-function storeMessage(raw) {
-  if (!raw?.message) {
-    return
-  }
-
-  const messageId =
-    raw?.key?.id
-
-  if (!messageId) {
-    return
-  }
-
-  messageStore.set(
-    messageId,
-    raw
-  )
-
-  log.info(
-    `[ANTI-DELETE] Message stored: ${messageId}`
-  )
-
-  /* ==========================================================
-   * LIMIT STORE
-   * ========================================================== */
-
-  while (
-    messageStore.size >
-    MAX_STORE
-  ) {
-    const oldest =
-      messageStore
-        .keys()
-        .next()
-        .value
-
-    if (!oldest) {
-      break
-    }
-
-    messageStore.delete(
-      oldest
-    )
-  }
-}
-
-/* ============================================================
- * FIND STORED MESSAGE
+ * DELETE EVENT DEDUPLICATION
  *
- * IMPORTANT:
- * Do not guess a message when the IDs don't match.
+ * WhatsApp/Baileys can sometimes expose the same deletion through
+ * both messages.delete and messages.update.
+ *
+ * This prevents the anti-delete handler from sending the same
+ * recovered message twice.
  * ============================================================ */
 
-function findStoredMessage(key) {
-  if (!key?.id) {
-    return null
-  }
-
-  const stored =
-    messageStore.get(
-      key.id
-    )
-
-  if (stored) {
-    return stored
-  }
-
-  return null
-}
+const processedDeletes = new NodeCache({
+  stdTTL: 15,
+  checkperiod: 30,
+  useClones: false
+})
 
 /* ============================================================
  * INPUT
@@ -127,21 +74,15 @@ function findStoredMessage(key) {
 
 const ask = (question) =>
   new Promise((resolve) => {
-    const rl =
-      readline.createInterface({
-        input: process.stdin,
-        output: process.stdout
-      })
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout
+    })
 
-    rl.question(
-      question,
-      (answer) => {
-        rl.close()
-        resolve(
-          answer.trim()
-        )
-      }
-    )
+    rl.question(question, (answer) => {
+      rl.close()
+      resolve(answer.trim())
+    })
   })
 
 /* ============================================================
@@ -159,14 +100,11 @@ export async function startSocket() {
   let saveCreds
   let deleteSession
 
-  /* ==========================================================
+  /* ============================================================
    * SESSION DIRECTORY
-   * ========================================================== */
+   * ============================================================ */
 
-  if (
-    config.sessionStore !==
-    'mongo'
-  ) {
+  if (config.sessionStore !== 'mongo') {
     fs.mkdirSync(
       config.sessionDir,
       {
@@ -180,14 +118,8 @@ export async function startSocket() {
         'creds.json'
       )
 
-    if (
-      !fs.existsSync(
-        credsPath
-      )
-    ) {
-      if (
-        config.sessionId?.trim()
-      ) {
+    if (!fs.existsSync(credsPath)) {
+      if (config.sessionId?.trim()) {
         try {
           const raw =
             Buffer
@@ -198,9 +130,7 @@ export async function startSocket() {
               .toString('utf8')
 
           const parsed =
-            JSON.parse(
-              raw
-            )
+            JSON.parse(raw)
 
           if (
             !parsed?.me &&
@@ -215,8 +145,7 @@ export async function startSocket() {
             credsPath,
             raw,
             {
-              encoding:
-                'utf8',
+              encoding: 'utf8',
               flag: 'wx'
             }
           )
@@ -241,27 +170,21 @@ export async function startSocket() {
     }
   }
 
-  /* ==========================================================
+  /* ============================================================
    * SESSION STORE
-   * ========================================================== */
+   * ============================================================ */
 
   if (
-    config.sessionStore ===
-    'mongo'
+    config.sessionStore === 'mongo'
   ) {
     const auth =
       await useMongoAuthState(
         'default'
       )
 
-    state =
-      auth.state
-
-    saveCreds =
-      auth.saveCreds
-
-    deleteSession =
-      auth.deleteSession
+    state = auth.state
+    saveCreds = auth.saveCreds
+    deleteSession = auth.deleteSession
 
     log.info(
       'Session store: MongoDB'
@@ -279,50 +202,44 @@ export async function startSocket() {
         config.sessionDir
       )
 
-    state =
-      auth.state
+    state = auth.state
+    saveCreds = auth.saveCreds
 
-    saveCreds =
-      auth.saveCreds
+    deleteSession = async () => {
+      try {
+        fs.rmSync(
+          config.sessionDir,
+          {
+            recursive: true,
+            force: true
+          }
+        )
 
-    deleteSession =
-      async () => {
-        try {
-          fs.rmSync(
-            config.sessionDir,
-            {
-              recursive:
-                true,
-              force: true
-            }
-          )
+        fs.mkdirSync(
+          config.sessionDir,
+          {
+            recursive: true
+          }
+        )
 
-          fs.mkdirSync(
-            config.sessionDir,
-            {
-              recursive:
-                true
-            }
-          )
-
-          log.warn(
-            `File session cleared: ${config.sessionDir}`
-          )
-        } catch (e) {
-          log.error(
-            `Could not clear file session: ${e.message}`
-          )
-        }
+        log.warn(
+          `File session cleared: ${config.sessionDir}`
+        )
+      } catch (e) {
+        log.error(
+          `Could not clear file session: ${e.message}`
+        )
       }
+    }
 
     log.info(
       `Session store: files (${config.sessionDir})`
     )
   }
 
-  /* ==========================================================
+  /* ============================================================
    * WHATSAPP VERSION
-   * ========================================================== */
+   * ============================================================ */
 
   const {
     version,
@@ -338,29 +255,26 @@ export async function startSocket() {
     }`
   )
 
-  /* ==========================================================
+  /* ============================================================
    * PAIRING
-   * ========================================================== */
+   * ============================================================ */
 
   const usePairing =
-    config.authMethod ===
-      'pair' &&
+    config.authMethod === 'pair' &&
     !state.creds.registered
 
-  /* ==========================================================
+  /* ============================================================
    * SOCKET
-   * ========================================================== */
+   * ============================================================ */
 
   const sock =
     makeWASocket({
       version,
 
-      logger:
-        waLogger,
+      logger: waLogger,
 
       auth: {
-        creds:
-          state.creds,
+        creds: state.creds,
 
         keys:
           makeCacheableSignalKeyStore(
@@ -371,17 +285,11 @@ export async function startSocket() {
 
       browser:
         usePairing
-          ? Browsers.ubuntu(
-              'Chrome'
-            )
-          : Browsers.macOS(
-              'Safari'
-            ),
+          ? Browsers.ubuntu('Chrome')
+          : Browsers.macOS('Safari'),
 
       markOnlineOnConnect:
-        getVar(
-          'ALWAYS_ONLINE'
-        ) ?? false,
+        getVar('ALWAYS_ONLINE') ?? false,
 
       generateHighQualityLinkPreview:
         true,
@@ -393,9 +301,7 @@ export async function startSocket() {
 
       cachedGroupMetadata:
         async (jid) =>
-          groupCache.get(
-            jid
-          ),
+          groupCache.get(jid),
 
       /* ========================================================
        * MESSAGE RECOVERY
@@ -404,8 +310,8 @@ export async function startSocket() {
       getMessage:
         async (key) => {
           const stored =
-            findStoredMessage(
-              key
+            messageStore.get(
+              key?.id
             )
 
           return (
@@ -454,9 +360,7 @@ export async function startSocket() {
 
           const pretty =
             code
-              ?.match(
-                /.{1,4}/g
-              )
+              ?.match(/.{1,4}/g)
               ?.join('-') ||
             code
 
@@ -534,8 +438,7 @@ WhatsApp > Settings > Linked devices > Link with phone number
        * ======================================================== */
 
       if (
-        connection ===
-        'connecting'
+        connection === 'connecting'
       ) {
         log.info(
           'Connecting to WhatsApp...'
@@ -547,21 +450,18 @@ WhatsApp > Settings > Linked devices > Link with phone number
        * ======================================================== */
 
       if (
-        connection ===
-        'open'
+        connection === 'open'
       ) {
         reconnectAttempts = 0
 
         const me =
           jidNormalizedUser(
-            sock.user?.id ||
-              ''
+            sock.user?.id || ''
           )
 
         log.ok(
           `Connected as ${
-            sock.user?.name ||
-            'bot'
+            sock.user?.name || 'bot'
           } (${me.split('@')[0]})`
         )
 
@@ -603,9 +503,7 @@ WhatsApp > Settings > Linked devices > Link with phone number
 
           if (owner) {
             const ownerJid =
-              owner.includes(
-                '@'
-              )
+              owner.includes('@')
                 ? owner
                 : `${String(owner).replace(/\D/g, '')}@s.whatsapp.net`
 
@@ -635,8 +533,7 @@ WhatsApp > Settings > Linked devices > Link with phone number
        * ======================================================== */
 
       if (
-        connection ===
-        'close'
+        connection === 'close'
       ) {
         const code =
           new Boom(
@@ -650,9 +547,8 @@ WhatsApp > Settings > Linked devices > Link with phone number
             DisconnectReason
           ).find(
             (key) =>
-              DisconnectReason[
-                key
-              ] === code
+              DisconnectReason[key] ===
+              code
           ) ||
           code
 
@@ -805,7 +701,13 @@ WhatsApp > Settings > Linked devices > Link with phone number
   /* ============================================================
    * NORMAL MESSAGES
    *
-   * Store the original message BEFORE handleMessage().
+   * IMPORTANT:
+   * Store the complete raw message BEFORE handleMessage().
+   *
+   * NO per-message log here.
+   *
+   * This is important for Railway because logging every incoming
+   * message can very quickly exceed the platform log limit.
    * ============================================================ */
 
   sock.ev.on(
@@ -815,8 +717,7 @@ WhatsApp > Settings > Linked devices > Link with phone number
       type
     }) => {
       if (
-        type !==
-        'notify'
+        type !== 'notify'
       ) {
         return
       }
@@ -830,13 +731,42 @@ WhatsApp > Settings > Linked devices > Link with phone number
           continue
         }
 
+        const messageId =
+          raw.key?.id
+
         /* ======================================================
-         * STORE ORIGINAL MESSAGE
+         * STORE MESSAGE
          * ====================================================== */
 
-        storeMessage(
-          raw
-        )
+        if (messageId) {
+          messageStore.set(
+            messageId,
+            raw
+          )
+        }
+
+        /* ======================================================
+         * LIMIT STORE
+         * ====================================================== */
+
+        while (
+          messageStore.size >
+          MAX_STORE
+        ) {
+          const oldest =
+            messageStore
+              .keys()
+              .next()
+              .value
+
+          if (!oldest) {
+            break
+          }
+
+          messageStore.delete(
+            oldest
+          )
+        }
 
         /* ======================================================
          * NORMAL MESSAGE HANDLER
@@ -868,170 +798,160 @@ WhatsApp > Settings > Linked devices > Link with phone number
    * ANTI-DELETE PROCESSOR
    * ============================================================ */
 
-  const processDeletedMessage =
-    async (
-      key,
-      update = {},
-      source = 'unknown'
-    ) => {
-      try {
-        if (!key?.id) {
-          log.warn(
-            `[ANTI-DELETE] Delete event has no message ID (${source})`
-          )
-
-          return
-        }
-
-        log.info(
-          `[ANTI-DELETE] Delete event received via ${source}: ${key.id}`
-        )
-
-        /* ======================================================
-         * FIND ORIGINAL MESSAGE
-         * ====================================================== */
-
-        const storedMessage =
-          findStoredMessage(
-            key
-          )
-
-        if (
-          !storedMessage
-        ) {
-          log.warn(
-            `[ANTI-DELETE] Original message NOT FOUND: ${key.id}`
-          )
-
-          log.warn(
-            `[ANTI-DELETE] Message store size: ${messageStore.size}`
-          )
-
-          /* ====================================================
-           * DEBUG DELETE KEY
-           * ==================================================== */
-
-          try {
-            log.warn(
-              `[ANTI-DELETE] Delete key: ${JSON.stringify({
-                id:
-                  key?.id,
-                remoteJid:
-                  key?.remoteJid,
-                participant:
-                  key?.participant,
-                fromMe:
-                  key?.fromMe,
-                participantAlt:
-                  key?.participantAlt,
-                remoteJidAlt:
-                  key?.remoteJidAlt,
-                addressingMode:
-                  key?.addressingMode
-              })}`
-            )
-          } catch {}
-
-          return
-        }
-
-        log.info(
-          `[ANTI-DELETE] Original message FOUND: ${key.id}`
-        )
-
-        /* ======================================================
-         * CHECK HANDLERS
-         * ====================================================== */
-
-        if (
-          deleteHandlers.length ===
-          0
-        ) {
-          log.warn(
-            '[ANTI-DELETE] No delete handlers registered.'
-          )
-
-          return
-        }
-
-        /* ======================================================
-         * RUN DELETE HANDLERS
-         * ====================================================== */
-
-        for (
-          const handler of deleteHandlers
-        ) {
-          if (
-            typeof handler.onDelete !==
-            'function'
-          ) {
-            continue
-          }
-
-          try {
-            await handler.onDelete({
-              sock,
-              key,
-              update,
-              messageStore,
-              message:
-                storedMessage
-            })
-
-            log.info(
-              `[ANTI-DELETE] Handler completed: ${
-                handler.name ||
-                'unknown'
-              }`
-            )
-          } catch (e) {
-            log.error(
-              `[ANTI-DELETE] Handler ${
-                handler.name ||
-                'unknown'
-              } failed: ${
-                e?.stack ||
-                e?.message ||
-                e
-              }`
-            )
-          }
-        }
-      } catch (e) {
-        log.error(
-          `[ANTI-DELETE] Delete processing error: ${
-            e?.stack ||
-            e?.message ||
-            e
-          }`
-        )
+  const processDeletedMessage = async (
+    key,
+    update = {},
+    source = 'unknown'
+  ) => {
+    try {
+      if (!key?.id) {
+        return
       }
+
+      const messageId =
+        String(
+          key.id
+        )
+
+      /* ========================================================
+       * DEDUPLICATE DELETE EVENTS
+       *
+       * messages.delete and messages.update can represent the
+       * same deletion.
+       * ======================================================== */
+
+      if (
+        processedDeletes.has(
+          messageId
+        )
+      ) {
+        return
+      }
+
+      /* ========================================================
+       * FIND ORIGINAL MESSAGE
+       * ======================================================== */
+
+      const storedMessage =
+        messageStore.get(
+          messageId
+        )
+
+      if (!storedMessage) {
+        /*
+         * Don't log every miss.
+         *
+         * A missing message is expected sometimes because:
+         * - bot joined later
+         * - message was received before restart
+         * - message was not decryptable
+         * - store was already evicted
+         * - WhatsApp generated an event for another device
+         */
+        return
+      }
+
+      /* ========================================================
+       * CHECK HANDLERS
+       * ======================================================== */
+
+      if (
+        deleteHandlers.length === 0
+      ) {
+        return
+      }
+
+      /*
+       * Mark before running handlers.
+       *
+       * This prevents duplicate processing if another delete event
+       * arrives while the first handler is still running.
+       */
+      processedDeletes.set(
+        messageId,
+        true
+      )
+
+      /* ========================================================
+       * RUN DELETE HANDLERS
+       * ======================================================== */
+
+      for (
+        const handler of deleteHandlers
+      ) {
+        if (
+          typeof handler.onDelete !==
+          'function'
+        ) {
+          continue
+        }
+
+        try {
+          await handler.onDelete({
+            sock,
+            key,
+            update,
+            messageStore,
+            message:
+              storedMessage
+          })
+        } catch (e) {
+          log.error(
+            `[ANTI-DELETE] Handler ${
+              handler.name ||
+              'unknown'
+            } failed: ${
+              e?.stack ||
+              e?.message ||
+              e
+            }`
+          )
+        }
+      }
+
+      /*
+       * Optional cleanup.
+       *
+       * We can remove the original after successful processing.
+       * The message itself has already been supplied to the
+       * anti-delete handlers.
+       */
+      messageStore.delete(
+        messageId
+      )
+    } catch (e) {
+      log.error(
+        `[ANTI-DELETE] Delete processing error: ${
+          e?.stack ||
+          e?.message ||
+          e
+        }`
+      )
     }
+  }
 
   /* ============================================================
    * MESSAGES.DELETE
    *
-   * Primary WhatsApp revoke/delete event.
+   * Primary revoke/delete listener.
+   *
+   * Official shape:
+   *
+   * {
+   *   keys: WAMessageKey[]
+   * }
    * ============================================================ */
 
   sock.ev.on(
     'messages.delete',
     async (event) => {
       try {
-        log.info(
-          '[ANTI-DELETE] messages.delete event received'
-        )
-
         if (
           !event ||
           !Array.isArray(
             event.keys
           )
         ) {
-          log.warn(
-            '[ANTI-DELETE] Invalid messages.delete payload'
-          )
-
           return
         }
 
@@ -1059,9 +979,7 @@ WhatsApp > Settings > Linked devices > Link with phone number
   /* ============================================================
    * MESSAGES.UPDATE
    *
-   * Only explicit revoke indicators are processed.
-   *
-   * We intentionally DO NOT treat update:{} as a deletion.
+   * Some Baileys versions can expose revoke/delete activity here.
    * ============================================================ */
 
   sock.ev.on(
@@ -1092,28 +1010,52 @@ WhatsApp > Settings > Linked devices > Link with phone number
             }
 
             /* ==================================================
-             * EXPLICIT REVOKE
+             * EXPLICIT REVOKE INDICATORS
              * ================================================== */
 
             const explicitRevoke =
-              update?.message ===
-                null ||
-              update?.messageStubType ===
-                1 ||
-              update?.messageStubType ===
-                68
+              update?.message === null ||
+              update?.messageStubType === 1 ||
+              update?.messageStubType === 68
 
             if (
-              !explicitRevoke
+              explicitRevoke
             ) {
+              await processDeletedMessage(
+                key,
+                update,
+                'messages.update'
+              )
+
               continue
             }
 
-            await processDeletedMessage(
-              key,
-              update,
-              'messages.update'
-            )
+            /* ==================================================
+             * EMPTY UPDATE
+             *
+             * Only treat an empty update as a possible deletion
+             * when the message actually exists in our store.
+             *
+             * This is intentionally quiet to avoid log spam.
+             * ================================================== */
+
+            const isEmptyUpdate =
+              Object.keys(
+                update
+              ).length === 0
+
+            if (
+              isEmptyUpdate &&
+              messageStore.has(
+                key.id
+              )
+            ) {
+              await processDeletedMessage(
+                key,
+                update,
+                'messages.update(empty)'
+              )
+            }
           } catch (e) {
             log.error(
               `[ANTI-DELETE] Individual messages.update error: ${
@@ -1190,7 +1132,15 @@ WhatsApp > Settings > Linked devices > Link with phone number
     }
   )
 
+  /* ============================================================
+   * RETURN SOCKET
+   * ============================================================ */
+
   return sock
 }
+
+/* ============================================================
+ * DEFAULT EXPORT
+ * ============================================================ */
 
 export default startSocket
