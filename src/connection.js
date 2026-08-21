@@ -22,6 +22,7 @@ import { handleMessage } from './handler.js'
 
 import {
   middlewares,
+  deleteHandlers,
   pluginCount
 } from './lib/pluginLoader.js'
 
@@ -437,6 +438,23 @@ WhatsApp > Settings > Linked devices > Link with phone number
           `${pluginCount()} plugins ready | prefix "${config.prefix}" | mode ${getVar('MODE')}`
         )
 
+        log.ok(
+          `Anti-delete handlers available: ${deleteHandlers.length}`
+        )
+
+        if (deleteHandlers.length) {
+          log.ok(
+            `Anti-delete handlers: ${
+              deleteHandlers
+                .map(
+                  (handler) =>
+                    handler.name || 'unnamed'
+                )
+                .join(', ')
+            }`
+          )
+        }
+
         /* ======================================================
          * STARTUP MESSAGE
          * ====================================================== */
@@ -734,13 +752,7 @@ WhatsApp > Settings > Linked devices > Link with phone number
   /* ============================================================
    * DELETE / REVOKE EVENTS
    *
-   * IMPORTANT:
-   *
-   * We DO NOT try to send the deleted message here.
-   * The anti-delete plugin handles the actual forwarding.
-   *
-   * This event only finds the original message and calls
-   * the plugin's onDelete() function.
+   * Anti-delete uses deleteHandlers directly.
    * ============================================================ */
 
   sock.ev.on(
@@ -806,23 +818,34 @@ WhatsApp > Settings > Linked devices > Link with phone number
           )
 
           /* ==================================================
-           * CALL ANTI-DELETE PLUGIN
+           * CALL DELETE HANDLERS
+           *
+           * IMPORTANT:
+           * Use deleteHandlers, NOT middlewares.
            * ================================================== */
 
           let handled = false
 
+          if (
+            deleteHandlers.length === 0
+          ) {
+            log.warn(
+              '[ANTI-DELETE] No delete handlers are registered.'
+            )
+          }
+
           for (
-            const mw of middlewares
+            const handler of deleteHandlers
           ) {
             if (
-              typeof mw.onDelete !==
+              typeof handler.onDelete !==
               'function'
             ) {
               continue
             }
 
             try {
-              await mw.onDelete({
+              await handler.onDelete({
                 sock,
                 key,
                 update,
@@ -837,8 +860,8 @@ WhatsApp > Settings > Linked devices > Link with phone number
               )
             } catch (e) {
               log.error(
-                `[ANTI-DELETE] Middleware ${
-                  mw.name || 'unknown'
+                `[ANTI-DELETE] Delete handler ${
+                  handler.name || 'unknown'
                 } error: ${
                   e?.stack ||
                   e?.message ||
@@ -850,7 +873,7 @@ WhatsApp > Settings > Linked devices > Link with phone number
 
           if (!handled) {
             log.warn(
-              '[ANTI-DELETE] No middleware with onDelete() was loaded.'
+              `[ANTI-DELETE] No delete handler handled message: ${key.id}`
             )
           }
         } catch (e) {
