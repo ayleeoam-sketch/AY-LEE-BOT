@@ -40,10 +40,8 @@ const msgRetryCounterCache = new NodeCache()
 /* ============================================================
  * MESSAGE STORE
  *
- * Stores original messages by message ID.
- *
- * Anti-delete uses this store when WhatsApp sends
- * a revoke/delete event.
+ * Original messages are stored here so anti-delete can recover
+ * them when WhatsApp sends a revoke/delete event.
  * ============================================================ */
 
 const messageStore = new Map()
@@ -54,16 +52,16 @@ const MAX_STORE = 10000
  * INPUT
  * ============================================================ */
 
-const ask = (q) =>
+const ask = (question) =>
   new Promise((resolve) => {
     const rl = readline.createInterface({
       input: process.stdin,
       output: process.stdout
     })
 
-    rl.question(q, (ans) => {
+    rl.question(question, (answer) => {
       rl.close()
-      resolve(ans.trim())
+      resolve(answer.trim())
     })
   })
 
@@ -94,22 +92,25 @@ export async function startSocket() {
       }
     )
 
-    const credsPath = path.join(
-      config.sessionDir,
-      'creds.json'
-    )
+    const credsPath =
+      path.join(
+        config.sessionDir,
+        'creds.json'
+      )
 
     if (!fs.existsSync(credsPath)) {
       if (config.sessionId?.trim()) {
         try {
-          const raw = Buffer
-            .from(
-              config.sessionId.trim(),
-              'base64'
-            )
-            .toString('utf8')
+          const raw =
+            Buffer
+              .from(
+                config.sessionId.trim(),
+                'base64'
+              )
+              .toString('utf8')
 
-          const parsed = JSON.parse(raw)
+          const parsed =
+            JSON.parse(raw)
 
           if (
             !parsed?.me &&
@@ -153,9 +154,13 @@ export async function startSocket() {
    * SESSION STORE
    * ============================================================ */
 
-  if (config.sessionStore === 'mongo') {
+  if (
+    config.sessionStore === 'mongo'
+  ) {
     const auth =
-      await useMongoAuthState('default')
+      await useMongoAuthState(
+        'default'
+      )
 
     state = auth.state
     saveCreds = auth.saveCreds
@@ -242,55 +247,59 @@ export async function startSocket() {
    * SOCKET
    * ============================================================ */
 
-  const sock = makeWASocket({
-    version,
+  const sock =
+    makeWASocket({
+      version,
 
-    logger: waLogger,
+      logger: waLogger,
 
-    auth: {
-      creds: state.creds,
+      auth: {
+        creds: state.creds,
 
-      keys:
-        makeCacheableSignalKeyStore(
-          state.keys,
-          waLogger
-        )
-    },
-
-    browser:
-      usePairing
-        ? Browsers.ubuntu('Chrome')
-        : Browsers.macOS('Safari'),
-
-    markOnlineOnConnect:
-      getVar('ALWAYS_ONLINE') ?? false,
-
-    generateHighQualityLinkPreview:
-      true,
-
-    syncFullHistory: false,
-
-    msgRetryCounterCache,
-
-    cachedGroupMetadata:
-      async (jid) =>
-        groupCache.get(jid),
-
-    /*
-     * Baileys may request an old message.
-     * Return it from our message store.
-     */
-    getMessage:
-      async (key) => {
-        const stored =
-          messageStore.get(
-            key?.id
+        keys:
+          makeCacheableSignalKeyStore(
+            state.keys,
+            waLogger
           )
+      },
 
-        return stored?.message ||
-          undefined
-      }
-  })
+      browser:
+        usePairing
+          ? Browsers.ubuntu('Chrome')
+          : Browsers.macOS('Safari'),
+
+      markOnlineOnConnect:
+        getVar('ALWAYS_ONLINE') ?? false,
+
+      generateHighQualityLinkPreview:
+        true,
+
+      syncFullHistory:
+        false,
+
+      msgRetryCounterCache,
+
+      cachedGroupMetadata:
+        async (jid) =>
+          groupCache.get(jid),
+
+      /* ========================================================
+       * MESSAGE RECOVERY
+       * ======================================================== */
+
+      getMessage:
+        async (key) => {
+          const stored =
+            messageStore.get(
+              key?.id
+            )
+
+          return (
+            stored?.message ||
+            undefined
+          )
+        }
+    })
 
   /* ============================================================
    * PAIRING CODE
@@ -359,7 +368,9 @@ WhatsApp > Settings > Linked devices > Link with phone number
     'creds.update',
     async (...args) => {
       try {
-        await saveCreds(...args)
+        await saveCreds(
+          ...args
+        )
       } catch (e) {
         log.error(
           `Failed to save WhatsApp credentials: ${e.message}`
@@ -442,13 +453,16 @@ WhatsApp > Settings > Linked devices > Link with phone number
           `Anti-delete handlers available: ${deleteHandlers.length}`
         )
 
-        if (deleteHandlers.length) {
+        if (
+          deleteHandlers.length
+        ) {
           log.ok(
             `Anti-delete handlers: ${
               deleteHandlers
                 .map(
                   (handler) =>
-                    handler.name || 'unnamed'
+                    handler.name ||
+                    'unnamed'
                 )
                 .join(', ')
             }`
@@ -512,10 +526,11 @@ WhatsApp > Settings > Linked devices > Link with phone number
           Object.keys(
             DisconnectReason
           ).find(
-            (k) =>
-              DisconnectReason[k] ===
+            (key) =>
+              DisconnectReason[key] ===
               code
-          ) || code
+          ) ||
+          code
 
         /* ======================================================
          * LOGGED OUT
@@ -552,7 +567,7 @@ WhatsApp > Settings > Linked devices > Link with phone number
         }
 
         /* ======================================================
-         * NORMAL RECONNECT
+         * RECONNECT
          * ====================================================== */
 
         reconnectAttempts++
@@ -593,8 +608,9 @@ WhatsApp > Settings > Linked devices > Link with phone number
   sock.ev.on(
     'groups.update',
     async ([event]) => {
-      if (!event?.id)
+      if (!event?.id) {
         return
+      }
 
       try {
         groupCache.set(
@@ -641,9 +657,11 @@ WhatsApp > Settings > Linked devices > Link with phone number
             } catch (e) {
               log.error(
                 `[GROUP] Middleware ${
-                  mw.name || 'unknown'
+                  mw.name ||
+                  'unknown'
                 } failed: ${
-                  e?.message || e
+                  e?.message ||
+                  e
                 }`
               )
             }
@@ -652,7 +670,8 @@ WhatsApp > Settings > Linked devices > Link with phone number
       } catch (e) {
         log.error(
           `[GROUP] Update failed: ${
-            e?.message || e
+            e?.message ||
+            e
           }`
         )
       }
@@ -662,8 +681,7 @@ WhatsApp > Settings > Linked devices > Link with phone number
   /* ============================================================
    * NORMAL MESSAGES
    *
-   * IMPORTANT:
-   * Store the message BEFORE handleMessage().
+   * Store BEFORE handleMessage().
    * ============================================================ */
 
   sock.ev.on(
@@ -702,7 +720,7 @@ WhatsApp > Settings > Linked devices > Link with phone number
         }
 
         /* ======================================================
-         * LIMIT MESSAGE STORE
+         * LIMIT STORE
          * ====================================================== */
 
         while (
@@ -715,8 +733,9 @@ WhatsApp > Settings > Linked devices > Link with phone number
               .next()
               .value
 
-          if (!oldest)
+          if (!oldest) {
             break
+          }
 
           messageStore.delete(
             oldest
@@ -724,7 +743,7 @@ WhatsApp > Settings > Linked devices > Link with phone number
         }
 
         /* ======================================================
-         * NORMAL HANDLER
+         * NORMAL MESSAGE HANDLER
          * ====================================================== */
 
         try {
@@ -752,14 +771,17 @@ WhatsApp > Settings > Linked devices > Link with phone number
   /* ============================================================
    * DELETE / REVOKE EVENTS
    *
-   * Anti-delete uses deleteHandlers directly.
+   * FIXED ANTI-DELETE HANDLER
    * ============================================================ */
 
   sock.ev.on(
     'messages.update',
     async (updates) => {
-      if (!Array.isArray(updates))
+      if (
+        !Array.isArray(updates)
+      ) {
         return
+      }
 
       for (
         const item of updates
@@ -769,20 +791,23 @@ WhatsApp > Settings > Linked devices > Link with phone number
             item?.key
 
           const update =
-            item?.update || {}
+            item?.update ||
+            {}
 
           if (!key?.id) {
             continue
           }
 
-          /* ==================================================
-           * DETECT DELETE / REVOKE
-           * ================================================== */
+          /*
+           * WhatsApp/Baileys can represent a revoke in
+           * several ways.
+           */
 
           const isRevoke =
             update?.message === null ||
             update?.messageStubType === 1 ||
-            update?.messageStubType === 68
+            update?.messageStubType === 68 ||
+            update?.status === 0
 
           if (!isRevoke) {
             continue
@@ -792,9 +817,9 @@ WhatsApp > Settings > Linked devices > Link with phone number
             `[ANTI-DELETE] Delete event received: ${key.id}`
           )
 
-          /* ==================================================
-           * FIND ORIGINAL
-           * ================================================== */
+          /* ====================================================
+           * FIND ORIGINAL MESSAGE
+           * ==================================================== */
 
           const storedMessage =
             messageStore.get(
@@ -807,7 +832,7 @@ WhatsApp > Settings > Linked devices > Link with phone number
             )
 
             log.warn(
-              `[ANTI-DELETE] Current messageStore size: ${messageStore.size}`
+              `[ANTI-DELETE] Message store size: ${messageStore.size}`
             )
 
             continue
@@ -817,22 +842,23 @@ WhatsApp > Settings > Linked devices > Link with phone number
             `[ANTI-DELETE] Original message FOUND: ${key.id}`
           )
 
-          /* ==================================================
-           * CALL DELETE HANDLERS
-           *
-           * IMPORTANT:
-           * Use deleteHandlers, NOT middlewares.
-           * ================================================== */
-
-          let handled = false
+          /* ====================================================
+           * CHECK HANDLERS
+           * ==================================================== */
 
           if (
             deleteHandlers.length === 0
           ) {
             log.warn(
-              '[ANTI-DELETE] No delete handlers are registered.'
+              '[ANTI-DELETE] No delete handlers registered.'
             )
+
+            continue
           }
+
+          /* ====================================================
+           * RUN DELETE HANDLERS
+           * ==================================================== */
 
           for (
             const handler of deleteHandlers
@@ -850,31 +876,28 @@ WhatsApp > Settings > Linked devices > Link with phone number
                 key,
                 update,
                 messageStore,
-                message: storedMessage
+                message:
+                  storedMessage
               })
 
-              handled = true
-
               log.info(
-                `[ANTI-DELETE] Delete handler completed: ${key.id}`
+                `[ANTI-DELETE] Handler completed: ${
+                  handler.name ||
+                  'unknown'
+                }`
               )
             } catch (e) {
               log.error(
-                `[ANTI-DELETE] Delete handler ${
-                  handler.name || 'unknown'
-                } error: ${
+                `[ANTI-DELETE] Handler ${
+                  handler.name ||
+                  'unknown'
+                } failed: ${
                   e?.stack ||
                   e?.message ||
                   e
                 }`
               )
             }
-          }
-
-          if (!handled) {
-            log.warn(
-              `[ANTI-DELETE] No delete handler handled message: ${key.id}`
-            )
           }
         } catch (e) {
           log.error(
