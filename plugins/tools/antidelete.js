@@ -1,10 +1,17 @@
-```javascript
 import { getVar, setVar } from '../../src/lib/vars.js'
 
 /* ============================================================
  * ANTI-DELETE
  * ============================================================ */
 
+/**
+ * Normalize an archive destination.
+ *
+ * Accepts:
+ * - WhatsApp group JID
+ * - WhatsApp private JID
+ * - Plain phone number
+ */
 function normalizeDestination(value) {
   if (!value) return ''
 
@@ -136,7 +143,12 @@ function getArchiveDestination() {
  * SEND TEXT
  * ============================================================ */
 
-async function sendDeletedText(sock, destination, stored, key) {
+async function sendDeletedText(
+  sock,
+  destination,
+  stored,
+  key
+) {
   const text = getText(stored.message)
 
   const sender =
@@ -180,8 +192,16 @@ async function sendDeletedText(sock, destination, stored, key) {
  * SEND MEDIA
  * ============================================================ */
 
-async function sendDeletedMedia(sock, destination, stored, key) {
-  const message = unwrapMessage(stored.message)
+async function sendDeletedMedia(
+  sock,
+  destination,
+  stored,
+  key
+) {
+  const message =
+    unwrapMessage(
+      stored.message
+    )
 
   const sender =
     stored.key?.participant ||
@@ -198,7 +218,8 @@ async function sendDeletedMedia(sock, destination, stored, key) {
     key.remoteJid ||
     'Unknown'
 
-  const type = getType(message)
+  const type =
+    getType(message)
 
   const caption =
     '🗑️ *DELETED MESSAGE*\n\n' +
@@ -217,9 +238,11 @@ async function sendDeletedMedia(sock, destination, stored, key) {
     '📝 *Caption:*\n' +
     (getText(message) || '(none)')
 
-  /* IMAGE */
+  /* ==========================================================
+   * IMAGE
+   * ========================================================== */
 
-  if (message.imageMessage) {
+  if (message?.imageMessage) {
     const media =
       await downloadMediaMessageSafe(
         stored
@@ -230,7 +253,7 @@ async function sendDeletedMedia(sock, destination, stored, key) {
         destination,
         {
           image: media,
-          caption: caption
+          caption
         }
       )
 
@@ -238,9 +261,11 @@ async function sendDeletedMedia(sock, destination, stored, key) {
     }
   }
 
-  /* VIDEO */
+  /* ==========================================================
+   * VIDEO
+   * ========================================================== */
 
-  if (message.videoMessage) {
+  if (message?.videoMessage) {
     const media =
       await downloadMediaMessageSafe(
         stored
@@ -251,7 +276,7 @@ async function sendDeletedMedia(sock, destination, stored, key) {
         destination,
         {
           video: media,
-          caption: caption
+          caption
         }
       )
 
@@ -259,9 +284,11 @@ async function sendDeletedMedia(sock, destination, stored, key) {
     }
   }
 
-  /* AUDIO */
+  /* ==========================================================
+   * AUDIO
+   * ========================================================== */
 
-  if (message.audioMessage) {
+  if (message?.audioMessage) {
     const media =
       await downloadMediaMessageSafe(
         stored
@@ -293,9 +320,11 @@ async function sendDeletedMedia(sock, destination, stored, key) {
     }
   }
 
-  /* DOCUMENT */
+  /* ==========================================================
+   * DOCUMENT
+   * ========================================================== */
 
-  if (message.documentMessage) {
+  if (message?.documentMessage) {
     const media =
       await downloadMediaMessageSafe(
         stored
@@ -312,7 +341,7 @@ async function sendDeletedMedia(sock, destination, stored, key) {
           fileName:
             message.documentMessage.fileName ||
             'deleted-file',
-          caption: caption
+          caption
         }
       )
 
@@ -320,9 +349,11 @@ async function sendDeletedMedia(sock, destination, stored, key) {
     }
   }
 
-  /* STICKER */
+  /* ==========================================================
+   * STICKER
+   * ========================================================== */
 
-  if (message.stickerMessage) {
+  if (message?.stickerMessage) {
     const media =
       await downloadMediaMessageSafe(
         stored
@@ -359,7 +390,8 @@ async function sendDeletedMedia(sock, destination, stored, key) {
 
 async function downloadMediaMessageSafe(message) {
   try {
-    const baileys = await import('baileys')
+    const baileys =
+      await import('baileys')
 
     if (
       typeof baileys.downloadContentFromMessage !==
@@ -373,31 +405,43 @@ async function downloadMediaMessageSafe(message) {
     }
 
     const raw =
-      unwrapMessage(message.message)
+      unwrapMessage(
+        message.message
+      )
 
-    if (!raw) return null
+    if (!raw) {
+      return null
+    }
 
     let mediaMessage = null
     let mediaType = null
 
     if (raw.imageMessage) {
-      mediaMessage = raw.imageMessage
+      mediaMessage =
+        raw.imageMessage
       mediaType = 'image'
     } else if (raw.videoMessage) {
-      mediaMessage = raw.videoMessage
+      mediaMessage =
+        raw.videoMessage
       mediaType = 'video'
     } else if (raw.audioMessage) {
-      mediaMessage = raw.audioMessage
+      mediaMessage =
+        raw.audioMessage
       mediaType = 'audio'
     } else if (raw.documentMessage) {
-      mediaMessage = raw.documentMessage
+      mediaMessage =
+        raw.documentMessage
       mediaType = 'document'
     } else if (raw.stickerMessage) {
-      mediaMessage = raw.stickerMessage
+      mediaMessage =
+        raw.stickerMessage
       mediaType = 'sticker'
     }
 
-    if (!mediaMessage || !mediaType) {
+    if (
+      !mediaMessage ||
+      !mediaType
+    ) {
       return null
     }
 
@@ -409,15 +453,22 @@ async function downloadMediaMessageSafe(message) {
 
     const chunks = []
 
-    for await (const chunk of stream) {
+    for await (
+      const chunk of stream
+    ) {
       chunks.push(chunk)
     }
 
-    return Buffer.concat(chunks)
+    return Buffer.concat(
+      chunks
+    )
   } catch (error) {
     console.log(
       '[ANTI-DELETE] Media download failed: ' +
-      (error?.message || error)
+        (
+          error?.message ||
+          error
+        )
     )
 
     return null
@@ -450,18 +501,26 @@ const antidelete = {
    * COMMAND
    * ========================================================== */
 
-  async run({ sock, m, args }) {
+  async run({
+    sock,
+    m,
+    args
+  }) {
     const action =
       String(
         args?.[0] || ''
       ).toLowerCase()
 
-    /* STATUS */
+    /* ========================================================
+     * STATUS
+     * ======================================================== */
 
     if (!action) {
       const enabled =
         Boolean(
-          getVar('ANTI_DELETE')
+          getVar(
+            'ANTI_DELETE'
+          )
         )
 
       const archive =
@@ -496,7 +555,9 @@ const antidelete = {
       return
     }
 
-    /* ON */
+    /* ========================================================
+     * ON
+     * ======================================================== */
 
     if (action === 'on') {
       await setVar(
@@ -523,7 +584,9 @@ const antidelete = {
       return
     }
 
-    /* OFF */
+    /* ========================================================
+     * OFF
+     * ======================================================== */
 
     if (action === 'off') {
       await setVar(
@@ -542,7 +605,9 @@ const antidelete = {
       return
     }
 
-    /* ARCHIVE */
+    /* ========================================================
+     * ARCHIVE
+     * ======================================================== */
 
     if (action === 'archive') {
       const raw =
@@ -552,7 +617,9 @@ const antidelete = {
           ?.trim()
 
       const destination =
-        normalizeDestination(raw)
+        normalizeDestination(
+          raw
+        )
 
       if (!destination) {
         await sock.sendMessage(
@@ -596,7 +663,9 @@ const antidelete = {
       return
     }
 
-    /* UNKNOWN */
+    /* ========================================================
+     * UNKNOWN
+     * ======================================================== */
 
     await sock.sendMessage(
       m.key.remoteJid,
@@ -613,18 +682,10 @@ const antidelete = {
   },
 
   /* ==========================================================
-   * BEFORE
-   *
-   * Required because this plugin is also registered as a
-   * middleware by pluginLoader.js.
-   * ========================================================== */
-
-  async before() {
-    return false
-  },
-
-  /* ==========================================================
    * ON DELETE
+   *
+   * This is registered directly in deleteHandlers by
+   * pluginLoader.js.
    *
    * connection.js calls this when WhatsApp reports a revoke.
    * ========================================================== */
@@ -634,13 +695,25 @@ const antidelete = {
     key,
     messageStore
   }) {
-    if (!getVar('ANTI_DELETE')) {
+    /* ========================================================
+     * CHECK ENABLED
+     * ======================================================== */
+
+    if (
+      !getVar(
+        'ANTI_DELETE'
+      )
+    ) {
       console.log(
         '[ANTI-DELETE] Disabled.'
       )
 
       return
     }
+
+    /* ========================================================
+     * CHECK MESSAGE ID
+     * ======================================================== */
 
     if (!key?.id) {
       console.log(
@@ -649,6 +722,10 @@ const antidelete = {
 
       return
     }
+
+    /* ========================================================
+     * GET ARCHIVE DESTINATION
+     * ======================================================== */
 
     const destination =
       getArchiveDestination()
@@ -661,6 +738,10 @@ const antidelete = {
       return
     }
 
+    /* ========================================================
+     * GET ORIGINAL MESSAGE
+     * ======================================================== */
+
     const stored =
       messageStore.get(
         key.id
@@ -669,7 +750,7 @@ const antidelete = {
     if (!stored?.message) {
       console.log(
         '[ANTI-DELETE] Original message not found: ' +
-        key.id
+          key.id
       )
 
       return
@@ -677,7 +758,7 @@ const antidelete = {
 
     console.log(
       '[ANTI-DELETE] Forwarding deleted message: ' +
-      key.id
+        key.id
     )
 
     try {
@@ -685,6 +766,10 @@ const antidelete = {
         getType(
           stored.message
         )
+
+      /* ======================================================
+       * TEXT
+       * ====================================================== */
 
       if (type === 'text') {
         await sendDeletedText(
@@ -694,6 +779,10 @@ const antidelete = {
           key
         )
       } else {
+        /* ====================================================
+         * MEDIA
+         * ==================================================== */
+
         const mediaSent =
           await sendDeletedMedia(
             sock,
@@ -701,6 +790,10 @@ const antidelete = {
             stored,
             key
           )
+
+        /* ====================================================
+         * FALLBACK TO TEXT
+         * ==================================================== */
 
         if (!mediaSent) {
           await sendDeletedText(
@@ -714,20 +807,23 @@ const antidelete = {
 
       console.log(
         '[ANTI-DELETE] Deleted message forwarded successfully: ' +
-        key.id
+          key.id
       )
     } catch (error) {
       console.error(
         '[ANTI-DELETE] Forward failed: ' +
-        (
-          error?.stack ||
-          error?.message ||
-          error
-        )
+          (
+            error?.stack ||
+            error?.message ||
+            error
+          )
       )
     }
   }
 }
 
+/* ============================================================
+ * EXPORT
+ * ============================================================ */
+
 export default antidelete
-```
