@@ -1,4 +1,3 @@
-```js
 import makeWASocket, {
   DisconnectReason,
   fetchLatestBaileysVersion,
@@ -20,7 +19,6 @@ import { useMongoAuthState } from './lib/mongoAuth.js'
 import { getVar } from './lib/vars.js'
 import { handleMessage } from './handler.js'
 import {
-  loadPlugins,
   middlewares,
   pluginCount
 } from './lib/pluginLoader.js'
@@ -36,7 +34,14 @@ const groupCache = new NodeCache({
 
 const msgRetryCounterCache = new NodeCache()
 
+/*
+ * Stores recent messages in memory.
+ *
+ * Anti-delete uses this store to recover a message
+ * after WhatsApp sends the revoke/delete event.
+ */
 const messageStore = new Map()
+
 const MAX_STORE = 3000
 
 /* ============================================================
@@ -76,14 +81,24 @@ export async function startSocket() {
    * ============================================================ */
 
   if (config.sessionStore !== 'mongo') {
-    fs.mkdirSync(config.sessionDir, {
-      recursive: true
-    })
+    fs.mkdirSync(
+      config.sessionDir,
+      {
+        recursive: true
+      }
+    )
 
     const credsPath = path.join(
       config.sessionDir,
       'creds.json'
     )
+
+    /*
+     * SESSION_ID is only used when there is no existing
+     * file-based WhatsApp session.
+     *
+     * If creds.json already exists, it is always preferred.
+     */
 
     if (!fs.existsSync(credsPath)) {
       if (config.sessionId?.trim()) {
@@ -166,6 +181,10 @@ export async function startSocket() {
     state = auth.state
     saveCreds = auth.saveCreds
 
+    /*
+     * Clear the local session only when the WhatsApp
+     * connection explicitly reports loggedOut/badSession.
+     */
     deleteSession = async () => {
       try {
         fs.rmSync(
@@ -261,6 +280,10 @@ export async function startSocket() {
       async (jid) =>
         groupCache.get(jid),
 
+    /*
+     * Baileys may request an old message.
+     * Our messageStore provides recent messages.
+     */
     getMessage:
       async (key) =>
         messageStore.get(
@@ -412,6 +435,10 @@ WhatsApp > Settings > Linked devices > Link with phone number
           `${pluginCount()} plugins ready | prefix "${config.prefix}" | mode ${getVar('MODE')}`
         )
 
+        /* ======================================================
+         * STARTUP MESSAGE
+         * ====================================================== */
+
         if (
           getVar(
             'STARTUP_MESSAGE'
@@ -423,7 +450,9 @@ WhatsApp > Settings > Linked devices > Link with phone number
           if (owner) {
             await sock
               .sendMessage(
-                `${owner}@s.whatsapp.net`,
+                owner.includes('@')
+                  ? owner
+                  : `${String(owner).replace(/\D/g, '')}@s.whatsapp.net`,
                 {
                   text:
                     `╭━━━〔 *${config.botName}* 〕━━━╮\n` +
@@ -465,6 +494,10 @@ WhatsApp > Settings > Linked devices > Link with phone number
               code
           ) || code
 
+        /* ======================================================
+         * LOGGED OUT
+         * ====================================================== */
+
         if (
           code ===
           DisconnectReason.loggedOut
@@ -478,6 +511,10 @@ WhatsApp > Settings > Linked devices > Link with phone number
           process.exit(0)
         }
 
+        /* ======================================================
+         * BAD SESSION
+         * ====================================================== */
+
         if (
           code ===
           DisconnectReason.badSession
@@ -490,6 +527,10 @@ WhatsApp > Settings > Linked devices > Link with phone number
 
           process.exit(0)
         }
+
+        /* ======================================================
+         * NORMAL RECONNECT
+         * ====================================================== */
 
         reconnectAttempts++
 
@@ -606,7 +647,9 @@ WhatsApp > Settings > Linked devices > Link with phone number
           continue
 
         /*
-         * Store the complete original message.
+         * Save message BEFORE handleMessage().
+         *
+         * This is important for anti-delete.
          */
         messageStore.set(
           raw.key.id,
@@ -626,9 +669,11 @@ WhatsApp > Settings > Linked devices > Link with phone number
               .next()
               .value
 
-          messageStore.delete(
-            oldest
-          )
+          if (oldest) {
+            messageStore.delete(
+              oldest
+            )
+          }
         }
 
         await handleMessage(
@@ -644,101 +689,61 @@ WhatsApp > Settings > Linked devices > Link with phone number
   )
 
   /* ============================================================
-   * DELETE EVENTS / ANTI-DELETE
+   * DELETE EVENTS
    * ============================================================ */
 
   sock.ev.on(
     'messages.update',
     async (updates) => {
-      /*
-       * IMPORTANT:
-       * Log every update temporarily so we can verify
-       * that WhatsApp is sending the revoke event.
-       */
       for (
-        const item of updates
+        const {
+          key,
+          update
+        } of updates
       ) {
-        const key =
-          item?.key || {}
-
-        const update =
-          item?.update || {}
-
         /*
-         * WhatsApp/Baileys can represent deletion
-         * in more than one way.
+         * WhatsApp delete/revoke events can appear as:
+         *
+         * update.message === null
+         *
+         * or:
+         *
+         * update.messageStubType === 1
          */
+
         const isRevoke =
           update?.message === null ||
-          update?.message === undefined &&
-          (
-            update?.messageStubType === 1 ||
-            update?.messageStubType === 2
-          ) ||
-          update?.messageStubType === 1 ||
-          update?.messageStubType === 2
+          update?.messageStubType === 1
 
-        /*
-         * Only process actual revoke events.
-         */
         if (!isRevoke)
           continue
 
-        console.log(
-          '[ANTI-DELETE] Delete event detected:',
-          {
-            id: key.id,
-            remoteJid: key.remoteJid,
-            participant: key.participant,
-            messageStubType:
-              update?.messageStubType
-          }
+        log.info(
+          `[ANTI-DELETE] Delete event received: ${key?.id || 'unknown'}`
         )
 
         /*
-         * Check whether the original message exists.
-         */
-        const original =
-          messageStore.get(
-            key.id
-          )
-
-        if (!original) {
-          console.log(
-            `[ANTI-DELETE] Original message not found in messageStore: ${key.id}`
-          )
-
-          continue
-        }
-
-        console.log(
-          `[ANTI-DELETE] Original message found: ${key.id}`
-        )
-
-        /*
-         * Send event to every middleware/plugin
+         * Send the delete event to every middleware
          * that implements onDelete().
          */
         for (
           const mw of middlewares
         ) {
           if (
-            typeof mw.onDelete !==
+            typeof mw.onDelete ===
             'function'
-          )
-            continue
-
-          try {
-            await mw.onDelete({
-              sock,
-              key,
-              update,
-              messageStore
-            })
-          } catch (e) {
-            console.error(
-              `[ANTI-DELETE] Middleware error: ${e.message}`
-            )
+          ) {
+            try {
+              await mw.onDelete({
+                sock,
+                key,
+                messageStore
+              })
+            } catch (e) {
+              log.error(
+                `[ANTI-DELETE] Middleware error: ${e.message}`
+              )
+            }
           }
         }
       }
@@ -801,4 +806,3 @@ WhatsApp > Settings > Linked devices > Link with phone number
 }
 
 export default startSocket
-```
