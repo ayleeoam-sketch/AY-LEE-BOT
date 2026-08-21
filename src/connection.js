@@ -769,9 +769,122 @@ WhatsApp > Settings > Linked devices > Link with phone number
   )
 
   /* ============================================================
-   * DELETE / REVOKE EVENTS
+   * ANTI-DELETE PROCESSOR
    *
-   * FIXED ANTI-DELETE HANDLER
+   * All supported delete events eventually come through here.
+   * ============================================================ */
+
+  const processDeletedMessage =
+    async (
+      key,
+      update = {}
+    ) => {
+      try {
+        if (!key?.id) {
+          return
+        }
+
+        log.info(
+          `[ANTI-DELETE] Delete event received: ${key.id}`
+        )
+
+        /* ======================================================
+         * FIND ORIGINAL MESSAGE
+         * ====================================================== */
+
+        const storedMessage =
+          messageStore.get(
+            key.id
+          )
+
+        if (!storedMessage) {
+          log.warn(
+            `[ANTI-DELETE] Original message NOT FOUND: ${key.id}`
+          )
+
+          log.warn(
+            `[ANTI-DELETE] Message store size: ${messageStore.size}`
+          )
+
+          return
+        }
+
+        log.info(
+          `[ANTI-DELETE] Original message FOUND: ${key.id}`
+        )
+
+        /* ======================================================
+         * CHECK HANDLERS
+         * ====================================================== */
+
+        if (
+          deleteHandlers.length === 0
+        ) {
+          log.warn(
+            '[ANTI-DELETE] No delete handlers registered.'
+          )
+
+          return
+        }
+
+        /* ======================================================
+         * RUN EVERY DELETE HANDLER
+         * ====================================================== */
+
+        for (
+          const handler of deleteHandlers
+        ) {
+          if (
+            typeof handler.onDelete !==
+            'function'
+          ) {
+            continue
+          }
+
+          try {
+            await handler.onDelete({
+              sock,
+              key,
+              update,
+              messageStore,
+              message:
+                storedMessage
+            })
+
+            log.info(
+              `[ANTI-DELETE] Handler completed: ${
+                handler.name ||
+                'unknown'
+              }`
+            )
+          } catch (e) {
+            log.error(
+              `[ANTI-DELETE] Handler ${
+                handler.name ||
+                'unknown'
+              } failed: ${
+                e?.stack ||
+                e?.message ||
+                e
+              }`
+            )
+          }
+        }
+      } catch (e) {
+        log.error(
+          `[ANTI-DELETE] Delete processing error: ${
+            e?.stack ||
+            e?.message ||
+            e
+          }`
+        )
+      }
+    }
+
+  /* ============================================================
+   * MESSAGES.UPDATE
+   *
+   * Some WhatsApp revoke events arrive here.
    * ============================================================ */
 
   sock.ev.on(
@@ -799,115 +912,90 @@ WhatsApp > Settings > Linked devices > Link with phone number
           }
 
           /*
-           * WhatsApp/Baileys can represent a revoke in
-           * several ways.
+           * Only process known revoke/delete indicators.
            */
 
           const isRevoke =
             update?.message === null ||
             update?.messageStubType === 1 ||
-            update?.messageStubType === 68 ||
-            update?.status === 0
+            update?.messageStubType === 68
 
           if (!isRevoke) {
             continue
           }
 
-          log.info(
-            `[ANTI-DELETE] Delete event received: ${key.id}`
+          await processDeletedMessage(
+            key,
+            update
           )
-
-          /* ====================================================
-           * FIND ORIGINAL MESSAGE
-           * ==================================================== */
-
-          const storedMessage =
-            messageStore.get(
-              key.id
-            )
-
-          if (!storedMessage) {
-            log.warn(
-              `[ANTI-DELETE] Original message NOT FOUND: ${key.id}`
-            )
-
-            log.warn(
-              `[ANTI-DELETE] Message store size: ${messageStore.size}`
-            )
-
-            continue
-          }
-
-          log.info(
-            `[ANTI-DELETE] Original message FOUND: ${key.id}`
-          )
-
-          /* ====================================================
-           * CHECK HANDLERS
-           * ==================================================== */
-
-          if (
-            deleteHandlers.length === 0
-          ) {
-            log.warn(
-              '[ANTI-DELETE] No delete handlers registered.'
-            )
-
-            continue
-          }
-
-          /* ====================================================
-           * RUN DELETE HANDLERS
-           * ==================================================== */
-
-          for (
-            const handler of deleteHandlers
-          ) {
-            if (
-              typeof handler.onDelete !==
-              'function'
-            ) {
-              continue
-            }
-
-            try {
-              await handler.onDelete({
-                sock,
-                key,
-                update,
-                messageStore,
-                message:
-                  storedMessage
-              })
-
-              log.info(
-                `[ANTI-DELETE] Handler completed: ${
-                  handler.name ||
-                  'unknown'
-                }`
-              )
-            } catch (e) {
-              log.error(
-                `[ANTI-DELETE] Handler ${
-                  handler.name ||
-                  'unknown'
-                } failed: ${
-                  e?.stack ||
-                  e?.message ||
-                  e
-                }`
-              )
-            }
-          }
         } catch (e) {
           log.error(
-            `[ANTI-DELETE] Delete event error: ${
+            `[ANTI-DELETE] messages.update error: ${
               e?.stack ||
               e?.message ||
               e
             }`
           )
         }
+      }
+    }
+  )
+
+  /* ============================================================
+   * MESSAGES.DELETE
+   *
+   * Some Baileys event paths expose deletion directly here.
+   * ============================================================ */
+
+  sock.ev.on(
+    'messages.delete',
+    async (item) => {
+      try {
+        let keys = []
+
+        /*
+         * Payload may be:
+         *
+         * [...]
+         *
+         * or:
+         *
+         * { keys: [...] }
+         */
+
+        if (
+          Array.isArray(item)
+        ) {
+          keys = item
+        } else if (
+          Array.isArray(item?.keys)
+        ) {
+          keys =
+            item.keys
+        }
+
+        if (
+          !keys.length
+        ) {
+          return
+        }
+
+        for (
+          const key of keys
+        ) {
+          await processDeletedMessage(
+            key,
+            {}
+          )
+        }
+      } catch (e) {
+        log.error(
+          `[ANTI-DELETE] messages.delete error: ${
+            e?.stack ||
+            e?.message ||
+            e
+          }`
+        )
       }
     }
   )
