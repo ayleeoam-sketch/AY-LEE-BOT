@@ -10,24 +10,9 @@ import {
 
 import config from '../../src/config.js'
 
-/* ============================================================
- * ANTI-DELETE
- *
- * Supports:
- *
- * .antidelete on
- * .antidelete off
- *
- * .antidelete archive 2348012345678
- *
- * .antidelete archive 120363429429530466@g.us
- *
- * Deleted messages are recovered from messageStore
- * and forwarded to the configured archive chat.
- * ============================================================ */
 
 /* ============================================================
- * ARCHIVE DESTINATION
+ * GET ARCHIVE JID
  * ============================================================ */
 
 function getArchiveJid() {
@@ -36,38 +21,26 @@ function getArchiveJid() {
   ).trim()
 
   if (configured) {
-    /*
-     * Group JID
-     */
+    // WhatsApp group
     if (configured.endsWith('@g.us')) {
       return configured
     }
 
-    /*
-     * User JID
-     */
+    // WhatsApp user
     if (configured.endsWith('@s.whatsapp.net')) {
       return configured
     }
 
-    /*
-     * Plain WhatsApp number
-     */
-    const number = configured.replace(
-      /\D/g,
-      ''
-    )
+    // Plain number
+    const number = configured.replace(/\D/g, '')
 
     if (number) {
       return `${number}@s.whatsapp.net`
     }
   }
 
-  /*
-   * Fallback to owner
-   */
-  const owner =
-    config.ownerNumbers?.[0]
+  // Fallback to owner
+  const owner = config.ownerNumbers?.[0]
 
   if (!owner) {
     return null
@@ -77,11 +50,7 @@ function getArchiveJid() {
     return String(owner)
   }
 
-  const number =
-    String(owner).replace(
-      /\D/g,
-      ''
-    )
+  const number = String(owner).replace(/\D/g, '')
 
   if (!number) {
     return null
@@ -90,65 +59,6 @@ function getArchiveJid() {
   return `${number}@s.whatsapp.net`
 }
 
-/* ============================================================
- * VALIDATE ARCHIVE
- * ============================================================ */
-
-function normalizeArchive(value) {
-  const input =
-    String(value || '').trim()
-
-  if (!input) {
-    return null
-  }
-
-  /*
-   * Group
-   */
-  if (
-    /^120\d+@g\.us$/i.test(input)
-  ) {
-    return input
-  }
-
-  /*
-   * User JID
-   */
-  if (
-    /^\d+@s\.whatsapp\.net$/i.test(input)
-  ) {
-    return input
-  }
-
-  /*
-   * Plain number
-   */
-  const number =
-    input.replace(
-      /\D/g,
-      ''
-    )
-
-  if (
-    number.length >= 8
-  ) {
-    return `${number}@s.whatsapp.net`
-  }
-
-  return null
-}
-
-/* ============================================================
- * MEDIA TYPES
- * ============================================================ */
-
-const mediaTypes = [
-  'imageMessage',
-  'videoMessage',
-  'audioMessage',
-  'stickerMessage',
-  'documentMessage'
-]
 
 /* ============================================================
  * PLUGIN
@@ -163,87 +73,70 @@ export default {
 
   category: 'CONFIG',
 
-  desc:
-    'Recover deleted messages and send them to an archive chat',
+  desc: 'Recover deleted messages',
 
-  usage:
-    '.antidelete on | off | archive',
+  usage: '.antidelete on | off | archive',
 
   owner: true,
+
 
   /* ==========================================================
    * COMMAND
    * ========================================================== */
 
-  async run({
-    m,
-    args
-  }) {
-    const sub =
-      String(
-        args?.[0] || ''
-      ).toLowerCase()
+  async run({ m, args }) {
+    const sub = String(
+      args?.[0] || ''
+    ).toLowerCase()
+
 
     /* ========================================================
      * STATUS
      * ======================================================== */
 
     if (!sub) {
-      const archive =
-        getArchiveJid()
+      const archive = getArchiveJid()
 
       return m.reply(
         `🗑️ *ANTI-DELETE*\n\n` +
-
         `Status: *${
           getVar('ANTI_DELETE')
             ? 'ON'
             : 'OFF'
         }*\n\n` +
-
         `📥 Archive:\n` +
         `${archive || 'Not configured'}\n\n` +
-
         `Use:\n` +
         `• *.antidelete on*\n` +
         `• *.antidelete off*\n` +
-        `• *.antidelete archive 234xxxxxxxxxx*\n` +
         `• *.antidelete archive 120xxxxxxxx@g.us*`
       )
     }
+
 
     /* ========================================================
      * ON
      * ======================================================== */
 
-    if (
-      sub === 'on'
-    ) {
+    if (sub === 'on') {
       await setVar(
         'ANTI_DELETE',
         'true'
       )
 
-      const archive =
-        getArchiveJid()
-
       return m.reply(
-        `✅ *Anti-delete is now ON!*\n\n` +
-
+        `✅ *Anti-delete turned ON!*\n\n` +
         `📥 Archive:\n` +
-        `${archive || 'Not configured'}\n\n` +
-
-        `🗑️ Deleted messages will be recovered and sent there.`
+        `${getArchiveJid() || 'Not configured'}`
       )
     }
+
 
     /* ========================================================
      * OFF
      * ======================================================== */
 
-    if (
-      sub === 'off'
-    ) {
+    if (sub === 'off') {
       await setVar(
         'ANTI_DELETE',
         'false'
@@ -254,31 +147,53 @@ export default {
       )
     }
 
+
     /* ========================================================
      * ARCHIVE
      * ======================================================== */
 
-    if (
-      sub === 'archive'
-    ) {
-      const input =
-        String(
-          args?.[1] || ''
-        ).trim()
+    if (sub === 'archive') {
+      const input = String(
+        args?.[1] || ''
+      ).trim()
 
-      const archive =
-        normalizeArchive(input)
-
-      if (!archive) {
+      if (!input) {
         return m.reply(
-          `❌ *Invalid archive destination.*\n\n` +
-
-          `Example:\n` +
-          `*.antidelete archive 2348012345678*\n\n` +
-
-          `Or group:\n` +
-          `*.antidelete archive 120363429429530466@g.us*`
+          `❌ *Enter an archive destination.*\n\n` +
+          `Group example:\n` +
+          `*.antidelete archive 120363429429530466@g.us*\n\n` +
+          `Number example:\n` +
+          `*.antidelete archive 2348012345678*`
         )
+      }
+
+      let archive = input
+
+      // Group JID
+      if (archive.endsWith('@g.us')) {
+        // keep it exactly as supplied
+      }
+
+      // User JID
+      else if (
+        archive.endsWith('@s.whatsapp.net')
+      ) {
+        // keep it exactly as supplied
+      }
+
+      // Number
+      else {
+        const number =
+          archive.replace(/\D/g, '')
+
+        if (!number) {
+          return m.reply(
+            `❌ *Invalid archive destination.*`
+          )
+        }
+
+        archive =
+          `${number}@s.whatsapp.net`
       }
 
       await setVar(
@@ -288,28 +203,22 @@ export default {
 
       return m.reply(
         `✅ *Anti-delete archive set!*\n\n` +
-
         `📥 Destination:\n` +
         `*${archive}*\n\n` +
-
         `🗑️ Deleted messages will now be sent there.`
       )
     }
 
-    /* ========================================================
-     * INVALID
-     * ======================================================== */
 
     return m.reply(
       `❌ *Invalid option.*\n\n` +
-
       `Use:\n` +
-      `• *.antidelete on*\n` +
-      `• *.antidelete off*\n` +
-      `• *.antidelete archive 234xxxxxxxxxx*\n` +
-      `• *.antidelete archive 120xxxxxxxx@g.us*`
+      `*.antidelete on*\n` +
+      `*.antidelete off*\n` +
+      `*.antidelete archive 120xxxxxxxx@g.us*`
     )
   },
+
 
   /* ==========================================================
    * DELETE EVENT
@@ -320,435 +229,398 @@ export default {
     key,
     messageStore
   }) {
-    try {
+
+    console.log(
+      `[ANTI-DELETE] onDelete() START: ${key?.id}`
+    )
+
+
+    /* ========================================================
+     * CHECK ENABLED
+     * ======================================================== */
+
+    const enabled =
+      getVar('ANTI_DELETE')
+
+    console.log(
+      `[ANTI-DELETE] Enabled: ${enabled}`
+    )
+
+    if (!enabled) {
       console.log(
-        `[ANTI-DELETE] Processing delete: ${key?.id}`
+        '[ANTI-DELETE] STOPPED: feature is OFF'
       )
 
-      /* ======================================================
-       * CHECK ENABLED
-       * ====================================================== */
+      return
+    }
 
-      const enabled =
-        getVar('ANTI_DELETE')
 
-      if (!enabled) {
-        console.log(
-          '[ANTI-DELETE] Disabled.'
-        )
+    /* ========================================================
+     * MESSAGE ID
+     * ======================================================== */
 
-        return
-      }
+    const id = key?.id
 
-      /* ======================================================
-       * FIND ORIGINAL
-       * ====================================================== */
-
-      const messageId =
-        key?.id
-
-      if (!messageId) {
-        console.log(
-          '[ANTI-DELETE] No message ID.'
-        )
-
-        return
-      }
-
-      const original =
-        messageStore.get(
-          messageId
-        )
-
-      if (
-        !original?.message
-      ) {
-        console.log(
-          `[ANTI-DELETE] Original message NOT FOUND: ${messageId}`
-        )
-
-        console.log(
-          `[ANTI-DELETE] Store size: ${messageStore.size}`
-        )
-
-        return
-      }
-
+    if (!id) {
       console.log(
-        `[ANTI-DELETE] Original message FOUND: ${messageId}`
+        '[ANTI-DELETE] STOPPED: no message ID'
       )
 
-      /* ======================================================
-       * DON'T ARCHIVE BOT'S OWN MESSAGE
-       * ====================================================== */
+      return
+    }
 
-      if (
-        original.key?.fromMe
-      ) {
-        console.log(
-          '[ANTI-DELETE] Ignoring bot message.'
-        )
 
-        return
-      }
+    /* ========================================================
+     * FIND ORIGINAL
+     * ======================================================== */
 
-      /* ======================================================
-       * ARCHIVE
-       * ====================================================== */
+    const original =
+      messageStore.get(id)
 
-      const archive =
-        getArchiveJid()
-
-      if (!archive) {
-        console.error(
-          '[ANTI-DELETE] No archive destination configured.'
-        )
-
-        return
-      }
-
+    if (!original?.message) {
       console.log(
-        `[ANTI-DELETE] Archive destination: ${archive}`
+        `[ANTI-DELETE] STOPPED: original NOT FOUND: ${id}`
       )
 
-      /* ======================================================
-       * CHAT
-       * ====================================================== */
+      return
+    }
 
-      const chat =
-        original.key?.remoteJid ||
-        key?.remoteJid ||
-        'Unknown'
+    console.log(
+      `[ANTI-DELETE] Original message FOUND: ${id}`
+    )
 
-      /* ======================================================
-       * AUTHOR
-       * ====================================================== */
 
-      const author =
-        original.key?.participant ||
-        original.key?.remoteJid ||
-        chat
+    /* ========================================================
+     * DON'T ARCHIVE BOT'S OWN MESSAGE
+     * ======================================================== */
 
-      /* ======================================================
-       * DELETER
-       * ====================================================== */
+    if (original.key?.fromMe) {
+      console.log(
+        '[ANTI-DELETE] STOPPED: message was sent by bot'
+      )
 
-      const deleter =
-        key?.participant ||
-        key?.remoteJid ||
-        chat
+      return
+    }
 
-      /* ======================================================
-       * MESSAGE TYPE
-       * ====================================================== */
 
-      const type =
-        getContentType(
-          original.message
-        ) || 'unknown'
+    /* ========================================================
+     * ARCHIVE DESTINATION
+     * ======================================================== */
 
-      /* ======================================================
-       * TEXT / CAPTION
-       * ====================================================== */
+    const archive =
+      getArchiveJid()
 
-      let body = ''
+    console.log(
+      `[ANTI-DELETE] Archive destination: ${archive}`
+    )
 
-      if (
+    if (!archive) {
+      console.log(
+        '[ANTI-DELETE] STOPPED: archive destination is empty'
+      )
+
+      return
+    }
+
+
+    /* ========================================================
+     * GET MESSAGE TYPE
+     * ======================================================== */
+
+    const type =
+      getContentType(
+        original.message
+      )
+
+    console.log(
+      `[ANTI-DELETE] Message type: ${type}`
+    )
+
+
+    /* ========================================================
+     * GET TEXT
+     * ======================================================== */
+
+    let text = ''
+
+    if (
+      original.message.conversation
+    ) {
+      text =
         original.message.conversation
-      ) {
-        body =
-          original.message.conversation
-      }
+    }
 
-      else if (
-        original.message.extendedTextMessage?.text
-      ) {
-        body =
-          original.message
-            .extendedTextMessage
-            .text
-      }
+    else if (
+      original.message.extendedTextMessage?.text
+    ) {
+      text =
+        original.message
+          .extendedTextMessage
+          .text
+    }
 
-      else if (
-        original.message[type]?.caption
-      ) {
-        body =
-          original.message[type]
-            .caption
-      }
+    else if (
+      original.message[type]?.caption
+    ) {
+      text =
+        original.message[type]
+          .caption
+    }
 
-      /* ======================================================
-       * CHAT NAME
-       * ====================================================== */
 
-      let chatName =
-        chat
+    console.log(
+      `[ANTI-DELETE] Text recovered: ${text ? 'YES' : 'NO'}`
+    )
 
-      try {
-        if (
-          chat.endsWith('@g.us')
-        ) {
-          const metadata =
-            await sock.groupMetadata(
-              chat
-            )
 
-          if (
-            metadata?.subject
-          ) {
-            chatName =
-              metadata.subject
-          }
-        }
-      } catch (e) {
-        console.log(
-          `[ANTI-DELETE] Could not get group name: ${e.message}`
-        )
-      }
+    /* ========================================================
+     * SOURCE CHAT
+     * ======================================================== */
 
-      /* ======================================================
-       * TIME
-       * ====================================================== */
+    const sourceChat =
+      original.key?.remoteJid ||
+      key?.remoteJid ||
+      'Unknown'
 
-      const time =
-        new Date().toLocaleString(
-          'en-NG',
-          {
-            timeZone:
-              'Africa/Lagos'
-          }
-        )
 
-      /* ======================================================
-       * HEADER
-       * ====================================================== */
+    /* ========================================================
+     * SENDER
+     * ======================================================== */
 
-      const header =
-        `🗑️ *DELETED MESSAGE*\n\n` +
+    const sender =
+      original.key?.participant ||
+      original.key?.remoteJid ||
+      'Unknown'
 
-        `👤 *Sender:*\n` +
-        `${author}\n\n` +
 
-        `🙈 *Deleted by:*\n` +
-        `${deleter}\n\n` +
+    /* ========================================================
+     * TIME
+     * ======================================================== */
 
-        `💬 *Chat:*\n` +
-        `${chatName}\n\n` +
-
-        `🕐 *Time:*\n` +
-        `${time}\n\n` +
-
-        `📦 *Type:*\n` +
-        `${type}`
-
-      console.log(
-        `[ANTI-DELETE] Message type: ${type}`
-      )
-
-      /* ======================================================
-       * TEXT MESSAGE
-       * ====================================================== */
-
-      if (
-        type === 'conversation' ||
-        type === 'extendedTextMessage'
-      ) {
-        await sock.sendMessage(
-          archive,
-          {
-            text:
-              `${header}\n\n` +
-              `💬 *Message:*\n` +
-              `${body || '(empty message)'}`
-          }
-        )
-
-        console.log(
-          `[ANTI-DELETE] Text message sent to ${archive}`
-        )
-
-        return
-      }
-
-      /* ======================================================
-       * MEDIA
-       * ====================================================== */
-
-      if (
-        mediaTypes.includes(type)
-      ) {
-        let buffer
-
-        try {
-          buffer =
-            await downloadMediaMessage(
-              original,
-              'buffer',
-              {},
-              {
-                reuploadRequest:
-                  async (msg) =>
-                    sock.updateMediaMessage(
-                      msg
-                    )
-              }
-            )
-        } catch (e) {
-          console.error(
-            `[ANTI-DELETE] Media download failed: ${e.message}`
-          )
-
-          await sock.sendMessage(
-            archive,
-            {
-              text:
-                `${header}\n\n` +
-
-                `⚠️ *Media could not be recovered.*\n\n` +
-
-                `${body || ''}`
-            }
-          )
-
-          return
-        }
-
-        /* ====================================================
-         * SEND INFORMATION FIRST
-         * ==================================================== */
-
-        await sock.sendMessage(
-          archive,
-          {
-            text:
-              `${header}` +
-
-              (
-                body
-                  ? `\n\n💬 *Caption:*\n${body}`
-                  : ''
-              )
-          }
-        )
-
-        /* ====================================================
-         * SEND MEDIA
-         * ==================================================== */
-
-        if (
-          type === 'imageMessage'
-        ) {
-          await sock.sendMessage(
-            archive,
-            {
-              image: buffer,
-              caption:
-                body ||
-                '🗑️ Deleted image'
-            }
-          )
-        }
-
-        else if (
-          type === 'videoMessage'
-        ) {
-          await sock.sendMessage(
-            archive,
-            {
-              video: buffer,
-              caption:
-                body ||
-                '🗑️ Deleted video'
-            }
-          )
-        }
-
-        else if (
-          type === 'audioMessage'
-        ) {
-          await sock.sendMessage(
-            archive,
-            {
-              audio: buffer,
-              mimetype:
-                original.message
-                  .audioMessage
-                  ?.mimetype ||
-                'audio/mpeg',
-
-              ptt:
-                original.message
-                  .audioMessage
-                  ?.ptt ||
-                false
-            }
-          )
-        }
-
-        else if (
-          type === 'stickerMessage'
-        ) {
-          await sock.sendMessage(
-            archive,
-            {
-              sticker: buffer
-            }
-          )
-        }
-
-        else if (
-          type === 'documentMessage'
-        ) {
-          await sock.sendMessage(
-            archive,
-            {
-              document: buffer,
-
-              mimetype:
-                original.message
-                  .documentMessage
-                  ?.mimetype ||
-                'application/octet-stream',
-
-              fileName:
-                original.message
-                  .documentMessage
-                  ?.fileName ||
-                'deleted-file'
-            }
-          )
-        }
-
-        console.log(
-          `[ANTI-DELETE] Media message sent to ${archive}`
-        )
-
-        return
-      }
-
-      /* ======================================================
-       * OTHER MESSAGE TYPES
-       * ====================================================== */
-
-      await sock.sendMessage(
-        archive,
+    const time =
+      new Date().toLocaleString(
+        'en-NG',
         {
-          text:
-            `${header}\n\n` +
-
-            `💬 *Message:*\n` +
-
-            `${body || '⚠️ Unsupported message type.'}`
+          timeZone: 'Africa/Lagos'
         }
       )
 
+
+    /* ========================================================
+     * HEADER
+     * ======================================================== */
+
+    const archiveText =
+      `🗑️ *DELETED MESSAGE ARCHIVE*\n\n` +
+      `👤 *Sender:* ${sender}\n` +
+      `💬 *Chat:* ${sourceChat}\n` +
+      `🕐 *Time:* ${time}\n` +
+      `📦 *Type:* ${type || 'unknown'}\n\n` +
+      `💬 *Message:*\n` +
+      `${text || '(No text content)'}`
+
+
+    /* ========================================================
+     * SEND ARCHIVE HEADER
+     * ======================================================== */
+
+    console.log(
+      `[ANTI-DELETE] ATTEMPTING SEND TO: ${archive}`
+    )
+
+    try {
+
+      const result =
+        await sock.sendMessage(
+          archive,
+          {
+            text: archiveText
+          }
+        )
+
       console.log(
-        `[ANTI-DELETE] Message sent to ${archive}`
+        `[ANTI-DELETE] SEND SUCCESS: ${JSON.stringify(result?.key || {})}`
       )
 
-    } catch (e) {
+    } catch (error) {
+
       console.error(
-        `[ANTI-DELETE] Recovery failed: ${e.stack || e.message}`
+        `[ANTI-DELETE] SEND FAILED: ${error?.stack || error?.message || error}`
+      )
+
+      return
+    }
+
+
+    /* ========================================================
+     * MEDIA
+     * ======================================================== */
+
+    const mediaTypes = [
+      'imageMessage',
+      'videoMessage',
+      'audioMessage',
+      'stickerMessage',
+      'documentMessage'
+    ]
+
+    if (
+      !mediaTypes.includes(type)
+    ) {
+      console.log(
+        '[ANTI-DELETE] Text message complete.'
+      )
+
+      return
+    }
+
+
+    /* ========================================================
+     * DOWNLOAD MEDIA
+     * ======================================================== */
+
+    console.log(
+      '[ANTI-DELETE] Attempting media download...'
+    )
+
+    try {
+
+      const buffer =
+        await downloadMediaMessage(
+          original,
+          'buffer',
+          {},
+          {
+            reuploadRequest:
+              async (msg) =>
+                sock.updateMediaMessage(
+                  msg
+                )
+          }
+        )
+
+
+      if (!buffer) {
+        throw new Error(
+          'Media buffer is empty'
+        )
+      }
+
+
+      /* ======================================================
+       * IMAGE
+       * ====================================================== */
+
+      if (
+        type === 'imageMessage'
+      ) {
+        await sock.sendMessage(
+          archive,
+          {
+            image: buffer,
+            caption:
+              text ||
+              '🗑️ Deleted image'
+          }
+        )
+      }
+
+
+      /* ======================================================
+       * VIDEO
+       * ====================================================== */
+
+      else if (
+        type === 'videoMessage'
+      ) {
+        await sock.sendMessage(
+          archive,
+          {
+            video: buffer,
+            caption:
+              text ||
+              '🗑️ Deleted video'
+          }
+        )
+      }
+
+
+      /* ======================================================
+       * AUDIO
+       * ====================================================== */
+
+      else if (
+        type === 'audioMessage'
+      ) {
+        await sock.sendMessage(
+          archive,
+          {
+            audio: buffer,
+            mimetype:
+              original.message
+                .audioMessage
+                ?.mimetype ||
+              'audio/mpeg',
+            ptt:
+              original.message
+                .audioMessage
+                ?.ptt ||
+              false
+          }
+        )
+      }
+
+
+      /* ======================================================
+       * STICKER
+       * ====================================================== */
+
+      else if (
+        type === 'stickerMessage'
+      ) {
+        await sock.sendMessage(
+          archive,
+          {
+            sticker: buffer
+          }
+        )
+      }
+
+
+      /* ======================================================
+       * DOCUMENT
+       * ====================================================== */
+
+      else if (
+        type === 'documentMessage'
+      ) {
+        await sock.sendMessage(
+          archive,
+          {
+            document: buffer,
+            mimetype:
+              original.message
+                .documentMessage
+                ?.mimetype ||
+              'application/octet-stream',
+            fileName:
+              original.message
+                .documentMessage
+                ?.fileName ||
+              'deleted-file'
+          }
+        )
+      }
+
+
+      console.log(
+        `[ANTI-DELETE] MEDIA SEND SUCCESS: ${archive}`
+      )
+
+    } catch (error) {
+
+      console.error(
+        `[ANTI-DELETE] MEDIA SEND FAILED: ${error?.stack || error?.message || error}`
       )
     }
   }
