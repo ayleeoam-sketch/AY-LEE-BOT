@@ -4,6 +4,11 @@
  * Run:
  *   npm run setup
  *
+ * Uses the official standalone binaries:
+ *   Windows -> yt-dlp.exe
+ *   Linux   -> yt-dlp_linux
+ *   macOS   -> yt-dlp_macos
+ *
  * No Python is required.
  */
 
@@ -13,7 +18,11 @@ import https from 'https'
 import { execFile } from 'child_process'
 import { fileURLToPath } from 'url'
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+const ROOT = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '..'
+)
+
 const BIN_DIR = path.join(ROOT, 'bin')
 
 const platform = process.platform
@@ -24,6 +33,13 @@ const TARGET = path.join(
   isWindows ? 'yt-dlp.exe' : 'yt-dlp'
 )
 
+/*
+ * IMPORTANT:
+ *
+ * Linux must use yt-dlp_linux.
+ * The official yt-dlp releases provide this as the
+ * standalone Linux x64 executable.
+ */
 const URLS = {
   win32:
     'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe',
@@ -32,92 +48,119 @@ const URLS = {
     'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos',
 
   linux:
-    'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp'
+    'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux'
 }
 
 function download(url, dest, redirects = 0) {
   return new Promise((resolve, reject) => {
     if (redirects > 10) {
-      return reject(new Error('Too many redirects'))
+      return reject(
+        new Error('Too many redirects')
+      )
     }
 
-    https.get(
-      url,
-      {
-        headers: {
-          'User-Agent': 'AY-LEE-BOT'
-        }
-      },
-      (res) => {
-        if ([301, 302, 303, 307, 308].includes(res.statusCode)) {
-          const location = res.headers.location
-
-          res.resume()
-
-          if (!location) {
-            return reject(new Error('Redirect location missing'))
+    https
+      .get(
+        url,
+        {
+          headers: {
+            'User-Agent': 'AY-LEE-BOT'
           }
-
-          return resolve(
-            download(location, dest, redirects + 1)
-          )
-        }
-
-        if (res.statusCode !== 200) {
-          res.resume()
-          return reject(
-            new Error(`HTTP ${res.statusCode}`)
-          )
-        }
-
-        const file = fs.createWriteStream(dest)
-
-        const total = Number(
-          res.headers['content-length'] || 0
-        )
-
-        let downloaded = 0
-
-        res.on('data', (chunk) => {
-          downloaded += chunk.length
-
-          if (total) {
-            const percent = Math.round(
-              (downloaded / total) * 100
+        },
+        (res) => {
+          /*
+           * GitHub normally redirects the release URL.
+           */
+          if (
+            [301, 302, 303, 307, 308].includes(
+              res.statusCode
             )
+          ) {
+            const location =
+              res.headers.location
 
-            process.stdout.write(
-              `\rDownloading yt-dlp... ${percent}%`
+            res.resume()
+
+            if (!location) {
+              return reject(
+                new Error(
+                  'Redirect location missing'
+                )
+              )
+            }
+
+            return resolve(
+              download(
+                location,
+                dest,
+                redirects + 1
+              )
             )
           }
-        })
 
-        res.pipe(file)
+          if (res.statusCode !== 200) {
+            res.resume()
 
-        file.on('finish', () => {
-          file.close(() => {
-            process.stdout.write('\n')
-            resolve()
+            return reject(
+              new Error(
+                `HTTP ${res.statusCode}`
+              )
+            )
+          }
+
+          const file =
+            fs.createWriteStream(dest)
+
+          const total = Number(
+            res.headers[
+              'content-length'
+            ] || 0
+          )
+
+          let downloaded = 0
+
+          res.on('data', (chunk) => {
+            downloaded += chunk.length
+
+            if (total) {
+              const percent =
+                Math.round(
+                  (downloaded / total) * 100
+                )
+
+              process.stdout.write(
+                `\rDownloading yt-dlp... ${percent}%`
+              )
+            }
           })
-        })
 
-        file.on('error', (err) => {
-          try {
-            fs.unlinkSync(dest)
-          } catch {}
+          res.pipe(file)
 
-          reject(err)
-        })
+          file.on('finish', () => {
+            file.close(() => {
+              process.stdout.write('\n')
+              resolve()
+            })
+          })
 
-        res.on('error', (err) => {
-          try {
-            fs.unlinkSync(dest)
-          } catch {}
+          file.on('error', (err) => {
+            try {
+              fs.unlinkSync(dest)
+            } catch {}
 
-          reject(err)
-        })
-      }
-    ).on('error', reject)
+            reject(err)
+          })
+
+          res.on('error', (err) => {
+            try {
+              fs.unlinkSync(dest)
+            } catch {}
+
+            reject(err)
+          })
+        }
+      )
+      .on('error', reject)
   })
 }
 
@@ -134,8 +177,8 @@ function checkBinary() {
           return reject(
             new Error(
               stderr?.trim() ||
-              error.message ||
-              'yt-dlp could not be executed'
+                error.message ||
+                'yt-dlp could not be executed'
             )
           )
         }
@@ -147,21 +190,38 @@ function checkBinary() {
 }
 
 async function main() {
-  console.log('\n======================================')
-  console.log('      AY-LEE BOT — yt-dlp setup')
-  console.log('======================================\n')
+  console.log('')
+  console.log(
+    '======================================'
+  )
+  console.log(
+    '      AY-LEE BOT — yt-dlp setup'
+  )
+  console.log(
+    '======================================'
+  )
+  console.log('')
 
   fs.mkdirSync(BIN_DIR, {
     recursive: true
   })
 
-  const url = URLS[platform] || URLS.linux
+  const url =
+    URLS[platform] || URLS.linux
 
   console.log(`Platform: ${platform}`)
-  console.log(`Target: ${TARGET}\n`)
+  console.log(`Target: ${TARGET}`)
+  console.log(`Download: ${url}`)
+  console.log('')
 
+  /*
+   * Remove existing binary so we always get
+   * the correct/latest version.
+   */
   if (fs.existsSync(TARGET)) {
-    console.log('Removing old yt-dlp...')
+    console.log(
+      'Removing old yt-dlp...'
+    )
 
     try {
       fs.unlinkSync(TARGET)
@@ -173,22 +233,44 @@ async function main() {
   }
 
   try {
-    console.log('Downloading standalone yt-dlp...')
+    console.log(
+      'Downloading standalone yt-dlp...'
+    )
 
     await download(url, TARGET)
 
+    /*
+     * Linux/macOS need executable permission.
+     */
     if (!isWindows) {
-      fs.chmodSync(TARGET, 0o755)
+      fs.chmodSync(
+        TARGET,
+        0o755
+      )
     }
 
-    console.log('\nChecking yt-dlp...')
+    console.log('')
+    console.log(
+      'Checking yt-dlp...'
+    )
 
-    const version = await checkBinary()
+    const version =
+      await checkBinary()
 
-    console.log(`\n✅ yt-dlp ${version} is working.`)
-    console.log(`📁 Location: ${TARGET}`)
+    console.log('')
+    console.log(
+      `✅ yt-dlp ${version} is working.`
+    )
 
-    console.log('\nDownloader commands:')
+    console.log(
+      `📁 Location: ${TARGET}`
+    )
+
+    console.log('')
+    console.log(
+      'Downloader commands:'
+    )
+
     console.log('  .play')
     console.log('  .video')
     console.log('  .music')
@@ -196,14 +278,32 @@ async function main() {
     console.log('  .tiktok')
     console.log('  .autodl')
 
-    console.log('\nNo Python installation is required.\n')
-  } catch (error) {
-    console.log('\n❌ yt-dlp setup failed.')
-    console.log(`\n${error.message}\n`)
-
+    console.log('')
     console.log(
-      'Make sure your hosting service allows downloading executable files.'
+      '✅ No Python installation is required.'
     )
+
+    console.log('')
+  } catch (error) {
+    console.log('')
+    console.log(
+      '❌ yt-dlp setup failed.'
+    )
+
+    console.log('')
+    console.log(
+      error.message
+    )
+
+    console.log('')
+    console.log(
+      'Make sure your hosting service allows'
+    )
+    console.log(
+      'downloading executable files.'
+    )
+
+    console.log('')
 
     process.exit(1)
   }
