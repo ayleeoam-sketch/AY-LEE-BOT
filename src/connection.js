@@ -1,3 +1,4 @@
+```js
 import makeWASocket, {
   DisconnectReason,
   fetchLatestBaileysVersion,
@@ -66,16 +67,6 @@ let reconnectAttempts = 0
  * ============================================================ */
 
 export async function startSocket() {
-  /* ============================================================
-   * AUTH STATE
-   *
-   * IMPORTANT:
-   * Railway file sessions must live on a persistent Volume.
-   *
-   * We DO NOT restore SESSION_ID over an existing file session.
-   * The files inside config.sessionDir are the source of truth.
-   * ============================================================ */
-
   let state
   let saveCreds
   let deleteSession
@@ -93,13 +84,6 @@ export async function startSocket() {
       config.sessionDir,
       'creds.json'
     )
-
-    /*
-     * SESSION_ID is ONLY used as a first-time bootstrap.
-     *
-     * If Railway Volume already contains creds.json,
-     * NEVER overwrite it with SESSION_ID.
-     */
 
     if (!fs.existsSync(credsPath)) {
       if (config.sessionId?.trim()) {
@@ -135,10 +119,6 @@ export async function startSocket() {
             'SESSION_ID used to bootstrap file session'
           )
         } catch (e) {
-          /*
-           * Do not destroy anything if SESSION_ID is bad.
-           * The bot can still start and request pairing.
-           */
           log.warn(
             `SESSION_ID bootstrap skipped: ${e.message}`
           )
@@ -186,11 +166,6 @@ export async function startSocket() {
     state = auth.state
     saveCreds = auth.saveCreds
 
-    /*
-     * Only clear the local session when WhatsApp
-     * explicitly says the account is logged out
-     * or the session is genuinely bad.
-     */
     deleteSession = async () => {
       try {
         fs.rmSync(
@@ -245,9 +220,6 @@ export async function startSocket() {
    * PAIRING
    * ============================================================ */
 
-  /*
-   * Pair only when the loaded credentials are not registered.
-   */
   const usePairing =
     config.authMethod === 'pair' &&
     !state.creds.registered
@@ -355,11 +327,6 @@ WhatsApp > Settings > Linked devices > Link with phone number
 
   /* ============================================================
    * SAVE CREDENTIALS
-   *
-   * This is VERY important for Railway.
-   *
-   * Every credential update is written to the
-   * persistent session directory.
    * ============================================================ */
 
   sock.ev.on(
@@ -445,10 +412,6 @@ WhatsApp > Settings > Linked devices > Link with phone number
           `${pluginCount()} plugins ready | prefix "${config.prefix}" | mode ${getVar('MODE')}`
         )
 
-        /* ======================================================
-         * STARTUP MESSAGE
-         * ====================================================== */
-
         if (
           getVar(
             'STARTUP_MESSAGE'
@@ -502,12 +465,6 @@ WhatsApp > Settings > Linked devices > Link with phone number
               code
           ) || code
 
-        /* ======================================================
-         * LOGGED OUT
-         *
-         * This is permanent. The session must be linked again.
-         * ====================================================== */
-
         if (
           code ===
           DisconnectReason.loggedOut
@@ -521,12 +478,6 @@ WhatsApp > Settings > Linked devices > Link with phone number
           process.exit(0)
         }
 
-        /* ======================================================
-         * BAD SESSION
-         *
-         * Only clear when WhatsApp explicitly reports badSession.
-         * ====================================================== */
-
         if (
           code ===
           DisconnectReason.badSession
@@ -539,10 +490,6 @@ WhatsApp > Settings > Linked devices > Link with phone number
 
           process.exit(0)
         }
-
-        /* ======================================================
-         * NORMAL RECONNECT
-         * ====================================================== */
 
         reconnectAttempts++
 
@@ -658,20 +605,29 @@ WhatsApp > Settings > Linked devices > Link with phone number
         )
           continue
 
+        /*
+         * Store the complete original message.
+         */
         messageStore.set(
           raw.key.id,
           raw
         )
 
+        /*
+         * Keep memory under control.
+         */
         if (
           messageStore.size >
           MAX_STORE
         ) {
-          messageStore.delete(
+          const oldest =
             messageStore
               .keys()
               .next()
               .value
+
+          messageStore.delete(
+            oldest
           )
         }
 
@@ -688,43 +644,101 @@ WhatsApp > Settings > Linked devices > Link with phone number
   )
 
   /* ============================================================
-   * DELETE EVENTS
+   * DELETE EVENTS / ANTI-DELETE
    * ============================================================ */
 
   sock.ev.on(
     'messages.update',
     async (updates) => {
+      /*
+       * IMPORTANT:
+       * Log every update temporarily so we can verify
+       * that WhatsApp is sending the revoke event.
+       */
       for (
-        const {
-          key,
-          update
-        } of updates
+        const item of updates
       ) {
-        const isRevoke =
-          update?.message ===
-            null ||
-          update?.messageStubType ===
-            1
+        const key =
+          item?.key || {}
 
+        const update =
+          item?.update || {}
+
+        /*
+         * WhatsApp/Baileys can represent deletion
+         * in more than one way.
+         */
+        const isRevoke =
+          update?.message === null ||
+          update?.message === undefined &&
+          (
+            update?.messageStubType === 1 ||
+            update?.messageStubType === 2
+          ) ||
+          update?.messageStubType === 1 ||
+          update?.messageStubType === 2
+
+        /*
+         * Only process actual revoke events.
+         */
         if (!isRevoke)
           continue
 
+        console.log(
+          '[ANTI-DELETE] Delete event detected:',
+          {
+            id: key.id,
+            remoteJid: key.remoteJid,
+            participant: key.participant,
+            messageStubType:
+              update?.messageStubType
+          }
+        )
+
+        /*
+         * Check whether the original message exists.
+         */
+        const original =
+          messageStore.get(
+            key.id
+          )
+
+        if (!original) {
+          console.log(
+            `[ANTI-DELETE] Original message not found in messageStore: ${key.id}`
+          )
+
+          continue
+        }
+
+        console.log(
+          `[ANTI-DELETE] Original message found: ${key.id}`
+        )
+
+        /*
+         * Send event to every middleware/plugin
+         * that implements onDelete().
+         */
         for (
           const mw of middlewares
         ) {
           if (
-            typeof mw.onDelete ===
+            typeof mw.onDelete !==
             'function'
-          ) {
-            await mw
-              .onDelete({
-                sock,
-                key,
-                messageStore
-              })
-              .catch(
-                () => {}
-              )
+          )
+            continue
+
+          try {
+            await mw.onDelete({
+              sock,
+              key,
+              update,
+              messageStore
+            })
+          } catch (e) {
+            console.error(
+              `[ANTI-DELETE] Middleware error: ${e.message}`
+            )
           }
         }
       }
@@ -787,3 +801,4 @@ WhatsApp > Settings > Linked devices > Link with phone number
 }
 
 export default startSocket
+```
