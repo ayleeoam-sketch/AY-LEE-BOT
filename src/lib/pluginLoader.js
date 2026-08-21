@@ -4,56 +4,30 @@ import { pathToFileURL } from 'url'
 import config from '../config.js'
 import log from './logger.js'
 
-/**
- * Plugin Loader
- *
- * Supports:
- *
- * 1. Command plugins
- *    export default {
- *      name: 'ping',
- *      async run() {}
- *    }
- *
- * 2. Message middleware
- *    export default {
- *      name: 'antilink',
- *      async before() {}
- *    }
- *
- * 3. Delete-event handlers
- *    export default {
- *      name: 'antidelete',
- *      async onDelete() {}
- *    }
- *
- * 4. Other event hooks can also be exported without
- *    being incorrectly treated as before() middleware.
- */
-
 /* ============================================================
- * REGISTRIES
+ * PLUGIN REGISTRIES
  * ============================================================ */
 
-/** command name/alias -> plugin */
+/*
+ * Command name/alias -> plugin
+ */
 export const commands = new Map()
 
-/**
- * Plugins that receive every normal message.
- *
- * IMPORTANT:
- * Only plugins with before() are placed here.
+/*
+ * Plugins that have before()
  */
 export const middlewares = []
 
-/**
- * Plugins that receive WhatsApp delete/revoke events.
+/*
+ * Plugins that have onDelete()
  *
- * Anti-delete belongs here.
+ * Anti-delete is registered here.
  */
 export const deleteHandlers = []
 
-/** category -> plugins */
+/*
+ * category -> plugins
+ */
 export const categories = new Map()
 
 let loadedCount = 0
@@ -72,9 +46,7 @@ function walk(dir) {
   for (
     const entry of fs.readdirSync(
       dir,
-      {
-        withFileTypes: true
-      }
+      { withFileTypes: true }
     )
   ) {
     const full = path.join(
@@ -101,7 +73,10 @@ function walk(dir) {
  * ============================================================ */
 
 function register(plugin, file) {
-  if (!plugin || typeof plugin !== 'object') {
+  if (
+    !plugin ||
+    typeof plugin !== 'object'
+  ) {
     log.warn(
       `Skipped ${path.basename(file)} - invalid plugin export`
     )
@@ -109,13 +84,14 @@ function register(plugin, file) {
     return false
   }
 
+  plugin.file = file
+
   /*
-   * ----------------------------------------------------------
-   * MESSAGE MIDDLEWARE
-   * ----------------------------------------------------------
-   *
-   * Only plugins that actually have before() go here.
+   * ==========================================================
+   * BEFORE MIDDLEWARE
+   * ==========================================================
    */
+
   if (
     typeof plugin.before === 'function'
   ) {
@@ -123,12 +99,11 @@ function register(plugin, file) {
   }
 
   /*
-   * ----------------------------------------------------------
+   * ==========================================================
    * DELETE HANDLER
-   * ----------------------------------------------------------
-   *
-   * Anti-delete/snipe hooks go here.
+   * ==========================================================
    */
+
   if (
     typeof plugin.onDelete === 'function'
   ) {
@@ -136,135 +111,104 @@ function register(plugin, file) {
   }
 
   /*
-   * ----------------------------------------------------------
-   * COMMAND PLUGIN
-   * ----------------------------------------------------------
+   * ==========================================================
+   * COMMAND
+   * ==========================================================
    */
 
   if (
-    !plugin.name ||
-    typeof plugin.run !== 'function'
+    plugin.name &&
+    typeof plugin.run === 'function'
   ) {
-    /*
-     * A plugin can legitimately be an event-only plugin.
-     *
-     * So don't complain if it has one of our supported hooks.
-     */
-    const isHookOnly =
-      typeof plugin.before === 'function' ||
-      typeof plugin.onDelete === 'function'
+    plugin.category =
+      (
+        plugin.category ||
+        'MISC'
+      ).toUpperCase()
 
-    if (!isHookOnly) {
-      log.warn(
-        `Skipped ${path.basename(file)} - missing "name" or "run"`
+    const names = [
+      plugin.name,
+      ...(Array.isArray(plugin.alias)
+        ? plugin.alias
+        : [])
+    ]
+      .filter(Boolean)
+      .map(
+        (n) =>
+          String(n).toLowerCase()
       )
 
-      return false
+    for (
+      const name of names
+    ) {
+      if (
+        commands.has(name)
+      ) {
+        log.warn(
+          `Duplicate command "${name}" in ${path.basename(file)} - overriding`
+        )
+      }
+
+      commands.set(
+        name,
+        plugin
+      )
     }
 
-    /*
-     * Event-only plugin successfully loaded.
-     */
-    plugin.file = file
+    if (
+      !categories.has(
+        plugin.category
+      )
+    ) {
+      categories.set(
+        plugin.category,
+        []
+      )
+    }
+
+    categories
+      .get(plugin.category)
+      .push(plugin)
 
     return true
   }
 
-  /* ==========================================================
-   * COMMAND METADATA
-   * ========================================================== */
-
-  plugin.file = file
-
-  plugin.category =
-    (
-      plugin.category ||
-      'MISC'
-    ).toUpperCase()
-
   /*
-   * Command name + aliases
-   */
-  const names = [
-    plugin.name,
-    ...(Array.isArray(plugin.alias)
-      ? plugin.alias
-      : [])
-  ]
-    .filter(Boolean)
-    .map(
-      (n) =>
-        String(n).toLowerCase()
-    )
-
-  for (
-    const name of names
-  ) {
-    if (
-      commands.has(name)
-    ) {
-      log.warn(
-        `Duplicate command "${name}" in ${path.basename(file)} - overriding`
-      )
-    }
-
-    commands.set(
-      name,
-      plugin
-    )
-  }
-
-  /*
-   * Category
+   * Event-only plugins are valid.
    */
   if (
-    !categories.has(
-      plugin.category
-    )
+    typeof plugin.before === 'function' ||
+    typeof plugin.onDelete === 'function'
   ) {
-    categories.set(
-      plugin.category,
-      []
-    )
+    return true
   }
 
-  categories
-    .get(plugin.category)
-    .push(plugin)
+  log.warn(
+    `Skipped ${path.basename(file)} - missing "name" or "run"`
+  )
 
-  return true
+  return false
 }
 
 /* ============================================================
  * LOAD PLUGINS
  * ============================================================ */
 
-/**
- * Load every plugin from config.pluginDir.
- */
 export async function loadPlugins() {
   commands.clear()
-
   middlewares.length = 0
-
   deleteHandlers.length = 0
-
   categories.clear()
 
   loadedCount = 0
 
   const files =
-    walk(
-      config.pluginDir
-    )
+    walk(config.pluginDir)
 
   for (
     const file of files
   ) {
     try {
-      /*
-       * Cache buster allows plugin reloads.
-       */
       const mod =
         await import(
           `${pathToFileURL(file).href}?t=${Date.now()}`
@@ -273,11 +217,6 @@ export async function loadPlugins() {
       const plugin =
         mod.default || mod
 
-      /*
-       * Support:
-       *
-       * export default [...]
-       */
       if (
         Array.isArray(plugin)
       ) {
@@ -308,16 +247,14 @@ export async function loadPlugins() {
         `Failed to load ${path.relative(
           config.pluginDir,
           file
-        )}:`,
-        e.message
+        )}: ${e.message}`
       )
     }
   }
 
-  /* ==========================================================
-   * STABLE MENU ORDER
-   * ========================================================== */
-
+  /*
+   * Stable menu ordering.
+   */
   for (
     const [, list] of categories
   ) {
@@ -341,6 +278,24 @@ export async function loadPlugins() {
     `Delete handlers: ${deleteHandlers.length}`
   )
 
+  /*
+   * Show exactly which delete handlers loaded.
+   */
+  if (
+    deleteHandlers.length
+  ) {
+    log.ok(
+      `Delete handlers loaded: ${
+        deleteHandlers
+          .map(
+            (p) =>
+              p.name || 'unnamed'
+          )
+          .join(', ')
+      }`
+    )
+  }
+
   return {
     commands,
     categories,
@@ -358,9 +313,6 @@ export const pluginCount =
   () =>
     loadedCount
 
-/**
- * Resolve command name or alias.
- */
 export const findCommand =
   (name) =>
     commands.get(
