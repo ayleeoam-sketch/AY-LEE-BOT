@@ -84,7 +84,13 @@ function register(plugin, file) {
     return false
   }
 
-  plugin.file = file
+  try {
+  if (Object.isExtensible(plugin)) {
+    plugin.file = file
+  }
+} catch {
+  // Plugin object is non-extensible; continue without file metadata
+}
 
   /* ==========================================================
    * BEFORE MIDDLEWARE
