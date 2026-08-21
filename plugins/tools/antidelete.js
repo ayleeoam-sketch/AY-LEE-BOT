@@ -153,9 +153,8 @@ function getType(message) {
  * ============================================================ */
 
 function getArchiveDestination() {
-  const configured = getVar(
-    'ANTI_DELETE_ARCHIVE'
-  )
+  const configured =
+    getVar('ANTI_DELETE_ARCHIVE')
 
   if (!configured) {
     return ''
@@ -177,13 +176,10 @@ function isGroupJid(jid) {
   )
 }
 
-function isUserJid(jid) {
+function isLidJid(jid) {
   return Boolean(
     jid &&
-    (
-      String(jid).endsWith('@s.whatsapp.net') ||
-      String(jid).endsWith('@lid')
-    )
+    String(jid).endsWith('@lid')
   )
 }
 
@@ -194,24 +190,55 @@ function isPhoneJid(jid) {
   )
 }
 
+function isUserJid(jid) {
+  return Boolean(
+    isPhoneJid(jid) ||
+    isLidJid(jid)
+  )
+}
+
 /* ============================================================
  * GET CHAT JID
  *
- * Prefer normal group JID if WhatsApp supplied one as an
- * alternate JID. Otherwise preserve the original LID.
+ * IMPORTANT:
+ * For a group, prefer the real @g.us JID.
+ * Never replace a group JID with the sender's JID.
  * ============================================================ */
 
 function getChatJid(stored, key) {
   const candidates = [
     stored?.key?.remoteJidAlt,
     key?.remoteJidAlt,
-
     stored?.key?.remoteJid,
     key?.remoteJid
-  ]
+  ].filter(Boolean)
+
+  /* ==========================================================
+   * FIRST: REAL GROUP JID
+   * ========================================================== */
 
   for (const jid of candidates) {
-    if (jid) {
+    if (isGroupJid(jid)) {
+      return String(jid)
+    }
+  }
+
+  /* ==========================================================
+   * SECOND: NORMAL PHONE JID
+   * ========================================================== */
+
+  for (const jid of candidates) {
+    if (isPhoneJid(jid)) {
+      return String(jid)
+    }
+  }
+
+  /* ==========================================================
+   * THIRD: LID
+   * ========================================================== */
+
+  for (const jid of candidates) {
+    if (isLidJid(jid)) {
       return String(jid)
     }
   }
@@ -222,17 +249,18 @@ function getChatJid(stored, key) {
 /* ============================================================
  * GET SENDER JID
  *
- * Prefer a real phone-number JID.
+ * Prefer actual phone-number JID over LID.
  * ============================================================ */
 
 function getSenderJid(stored, key) {
-  const message = unwrapMessage(
-    stored?.message
-  )
+  const message =
+    unwrapMessage(
+      stored?.message
+    )
 
   const candidates = [
     /* ========================================================
-     * REAL PHONE NUMBER ALTERNATIVES
+     * BEST PHONE-NUMBER SOURCES
      * ======================================================== */
 
     stored?.key?.participantAlt,
@@ -240,6 +268,10 @@ function getSenderJid(stored, key) {
 
     stored?.key?.participantPn,
     key?.participantPn,
+
+    /* ========================================================
+     * ALTERNATE REMOTE JID
+     * ======================================================== */
 
     stored?.key?.remoteJidAlt,
     key?.remoteJidAlt,
@@ -283,29 +315,21 @@ function getSenderJid(stored, key) {
   ]
 
   /* ==========================================================
-   * FIRST CHOICE:
-   * ACTUAL PHONE JID
+   * FIRST: ACTUAL PHONE JID
    * ========================================================== */
 
   for (const jid of candidates) {
-    if (
-      jid &&
-      isPhoneJid(jid)
-    ) {
+    if (isPhoneJid(jid)) {
       return String(jid)
     }
   }
 
   /* ==========================================================
-   * SECOND CHOICE:
-   * ANY WHATSAPP JID
+   * SECOND: LID
    * ========================================================== */
 
   for (const jid of candidates) {
-    if (
-      jid &&
-      isUserJid(jid)
-    ) {
+    if (isLidJid(jid)) {
       return String(jid)
     }
   }
@@ -328,65 +352,89 @@ function getSenderName(stored) {
 }
 
 /* ============================================================
- * RESOLVE CHAT NAME
- *
- * If we have a real group JID, try WhatsApp group metadata.
- * If the message only contains a LID, preserve any known
- * stored chat name instead of pretending the LID is a name.
+ * GET CHAT NAME
  * ============================================================ */
 
-async function getChatInfo(sock, stored, key) {
-  const originalRemoteJid =
-    stored?.key?.remoteJid ||
-    key?.remoteJid ||
-    ''
-
-  const alternateRemoteJid =
-    stored?.key?.remoteJidAlt ||
-    key?.remoteJidAlt ||
-    ''
-
-  const candidates = [
-    originalRemoteJid,
-    alternateRemoteJid
-  ].filter(Boolean)
-
-  /* ==========================================================
-   * ALREADY STORED CHAT NAME
-   * ========================================================== */
-
-  const storedName =
+function getStoredChatName(stored) {
+  const name =
     stored?.chatName ||
     stored?.groupName ||
     stored?.key?.chatName ||
     stored?.key?.groupName
 
+  if (!name) {
+    return ''
+  }
+
+  const value =
+    String(name).trim()
+
+  if (
+    !value ||
+    value.endsWith('@lid') ||
+    value.endsWith('@g.us') ||
+    value.endsWith('@s.whatsapp.net')
+  ) {
+    return ''
+  }
+
+  return value
+}
+
+/* ============================================================
+ * GET CHAT INFO
+ * ============================================================ */
+
+async function getChatInfo(
+  sock,
+  stored,
+  key
+) {
+  const chatJid =
+    getChatJid(
+      stored,
+      key
+    )
+
   /* ==========================================================
-   * TRY REAL GROUP JID
+   * EXISTING STORED NAME
    * ========================================================== */
 
-  let groupJid = candidates.find(
-    jid => isGroupJid(jid)
-  )
+  const storedName =
+    getStoredChatName(
+      stored
+    )
 
-  if (groupJid && sock) {
+  /* ==========================================================
+   * GROUP METADATA
+   * ========================================================== */
+
+  if (
+    isGroupJid(chatJid) &&
+    sock
+  ) {
     try {
       const metadata =
         await sock.groupMetadata(
-          groupJid
+          chatJid
         )
 
       if (metadata?.subject) {
         return {
-          name: String(
-            metadata.subject
-          ),
-          jid: String(groupJid)
+          name:
+            String(
+              metadata.subject
+            ),
+
+          jid:
+            String(
+              chatJid
+            )
         }
       }
     } catch (error) {
       console.log(
-        '[ANTI-DELETE] Could not resolve group metadata: ' +
+        '[ANTI-DELETE] Group metadata lookup failed: ' +
           (
             error?.message ||
             error
@@ -396,112 +444,96 @@ async function getChatInfo(sock, stored, key) {
   }
 
   /* ==========================================================
-   * USE STORED NAME
+   * STORED CHAT NAME
    * ========================================================== */
 
-  if (
-    storedName &&
-    !String(storedName).includes('@lid') &&
-    !String(storedName).includes('@g.us')
-  ) {
+  if (storedName) {
     return {
-      name: String(storedName),
-      jid: String(
-        groupJid ||
-        originalRemoteJid ||
-        alternateRemoteJid ||
-        ''
-      )
+      name:
+        storedName,
+
+      jid:
+        chatJid
     }
   }
 
   /* ==========================================================
    * PRIVATE CHAT
-   *
-   * If this is a private conversation and we know the sender,
-   * use the sender's display name.
    * ========================================================== */
 
-  const senderJid =
-    getSenderJid(
-      stored,
-      key
-    )
-
-  const senderName =
-    getSenderName(
-      stored
-    )
-
   if (
-    senderJid &&
-    isPhoneJid(senderJid) &&
-    !candidates.some(
-      jid => isGroupJid(jid)
-    )
+    isPhoneJid(chatJid)
   ) {
     return {
-      name: String(senderName),
-      jid: String(senderJid)
+      name:
+        getSenderName(
+          stored
+        ),
+
+      jid:
+        chatJid
     }
   }
 
   /* ==========================================================
-   * FINAL FALLBACK
-   *
-   * Keep the real JID internally, but don't display a useless
-   * LID as the friendly chat name when we don't know it.
+   * LID FALLBACK
    * ========================================================== */
 
   return {
     name:
-      groupJid ||
-      originalRemoteJid ||
-      alternateRemoteJid ||
-      'Unknown',
+      isLidJid(chatJid)
+        ? 'WhatsApp Chat'
+        : chatJid,
 
     jid:
-      groupJid ||
-      originalRemoteJid ||
-      alternateRemoteJid ||
-      ''
+      chatJid
   }
 }
 
 /* ============================================================
- * BUILD MENTION
+ * BUILD REAL WHATSAPP MENTION
  *
- * WhatsApp requires:
+ * IMPORTANT:
  *
- * text: "@Name"
- * mentions: ["234xxxxxxxxxx@s.whatsapp.net"]
+ * The text MUST contain:
  *
- * The actual displayed contact name is controlled by WhatsApp.
+ * @2349054923918
+ *
+ * while `mentions` contains:
+ *
+ * 2349054923918@s.whatsapp.net
+ *
+ * WhatsApp/Baileys uses both pieces to render the mention.
  * ============================================================ */
 
-function buildMention(jid, fallbackName) {
+function buildMention(
+  jid
+) {
   if (
     !jid ||
     !isPhoneJid(jid)
   ) {
     return {
-      text: fallbackName || 'Unknown',
+      text: '',
       mentions: []
     }
   }
 
-  const cleanName =
-    String(
-      fallbackName ||
-      jid
-    )
-      .replace(/\n/g, ' ')
-      .trim()
+  const number =
+    String(jid)
+      .split('@')[0]
+      .replace(/\D/g, '')
+
+  if (!number) {
+    return {
+      text: '',
+      mentions: []
+    }
+  }
 
   return {
     text:
-      '@' +
-      cleanName,
+      '@' + number,
 
     mentions: [
       String(jid)
@@ -510,14 +542,7 @@ function buildMention(jid, fallbackName) {
 }
 
 /* ============================================================
- * BUILD ARCHIVE HEADER
- *
- * Returns BOTH:
- * - text
- * - mentions
- *
- * This allows the sender to become a real clickable WhatsApp
- * mention instead of plain text.
+ * BUILD HEADER
  * ============================================================ */
 
 async function buildHeader(
@@ -525,7 +550,7 @@ async function buildHeader(
   stored,
   key
 ) {
-  const sender =
+  const senderJid =
     getSenderJid(
       stored,
       key
@@ -543,52 +568,45 @@ async function buildHeader(
       key
     )
 
-  const senderMention =
+  const mention =
     buildMention(
-      sender,
-      senderName
+      senderJid
     )
 
-  const fromLine =
-    senderMention.mentions.length
-      ? '👤 *From:* ' +
-        senderMention.text
-      : '👤 *From:* ' +
-        senderName
+  /* ==========================================================
+   * SENDER DISPLAY
+   *
+   * If a real phone JID exists, use the actual mention syntax.
+   * Otherwise fall back safely to the sender name/JID.
+   * ========================================================== */
 
-  const senderLine =
-    senderMention.mentions.length
-      ? '🆔 *Sender:* ' +
-        senderMention.text
-      : '🆔 *Sender:* ' +
-        sender
+  const senderDisplay =
+    mention.mentions.length
+      ? mention.text
+      : senderName
 
-  const chatLine =
-    '💬 *Chat:* ' +
-    chat.name
-
-  const jidLine =
-    chat.jid
-      ? '🔗 *Chat JID:* ' +
-        chat.jid
-      : ''
+  const senderIdDisplay =
+    mention.mentions.length
+      ? mention.text
+      : senderJid
 
   return {
     text:
       '🗑️ *DELETED MESSAGE*\n\n' +
-      fromLine +
+      '👤 *From:* ' +
+      senderDisplay +
       '\n' +
-      senderLine +
+      '🆔 *Sender:* ' +
+      senderIdDisplay +
       '\n' +
-      chatLine +
-      (
-        jidLine
-          ? '\n' + jidLine
-          : ''
-      ),
+      '💬 *Chat:* ' +
+      chat.name +
+      '\n' +
+      '🔗 *Chat JID:* ' +
+      chat.jid,
 
     mentions:
-      senderMention.mentions
+      mention.mentions
   }
 }
 
@@ -602,7 +620,7 @@ async function sendDeletedText(
   stored,
   key
 ) {
-  const text =
+  const messageText =
     getText(
       stored.message
     )
@@ -619,15 +637,18 @@ async function sendDeletedText(
     '\n\n' +
     '📝 *Message:*\n' +
     (
-      text ||
+      messageText ||
       '(empty message)'
     )
 
   await sock.sendMessage(
     destination,
     {
-      text: output,
-      mentions: header.mentions
+      text:
+        output,
+
+      mentions:
+        header.mentions
     }
   )
 
@@ -845,8 +866,12 @@ async function sendDeletedMedia(
     await sock.sendMessage(
       destination,
       {
-        image: media,
-        caption,
+        image:
+          media,
+
+        caption:
+          caption,
+
         mentions:
           header.mentions
       }
@@ -869,8 +894,12 @@ async function sendDeletedMedia(
     await sock.sendMessage(
       destination,
       {
-        video: media,
-        caption,
+        video:
+          media,
+
+        caption:
+          caption,
+
         mentions:
           header.mentions
       }
@@ -893,10 +922,13 @@ async function sendDeletedMedia(
     await sock.sendMessage(
       destination,
       {
-        audio: media,
+        audio:
+          media,
+
         mimetype:
           message.audioMessage.mimetype ||
           'audio/mp4',
+
         ptt:
           Boolean(
             message.audioMessage.ptt
@@ -907,7 +939,9 @@ async function sendDeletedMedia(
     await sock.sendMessage(
       destination,
       {
-        text: caption,
+        text:
+          caption,
+
         mentions:
           header.mentions
       }
@@ -930,14 +964,20 @@ async function sendDeletedMedia(
     await sock.sendMessage(
       destination,
       {
-        document: media,
+        document:
+          media,
+
         mimetype:
           message.documentMessage.mimetype ||
           'application/octet-stream',
+
         fileName:
           message.documentMessage.fileName ||
           'deleted-file',
-        caption,
+
+        caption:
+          caption,
+
         mentions:
           header.mentions
       }
@@ -960,14 +1000,17 @@ async function sendDeletedMedia(
     await sock.sendMessage(
       destination,
       {
-        sticker: media
+        sticker:
+          media
       }
     )
 
     await sock.sendMessage(
       destination,
       {
-        text: caption,
+        text:
+          caption,
+
         mentions:
           header.mentions
       }
