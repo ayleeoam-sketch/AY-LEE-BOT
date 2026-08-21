@@ -709,15 +709,42 @@ WhatsApp > Settings > Linked devices > Link with phone number
           raw.key?.id
 
         if (messageId) {
-          messageStore.set(
-            messageId,
-            raw
-          )
+  messageStore.set(
+    messageId,
+    {
+      message: raw.message,
+      key: raw.key,
+      pushName: raw.pushName || null,
 
-          log.info(
-            `[ANTI-DELETE] Message stored: ${messageId}`
-          )
-        }
+      senderJid:
+        raw.key?.participant ||
+        raw.key?.remoteJid ||
+        null,
+
+      senderPn:
+        raw.key?.participantPn ||
+        raw.key?.senderPn ||
+        raw.key?.remoteJidAlt ||
+        null,
+
+      chatJid:
+        raw.key?.remoteJid ||
+        null,
+
+      chatJidAlt:
+        raw.key?.remoteJidAlt ||
+        null,
+
+      messageTimestamp:
+        raw.messageTimestamp ||
+        null
+    }
+  )
+
+  log.info(
+    `[ANTI-DELETE] Message stored: ${messageId}`
+  )
+}
 
         /* ======================================================
          * LIMIT STORE
