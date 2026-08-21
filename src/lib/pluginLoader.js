@@ -21,7 +21,7 @@ export const middlewares = []
 /*
  * Plugins that have onDelete()
  *
- * Anti-delete is registered here.
+ * Anti-delete handlers are registered here.
  */
 export const deleteHandlers = []
 
@@ -86,11 +86,9 @@ function register(plugin, file) {
 
   plugin.file = file
 
-  /*
-   * ==========================================================
+  /* ==========================================================
    * BEFORE MIDDLEWARE
-   * ==========================================================
-   */
+   * ========================================================== */
 
   if (
     typeof plugin.before === 'function'
@@ -98,23 +96,25 @@ function register(plugin, file) {
     middlewares.push(plugin)
   }
 
-  /*
-   * ==========================================================
+  /* ==========================================================
    * DELETE HANDLER
-   * ==========================================================
-   */
+   * ========================================================== */
 
   if (
     typeof plugin.onDelete === 'function'
   ) {
     deleteHandlers.push(plugin)
+
+    log.info(
+      `[PLUGIN] Delete handler registered: ${
+        plugin.name || path.basename(file)
+      }`
+    )
   }
 
-  /*
-   * ==========================================================
+  /* ==========================================================
    * COMMAND
-   * ==========================================================
-   */
+   * ========================================================== */
 
   if (
     plugin.name &&
@@ -173,9 +173,10 @@ function register(plugin, file) {
     return true
   }
 
-  /*
-   * Event-only plugins are valid.
-   */
+  /* ==========================================================
+   * EVENT-ONLY PLUGINS
+   * ========================================================== */
+
   if (
     typeof plugin.before === 'function' ||
     typeof plugin.onDelete === 'function'
@@ -247,14 +248,15 @@ export async function loadPlugins() {
         `Failed to load ${path.relative(
           config.pluginDir,
           file
-        )}: ${e.message}`
+        )}: ${e?.stack || e?.message || e}`
       )
     }
   }
 
-  /*
-   * Stable menu ordering.
-   */
+  /* ==========================================================
+   * STABLE MENU ORDERING
+   * ========================================================== */
+
   for (
     const [, list] of categories
   ) {
@@ -265,6 +267,10 @@ export async function loadPlugins() {
         )
     )
   }
+
+  /* ==========================================================
+   * LOAD SUMMARY
+   * ========================================================== */
 
   log.ok(
     `Loaded ${loadedCount} plugins across ${categories.size} categories`
@@ -278,9 +284,6 @@ export async function loadPlugins() {
     `Delete handlers: ${deleteHandlers.length}`
   )
 
-  /*
-   * Show exactly which delete handlers loaded.
-   */
   if (
     deleteHandlers.length
   ) {
@@ -293,6 +296,10 @@ export async function loadPlugins() {
           )
           .join(', ')
       }`
+    )
+  } else {
+    log.warn(
+      'No delete handlers were registered.'
     )
   }
 
