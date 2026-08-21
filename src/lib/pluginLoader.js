@@ -7,54 +7,53 @@ import log from './logger.js'
 /**
  * Plugin Loader
  *
- * Loads every .js file under /plugins.
+ * Supports:
  *
- * A normal command plugin:
+ * 1. Command plugins
+ *    export default {
+ *      name: 'ping',
+ *      async run() {}
+ *    }
  *
- * export default {
- *   name: 'ping',
- *   alias: ['p'],
- *   category: 'BOT',
- *   desc: 'Check bot response time',
- *   usage: '.ping',
+ * 2. Message middleware
+ *    export default {
+ *      name: 'antilink',
+ *      async before() {}
+ *    }
  *
- *   async run({ sock, m, args, text, command, plugins }) {
- *     ...
- *   }
- * }
+ * 3. Delete-event handlers
+ *    export default {
+ *      name: 'antidelete',
+ *      async onDelete() {}
+ *    }
  *
- * Plugins may also provide event hooks:
- *
- *   before()
- *   onDelete()
- *   onGroupUpdate()
- *
- * These hooks are registered in middlewares so the main
- * connection handler can call them.
+ * 4. Other event hooks can also be exported without
+ *    being incorrectly treated as before() middleware.
  */
 
 /* ============================================================
  * REGISTRIES
  * ============================================================ */
 
-/**
- * command name / alias -> plugin
- */
+/** command name/alias -> plugin */
 export const commands = new Map()
 
 /**
- * Plugins that have event hooks.
+ * Plugins that receive every normal message.
  *
- * Examples:
- * - before
- * - onDelete
- * - onGroupUpdate
+ * IMPORTANT:
+ * Only plugins with before() are placed here.
  */
 export const middlewares = []
 
 /**
- * category -> plugins
+ * Plugins that receive WhatsApp delete/revoke events.
+ *
+ * Anti-delete belongs here.
  */
+export const deleteHandlers = []
+
+/** category -> plugins */
 export const categories = new Map()
 
 let loadedCount = 0
@@ -98,39 +97,13 @@ function walk(dir) {
 }
 
 /* ============================================================
- * CHECK EVENT HOOKS
- * ============================================================ */
-
-/**
- * Returns true when a plugin contains at least
- * one supported event hook.
- *
- * Anti-delete is important here because it uses:
- *
- *   onDelete()
- */
-function hasEventHooks(plugin) {
-  if (!plugin) {
-    return false
-  }
-
-  return (
-    typeof plugin.before === 'function' ||
-    typeof plugin.onDelete === 'function' ||
-    typeof plugin.onGroupUpdate === 'function' ||
-    typeof plugin.onMessage === 'function' ||
-    typeof plugin.onCall === 'function'
-  )
-}
-
-/* ============================================================
  * REGISTER PLUGIN
  * ============================================================ */
 
 function register(plugin, file) {
-  if (!plugin) {
+  if (!plugin || typeof plugin !== 'object') {
     log.warn(
-      `Skipped ${path.basename(file)} - empty plugin`
+      `Skipped ${path.basename(file)} - invalid plugin export`
     )
 
     return false
@@ -138,129 +111,126 @@ function register(plugin, file) {
 
   /*
    * ----------------------------------------------------------
-   * EVENT HOOK ONLY PLUGIN
+   * MESSAGE MIDDLEWARE
    * ----------------------------------------------------------
    *
-   * A plugin can exist only to listen for events.
-   *
-   * Example:
-   *
-   * export default {
-   *   onDelete() {}
-   * }
-   *
-   * Such a plugin does not need name/run.
+   * Only plugins that actually have before() go here.
    */
-  const eventPlugin =
-    hasEventHooks(plugin)
-
-  /*
-   * ----------------------------------------------------------
-   * NORMAL COMMAND VALIDATION
-   * ----------------------------------------------------------
-   */
-
   if (
-    (!plugin.name ||
-      typeof plugin.run !== 'function') &&
-    !eventPlugin
+    typeof plugin.before === 'function'
   ) {
-    log.warn(
-      `Skipped ${path.basename(file)} - missing "name" or "run"`
-    )
-
-    return false
+    middlewares.push(plugin)
   }
 
   /*
    * ----------------------------------------------------------
-   * REGISTER COMMAND
+   * DELETE HANDLER
+   * ----------------------------------------------------------
+   *
+   * Anti-delete/snipe hooks go here.
+   */
+  if (
+    typeof plugin.onDelete === 'function'
+  ) {
+    deleteHandlers.push(plugin)
+  }
+
+  /*
+   * ----------------------------------------------------------
+   * COMMAND PLUGIN
    * ----------------------------------------------------------
    */
 
   if (
-    plugin.name &&
-    typeof plugin.run === 'function'
+    !plugin.name ||
+    typeof plugin.run !== 'function'
   ) {
-    plugin.file = file
+    /*
+     * A plugin can legitimately be an event-only plugin.
+     *
+     * So don't complain if it has one of our supported hooks.
+     */
+    const isHookOnly =
+      typeof plugin.before === 'function' ||
+      typeof plugin.onDelete === 'function'
 
-    plugin.category =
-      (
-        plugin.category ||
-        'MISC'
-      ).toUpperCase()
-
-    const names = [
-      plugin.name,
-      ...(Array.isArray(plugin.alias)
-        ? plugin.alias
-        : [])
-    ]
-      .filter(Boolean)
-      .map(
-        (n) =>
-          String(n).toLowerCase()
+    if (!isHookOnly) {
+      log.warn(
+        `Skipped ${path.basename(file)} - missing "name" or "run"`
       )
 
-    for (
-      const n of names
-    ) {
-      if (commands.has(n)) {
-        log.warn(
-          `Duplicate command "${n}" in ${path.basename(file)} - overriding`
-        )
-      }
-
-      commands.set(
-        n,
-        plugin
-      )
+      return false
     }
 
     /*
-     * Add to menu categories only
-     * for actual command plugins.
+     * Event-only plugin successfully loaded.
      */
+    plugin.file = file
+
+    return true
+  }
+
+  /* ==========================================================
+   * COMMAND METADATA
+   * ========================================================== */
+
+  plugin.file = file
+
+  plugin.category =
+    (
+      plugin.category ||
+      'MISC'
+    ).toUpperCase()
+
+  /*
+   * Command name + aliases
+   */
+  const names = [
+    plugin.name,
+    ...(Array.isArray(plugin.alias)
+      ? plugin.alias
+      : [])
+  ]
+    .filter(Boolean)
+    .map(
+      (n) =>
+        String(n).toLowerCase()
+    )
+
+  for (
+    const name of names
+  ) {
     if (
-      !categories.has(
-        plugin.category
-      )
+      commands.has(name)
     ) {
-      categories.set(
-        plugin.category,
-        []
+      log.warn(
+        `Duplicate command "${name}" in ${path.basename(file)} - overriding`
       )
     }
 
-    categories
-      .get(plugin.category)
-      .push(plugin)
+    commands.set(
+      name,
+      plugin
+    )
   }
 
   /*
-   * ----------------------------------------------------------
-   * REGISTER EVENT HOOK
-   * ----------------------------------------------------------
-   *
-   * THIS IS THE IMPORTANT FIX.
-   *
-   * Previously only plugins with before()
-   * were added to middlewares.
-   *
-   * Anti-delete has onDelete(), so it was
-   * never being called.
+   * Category
    */
-  if (eventPlugin) {
-    if (
-      !middlewares.includes(plugin)
-    ) {
-      middlewares.push(plugin)
-    }
-
-    log.info(
-      `[PLUGIN] Event hooks registered: ${path.basename(file)}`
+  if (
+    !categories.has(
+      plugin.category
+    )
+  ) {
+    categories.set(
+      plugin.category,
+      []
     )
   }
+
+  categories
+    .get(plugin.category)
+    .push(plugin)
 
   return true
 }
@@ -270,44 +240,30 @@ function register(plugin, file) {
  * ============================================================ */
 
 /**
- * Load every plugin from disk.
+ * Load every plugin from config.pluginDir.
  */
 export async function loadPlugins() {
-  /*
-   * Clear previous registry.
-   */
   commands.clear()
 
   middlewares.length = 0
+
+  deleteHandlers.length = 0
 
   categories.clear()
 
   loadedCount = 0
 
-  /*
-   * Find every JS plugin.
-   */
   const files =
     walk(
       config.pluginDir
     )
 
-  log.info(
-    `[PLUGIN] Scanning ${files.length} plugin files...`
-  )
-
-  /*
-   * Load each plugin.
-   */
   for (
     const file of files
   ) {
     try {
       /*
-       * Cache buster.
-       *
-       * This ensures reloads actually read
-       * the newest version of the file.
+       * Cache buster allows plugin reloads.
        */
       const mod =
         await import(
@@ -318,7 +274,9 @@ export async function loadPlugins() {
         mod.default || mod
 
       /*
-       * Support a file exporting multiple plugins.
+       * Support:
+       *
+       * export default [...]
        */
       if (
         Array.isArray(plugin)
@@ -350,20 +308,18 @@ export async function loadPlugins() {
         `Failed to load ${path.relative(
           config.pluginDir,
           file
-        )}: ${e.message}`
+        )}:`,
+        e.message
       )
     }
   }
 
-  /*
-   * ----------------------------------------------------------
+  /* ==========================================================
    * STABLE MENU ORDER
-   * ----------------------------------------------------------
-   */
+   * ========================================================== */
 
   for (
-    const [, list]
-    of categories
+    const [, list] of categories
   ) {
     list.sort(
       (a, b) =>
@@ -373,58 +329,38 @@ export async function loadPlugins() {
     )
   }
 
-  /*
-   * ----------------------------------------------------------
-   * DEBUG INFORMATION
-   * ----------------------------------------------------------
-   */
-
   log.ok(
     `Loaded ${loadedCount} plugins across ${categories.size} categories`
   )
 
   log.ok(
-    `Registered ${middlewares.length} event middleware(s)`
+    `Message middleware: ${middlewares.length}`
   )
 
-  /*
-   * Specifically tell us whether anti-delete
-   * has been registered.
-   */
-  const antiDeleteMiddleware =
-    middlewares.find(
-      (plugin) =>
-        plugin?.name ===
-        'antidelete'
-    )
-
-  if (
-    antiDeleteMiddleware
-  ) {
-    log.ok(
-      '[ANTI-DELETE] onDelete hook registered successfully'
-    )
-  }
+  log.ok(
+    `Delete handlers: ${deleteHandlers.length}`
+  )
 
   return {
     commands,
     categories,
     middlewares,
+    deleteHandlers,
     count: loadedCount
   }
 }
 
 /* ============================================================
- * PLUGIN COUNT
+ * HELPERS
  * ============================================================ */
 
 export const pluginCount =
-  () => loadedCount
+  () =>
+    loadedCount
 
-/* ============================================================
- * FIND COMMAND
- * ============================================================ */
-
+/**
+ * Resolve command name or alias.
+ */
 export const findCommand =
   (name) =>
     commands.get(
@@ -442,6 +378,7 @@ export default {
   commands,
   categories,
   middlewares,
+  deleteHandlers,
   findCommand,
   pluginCount
 }
