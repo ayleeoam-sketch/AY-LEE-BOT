@@ -2,32 +2,35 @@ import { getVar, setVar } from '../../src/lib/vars.js'
 
 /* ============================================================
  * ANTI-DELETE
+ *
+ * IMPORTANT:
+ * This file does NOT modify:
+ * - connection.js
+ * - auth/session
+ * - QR handling
+ * - reconnect logic
+ * - plugin loader
+ * - delete handler
+ * - database
  * ============================================================ */
 
-/**
- * Normalize an archive destination.
- *
- * Accepts:
- * - WhatsApp group JID
- * - WhatsApp private JID
- * - Plain phone number
- */
+/* ============================================================
+ * NORMALIZE ARCHIVE DESTINATION
+ * ============================================================ */
+
 function normalizeDestination(value) {
   if (!value) return ''
 
   let destination = String(value).trim()
 
-  /* WhatsApp group JID */
   if (destination.endsWith('@g.us')) {
     return destination
   }
 
-  /* WhatsApp private JID */
   if (destination.endsWith('@s.whatsapp.net')) {
     return destination
   }
 
-  /* Phone number */
   destination = destination.replace(/\D/g, '')
 
   if (destination.length < 7) {
@@ -140,7 +143,150 @@ function getArchiveDestination() {
 }
 
 /* ============================================================
- * SEND TEXT
+ * ID HELPERS
+ * ============================================================ */
+
+function isGroupJid(jid) {
+  return Boolean(
+    jid &&
+    String(jid).endsWith('@g.us')
+  )
+}
+
+function isUserJid(jid) {
+  return Boolean(
+    jid &&
+    (
+      String(jid).endsWith('@s.whatsapp.net') ||
+      String(jid).endsWith('@lid')
+    )
+  )
+}
+
+/* ============================================================
+ * GET CHAT JID
+ *
+ * For group messages:
+ *   remoteJid = group JID
+ *
+ * For private messages:
+ *   remoteJid = private chat JID
+ * ============================================================ */
+
+function getChatJid(stored, key) {
+  const candidates = [
+    stored?.key?.remoteJid,
+    key?.remoteJid
+  ]
+
+  for (const jid of candidates) {
+    if (jid) {
+      return String(jid)
+    }
+  }
+
+  return 'Unknown'
+}
+
+/* ============================================================
+ * GET PARTICIPANT / SENDER
+ *
+ * Priority:
+ *
+ * 1. stored.key.participant
+ * 2. key.participant
+ * 3. participant inside message context
+ * 4. remoteJid for private chats
+ *
+ * @lid is preserved when that is all WhatsApp provides.
+ * ============================================================ */
+
+function getSenderJid(stored, key) {
+  const message =
+    unwrapMessage(
+      stored?.message
+    )
+
+  const candidates = [
+    stored?.key?.participant,
+    key?.participant,
+
+    message?.extendedTextMessage?.contextInfo?.participant,
+    message?.imageMessage?.contextInfo?.participant,
+    message?.videoMessage?.contextInfo?.participant,
+    message?.documentMessage?.contextInfo?.participant,
+    message?.audioMessage?.contextInfo?.participant,
+
+    !isGroupJid(stored?.key?.remoteJid)
+      ? stored?.key?.remoteJid
+      : null,
+
+    !isGroupJid(key?.remoteJid)
+      ? key?.remoteJid
+      : null
+  ]
+
+  for (const jid of candidates) {
+    if (jid && isUserJid(jid)) {
+      return String(jid)
+    }
+  }
+
+  for (const jid of candidates) {
+    if (jid) {
+      return String(jid)
+    }
+  }
+
+  return 'Unknown'
+}
+
+/* ============================================================
+ * GET SENDER NAME
+ * ============================================================ */
+
+function getSenderName(stored) {
+  return (
+    stored?.pushName ||
+    stored?.notifyName ||
+    stored?.verifiedBizName ||
+    stored?.key?.participantPn ||
+    'Unknown'
+  )
+}
+
+/* ============================================================
+ * GET CHAT NAME
+ *
+ * We cannot always know the group name from the deleted-message
+ * object itself.
+ *
+ * If your message store contains chatName/name, use it.
+ * Otherwise safely fall back to the JID.
+ * ============================================================ */
+
+function getChatName(stored, key) {
+  const chatName =
+    stored?.chatName ||
+    stored?.groupName ||
+    stored?.key?.chatName ||
+    stored?.key?.groupName
+
+  if (chatName) {
+    return String(chatName)
+  }
+
+  const chatJid =
+    getChatJid(
+      stored,
+      key
+    )
+
+  return chatJid
+}
+
+/* ============================================================
+ * SEND DELETED TEXT
  * ============================================================ */
 
 async function sendDeletedText(
@@ -149,22 +295,33 @@ async function sendDeletedText(
   stored,
   key
 ) {
-  const text = getText(stored.message)
+  const text =
+    getText(
+      stored.message
+    )
 
   const sender =
-    stored.key?.participant ||
-    key.participant ||
-    stored.key?.remoteJid ||
-    'Unknown'
+    getSenderJid(
+      stored,
+      key
+    )
 
   const name =
-    stored.pushName ||
-    'Unknown'
+    getSenderName(
+      stored
+    )
 
-  const chat =
-    stored.key?.remoteJid ||
-    key.remoteJid ||
-    'Unknown'
+  const chatJid =
+    getChatJid(
+      stored,
+      key
+    )
+
+  const chatName =
+    getChatName(
+      stored,
+      key
+    )
 
   const output =
     '🗑️ *DELETED MESSAGE*\n\n' +
@@ -175,10 +332,16 @@ async function sendDeletedText(
     sender +
     '\n' +
     '💬 *Chat:* ' +
-    chat +
+    chatName +
+    '\n' +
+    '🔗 *Chat JID:* ' +
+    chatJid +
     '\n\n' +
     '📝 *Message:*\n' +
-    (text || '(empty message)')
+    (
+      text ||
+      '(empty message)'
+    )
 
   await sock.sendMessage(
     destination,
@@ -189,7 +352,7 @@ async function sendDeletedText(
 }
 
 /* ============================================================
- * SEND MEDIA
+ * SEND DELETED MEDIA
  * ============================================================ */
 
 async function sendDeletedMedia(
@@ -204,22 +367,32 @@ async function sendDeletedMedia(
     )
 
   const sender =
-    stored.key?.participant ||
-    key.participant ||
-    stored.key?.remoteJid ||
-    'Unknown'
+    getSenderJid(
+      stored,
+      key
+    )
 
   const name =
-    stored.pushName ||
-    'Unknown'
+    getSenderName(
+      stored
+    )
 
-  const chat =
-    stored.key?.remoteJid ||
-    key.remoteJid ||
-    'Unknown'
+  const chatJid =
+    getChatJid(
+      stored,
+      key
+    )
+
+  const chatName =
+    getChatName(
+      stored,
+      key
+    )
 
   const type =
-    getType(message)
+    getType(
+      message
+    )
 
   const caption =
     '🗑️ *DELETED MESSAGE*\n\n' +
@@ -230,13 +403,19 @@ async function sendDeletedMedia(
     sender +
     '\n' +
     '💬 *Chat:* ' +
-    chat +
+    chatName +
+    '\n' +
+    '🔗 *Chat JID:* ' +
+    chatJid +
     '\n' +
     '📦 *Type:* ' +
     type +
     '\n\n' +
     '📝 *Caption:*\n' +
-    (getText(message) || '(none)')
+    (
+      getText(message) ||
+      '(none)'
+    )
 
   /* ==========================================================
    * IMAGE
@@ -384,8 +563,7 @@ async function sendDeletedMedia(
 /* ============================================================
  * MEDIA DOWNLOADER
  *
- * Dynamically imports Baileys so this plugin remains compatible
- * with the existing project.
+ * Dynamically imports Baileys.
  * ============================================================ */
 
 async function downloadMediaMessageSafe(message) {
@@ -406,7 +584,7 @@ async function downloadMediaMessageSafe(message) {
 
     const raw =
       unwrapMessage(
-        message.message
+        message?.message
       )
 
     if (!raw) {
@@ -419,23 +597,28 @@ async function downloadMediaMessageSafe(message) {
     if (raw.imageMessage) {
       mediaMessage =
         raw.imageMessage
-      mediaType = 'image'
+      mediaType =
+        'image'
     } else if (raw.videoMessage) {
       mediaMessage =
         raw.videoMessage
-      mediaType = 'video'
+      mediaType =
+        'video'
     } else if (raw.audioMessage) {
       mediaMessage =
         raw.audioMessage
-      mediaType = 'audio'
+      mediaType =
+        'audio'
     } else if (raw.documentMessage) {
       mediaMessage =
         raw.documentMessage
-      mediaType = 'document'
+      mediaType =
+        'document'
     } else if (raw.stickerMessage) {
       mediaMessage =
         raw.stickerMessage
-      mediaType = 'sticker'
+      mediaType =
+        'sticker'
     }
 
     if (
@@ -684,10 +867,9 @@ const antidelete = {
   /* ==========================================================
    * ON DELETE
    *
-   * This is registered directly in deleteHandlers by
-   * pluginLoader.js.
-   *
-   * connection.js calls this when WhatsApp reports a revoke.
+   * IMPORTANT:
+   * Keep this function name/signature exactly as your existing
+   * plugin loader expects.
    * ========================================================== */
 
   async onDelete({
@@ -743,7 +925,7 @@ const antidelete = {
      * ======================================================== */
 
     const stored =
-      messageStore.get(
+      messageStore?.get(
         key.id
       )
 
@@ -766,6 +948,26 @@ const antidelete = {
         getType(
           stored.message
         )
+
+      /* ======================================================
+       * DEBUG INFORMATION
+       * ====================================================== */
+
+      console.log(
+        '[ANTI-DELETE] Sender: ' +
+          getSenderJid(
+            stored,
+            key
+          )
+      )
+
+      console.log(
+        '[ANTI-DELETE] Chat: ' +
+          getChatJid(
+            stored,
+            key
+          )
+      )
 
       /* ======================================================
        * TEXT
