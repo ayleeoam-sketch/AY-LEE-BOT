@@ -1852,7 +1852,7 @@ const mafia = {
  * ---------------------------------------------------------------- */
 
 export default [
-  ttt,
+  tttGame,
   rpsGame,
   diceGame,
   numberBattle,
