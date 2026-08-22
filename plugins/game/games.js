@@ -10,700 +10,175 @@ import { pick } from '../../src/lib/utils.js'
 
 /*
  * ================================================================
- * AY-LEE BOT — MULTIPLAYER GAME ENGINE
+ * AY-LEE BOT — GROUP GAMES
  * ================================================================
  *
- * HOST MODE:
+ * ARCHITECTURE
  *
- * .dice @player
- * -> You vs @player
- *
- * .dice @player1 @player2
- * -> @player1 vs @player2
- * -> You are only the host
- *
- * Players NEVER need the "." prefix.
+ * Only the bot owner/admin starts a game using the "." prefix.
  *
  * Example:
  *
- * Host:
- *   .rps @John @Mike
+ * .dicebattle @user1 @user2
  *
- * John:
- *   ACCEPT
+ * The selected players then play normally.
+ * They DO NOT need to use ".".
  *
- * Mike:
- *   ACCEPT
- *
- * John:
- *   ROCK
- *
- * Mike:
- *   SCISSORS
- *
- * Bot:
- *   John wins!
+ * The person starting the game does NOT have to participate.
  *
  * ================================================================
  */
 
+/* ----------------------------------------------------------------
+ * GAME STORAGE
+ * ---------------------------------------------------------------- */
+
 const games = new Map()
 
-const WIN_REWARD = 500
-const DRAW_REWARD = 100
-const ACCEPT_TIMEOUT = 60_000
-const GAME_TIMEOUT = 120_000
+const getGame = (chat) => games.get(chat)
 
-const clean = (x) =>
-  String(x || '')
-    .trim()
-    .toLowerCase()
+const setGame = (chat, game) => {
+  games.set(chat, game)
+}
 
-const mentionNumber = (jid) =>
-  String(jid || '').split('@')[0].split(':')[0]
+const deleteGame = (chat) => {
+  games.delete(chat)
+}
 
-const mentions = (...users) =>
-  users.filter(Boolean)
+/* ----------------------------------------------------------------
+ * HELPERS
+ * ---------------------------------------------------------------- */
 
 const sleep = (ms) =>
   new Promise((resolve) => setTimeout(resolve, ms))
 
+const nameOf = (jid) =>
+  `@${String(jid || '').split('@')[0]}`
+
+const mentionUsers = (players = []) =>
+  players.filter(Boolean)
+
+const clean = (text = '') =>
+  String(text).trim().toLowerCase()
+
+const randomChoice = (arr) =>
+  arr[Math.floor(Math.random() * arr.length)]
+
+const shuffle = (arr) => {
+  const a = [...arr]
+
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[a[i], a[j]] = [a[j], a[i]]
+  }
+
+  return a
+}
+
 async function reward(jid, amount) {
-  try {
-    const user = await getUser(jid)
-    user.wallet += amount
-    await saveUser(user)
-    return user.wallet
-  } catch {
-    return null
-  }
+  const u = await getUser(jid)
+
+  u.wallet += amount
+
+  await saveUser(u)
+
+  return u
 }
 
-function gameKey(chat) {
-  return String(chat)
-}
+async function startDuel(m, command, playersNeeded = 2) {
+  const players = m.mentions || []
 
-function getGame(chat) {
-  return games.get(gameKey(chat))
-}
-
-function setGame(chat, game) {
-  games.set(gameKey(chat), game)
-}
-
-function deleteGame(chat) {
-  games.delete(gameKey(chat))
-}
-
-function isPlayer(game, jid) {
-  return game?.players?.includes(jid)
-}
-
-function otherPlayer(game, jid) {
-  return game.players.find((x) => x !== jid)
-}
-
-function playerTag(jid) {
-  return `@${mentionNumber(jid)}`
-}
-
-function gamePlayersText(game) {
-  return `${playerTag(game.players[0])} ⚔️ ${playerTag(game.players[1])}`
-}
-
-async function finishGame(m, game, winner, loser, draw = false) {
-  deleteGame(m.chat)
-
-  if (draw) {
-    await Promise.all(
-      game.players.map((p) => reward(p, DRAW_REWARD))
-    )
-
-    return m.reply({
-      text:
-        `🤝 *DRAW!*\n\n` +
-        `${gamePlayersText(game)}\n\n` +
-        `Both players receive ${CURRENCY} ${comma(DRAW_REWARD)}.`,
-      mentions: game.players
-    })
+  if (players.length !== playersNeeded) {
+    return {
+      error: `🎮 Tag exactly ${playersNeeded} players.\n\nExample:\n*.${command} @user1 @user2*`
+    }
   }
 
-  const wallet = await reward(winner, WIN_REWARD)
+  const unique = [...new Set(players)]
 
-  await m.reply({
-    text:
-      `🏆 *GAME OVER!*\n\n` +
-      `${gamePlayersText(game)}\n\n` +
-      `🥇 ${playerTag(winner)} *WINS!*\n` +
-      `💰 Prize: ${CURRENCY} ${comma(WIN_REWARD)}` +
-      (wallet !== null
-        ? `\n💵 Wallet: ${CURRENCY} ${comma(wallet)}`
-        : ''),
-    mentions: game.players
-  })
-}
+  if (unique.length !== playersNeeded) {
+    return {
+      error: '❌ Each player must be different.'
+    }
+  }
 
-/* ================================================================
- * START / ACCEPT SYSTEM
- * ================================================================ */
-
-async function createDuel({
-  m,
-  command,
-  players,
-  title,
-  instructions,
-  data = {}
-}) {
   if (games.has(m.chat)) {
-    return m.reply(
-      '🎮 A game is already running in this group.\n\n' +
-      'Use *.endgame* to cancel it.'
-    )
-  }
-
-  if (!players || players.length !== 2) {
-    return m.reply(
-      `🎮 Usage:\n\n` +
-      `.${command} @player\n` +
-      `or\n` +
-      `.${command} @player1 @player2`
-    )
-  }
-
-  if (players[0] === players[1]) {
-    return m.reply('❌ The two players must be different.')
-  }
-
-  const game = {
-    type: command,
-    title,
-    host: m.sender,
-    players,
-    accepted: new Set(),
-    stage: 'accept',
-    createdAt: Date.now(),
-    data
-  }
-
-  setGame(m.chat, game)
-
-  const timer = setTimeout(async () => {
-    const current = getGame(m.chat)
-
-    if (current === game && current.stage === 'accept') {
-      deleteGame(m.chat)
-
-      try {
-        await m.send(
-          `⏰ *${title}*\n\n` +
-          `Game cancelled because the players did not accept in time.`
-        )
-      } catch {}
+    return {
+      error:
+        '🎮 A game is already running in this group.\n\n' +
+        'Use *.endgame* to stop it first.'
     }
-  }, ACCEPT_TIMEOUT)
+  }
 
-  game.acceptTimer = timer
-
-  await m.reply({
-    text:
-      `🎮 *${title}*\n\n` +
-      `${gamePlayersText(game)}\n\n` +
-      `👑 Host: ${playerTag(game.host)}\n\n` +
-      `Both players should reply *ACCEPT*.\n` +
-      `Reply *DECLINE* to reject.\n\n` +
-      `${instructions}`,
-    mentions: [
-      ...game.players,
-      game.host
-    ]
-  })
+  return {
+    players: unique
+  }
 }
 
-/* ================================================================
- * GENERIC ACCEPT HANDLER
- * ================================================================ */
+function playerInGame(g, jid) {
+  return g.players?.includes(jid)
+}
 
-async function handleAccept(m, game) {
-  const text = clean(m.body)
+/* ----------------------------------------------------------------
+ * TIC TAC TOE
+ * ---------------------------------------------------------------- */
 
-  if (!['accept', 'yes', 'decline', 'no'].includes(text)) {
-    return false
-  }
+const WINS = [
+  [0, 1, 2],
+  [3, 4, 5],
+  [6, 7, 8],
+  [0, 3, 6],
+  [1, 4, 7],
+  [2, 5, 8],
+  [0, 4, 8],
+  [2, 4, 6]
+]
 
-  if (!isPlayer(game, m.sender)) {
-    return false
-  }
+function renderTTT(board) {
+  const nums = [
+    '1️⃣',
+    '2️⃣',
+    '3️⃣',
+    '4️⃣',
+    '5️⃣',
+    '6️⃣',
+    '7️⃣',
+    '8️⃣',
+    '9️⃣'
+  ]
 
-  if (text === 'decline' || text === 'no') {
-    clearTimeout(game.acceptTimer)
-    deleteGame(m.chat)
-
-    await m.reply({
-      text:
-        `❌ ${playerTag(m.sender)} declined the game.\n\n` +
-        `🎮 Game cancelled.`,
-      mentions: game.players
-    })
-
-    return true
-  }
-
-  game.accepted.add(m.sender)
-
-  if (game.accepted.size < 2) {
-    await m.reply(
-      `✅ ${playerTag(m.sender)} accepted.\n\n` +
-      `Waiting for the other player...`
+  return board
+    .map((c, i) =>
+      c === ' '
+        ? nums[i]
+        : c === 'X'
+          ? '❌'
+          : '⭕'
     )
-
-    return true
-  }
-
-  clearTimeout(game.acceptTimer)
-
-  game.stage = 'playing'
-  game.startedAt = Date.now()
-
-  await startGame(m, game)
-
-  game.gameTimer = setTimeout(async () => {
-    const current = getGame(m.chat)
-
-    if (current === game) {
-      deleteGame(m.chat)
-
-      try {
-        await m.send(
-          `⏰ *${game.title}*\n\n` +
-          `Game timed out because the players took too long.`
-        )
-      } catch {}
-    }
-  }, GAME_TIMEOUT)
-
-  return true
-}
-
-/* ================================================================
- * 1. DICE BATTLE
- * ================================================================ */
-
-async function startDice(m, game) {
-  game.data.rolls = {}
-
-  await m.reply({
-    text:
-      `🎲 *DICE BATTLE*\n\n` +
-      `${gamePlayersText(game)}\n\n` +
-      `Reply *ROLL* to roll your dice.\n` +
-      `First player to roll does not automatically win — both must roll.`,
-    mentions: game.players
-  })
-}
-
-async function handleDice(m, game) {
-  if (clean(m.body) !== 'roll') return false
-  if (!isPlayer(game, m.sender)) return false
-
-  if (game.data.rolls[m.sender]) {
-    await m.reply('🎲 You already rolled.')
-    return true
-  }
-
-  const value = rand(1, 6)
-  game.data.rolls[m.sender] = value
-
-  await m.reply(
-    `🎲 ${playerTag(m.sender)} rolled *${value}*!`
-  )
-
-  if (Object.keys(game.data.rolls).length === 2) {
-    const [a, b] = game.players
-    const av = game.data.rolls[a]
-    const bv = game.data.rolls[b]
-
-    clearTimeout(game.gameTimer)
-
-    if (av === bv) {
-      return finishGame(m, game, null, null, true)
-    }
-
-    return finishGame(
-      m,
-      game,
-      av > bv ? a : b,
-      av > bv ? b : a
+    .reduce(
+      (s, c, i) =>
+        s + c + ((i + 1) % 3 ? ' ' : '\n'),
+      ''
     )
-  }
-
-  return true
 }
 
-/* ================================================================
- * 2. ROCK PAPER SCISSORS
- * ================================================================ */
+function tttWinner(board) {
+  for (const [a, b, c] of WINS) {
+    if (
+      board[a] !== ' ' &&
+      board[a] === board[b] &&
+      board[b] === board[c]
+    ) {
+      return board[a]
+    }
+  }
 
-async function startRps(m, game) {
-  game.data.moves = {}
-
-  await m.reply(
-    `✊ *ROCK PAPER SCISSORS*\n\n` +
-    `Both players reply with:\n\n` +
-    `ROCK 🪨\n` +
-    `PAPER 📄\n` +
-    `SCISSORS ✂️`
-  )
+  return board.includes(' ') ? null : 'draw'
 }
 
-async function handleRps(m, game) {
-  if (!isPlayer(game, m.sender)) return false
-
-  const move = clean(m.body)
-
-  if (!['rock', 'paper', 'scissors'].includes(move)) {
-    return false
-  }
-
-  if (game.data.moves[m.sender]) {
-    await m.reply('You already selected your move.')
-    return true
-  }
-
-  game.data.moves[m.sender] = move
-
-  await m.reply('✅ Move locked.')
-
-  if (Object.keys(game.data.moves).length !== 2) {
-    return true
-  }
-
-  const [a, b] = game.players
-  const x = game.data.moves[a]
-  const y = game.data.moves[b]
-
-  clearTimeout(game.gameTimer)
-
-  if (x === y) {
-    return finishGame(m, game, null, null, true)
-  }
-
-  const wins = {
-    rock: 'scissors',
-    paper: 'rock',
-    scissors: 'paper'
-  }
-
-  const winner = wins[x] === y ? a : b
-  const loser = winner === a ? b : a
-
-  return finishGame(m, game, winner, loser)
-}
-
-/* ================================================================
- * 3. COIN DUEL
- * ================================================================ */
-
-async function startCoin(m, game) {
-  game.data.choices = {}
-
-  await m.reply(
-    `🪙 *COIN DUEL*\n\n` +
-    `Both players choose:\n\n` +
-    `HEADS 🪙\n` +
-    `TAILS 🪙\n\n` +
-    `Reply *HEADS* or *TAILS*.`
-  )
-}
-
-async function handleCoin(m, game) {
-  if (!isPlayer(game, m.sender)) return false
-
-  const choice = clean(m.body)
-
-  if (!['heads', 'tails'].includes(choice)) {
-    return false
-  }
-
-  if (game.data.choices[m.sender]) {
-    await m.reply('You already chose.')
-    return true
-  }
-
-  game.data.choices[m.sender] = choice
-
-  await m.reply('🪙 Choice locked.')
-
-  if (Object.keys(game.data.choices).length !== 2) {
-    return true
-  }
-
-  const result = Math.random() < 0.5 ? 'heads' : 'tails'
-  const winner = game.players.find(
-    (p) => game.data.choices[p] === result
-  )
-
-  clearTimeout(game.gameTimer)
-
-  if (!winner) {
-    return finishGame(m, game, null, null, true)
-  }
-
-  return finishGame(
-    m,
-    game,
-    winner,
-    otherPlayer(game, winner)
-  )
-}
-
-/* ================================================================
- * 4. HIGH CARD
- * ================================================================ */
-
-async function startHighCard(m, game) {
-  const cards = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-  game.data.cards = {}
-
-  await m.reply(
-    `🃏 *HIGH CARD*\n\n` +
-    `Both players reply *DRAW*.\n` +
-    `The higher card wins!`
-  )
-}
-
-async function handleHighCard(m, game) {
-  if (!isPlayer(game, m.sender)) return false
-  if (clean(m.body) !== 'draw') return false
-
-  if (game.data.cards[m.sender]) {
-    await m.reply('🃏 You already drew.')
-    return true
-  }
-
-  const card = rand(1, 10)
-  game.data.cards[m.sender] = card
-
-  await m.reply(
-    `🃏 ${playerTag(m.sender)} drew *${card}*.`
-  )
-
-  if (Object.keys(game.data.cards).length !== 2) {
-    return true
-  }
-
-  const [a, b] = game.players
-
-  clearTimeout(game.gameTimer)
-
-  if (game.data.cards[a] === game.data.cards[b]) {
-    return finishGame(m, game, null, null, true)
-  }
-
-  const winner =
-    game.data.cards[a] > game.data.cards[b] ? a : b
-
-  return finishGame(
-    m,
-    game,
-    winner,
-    otherPlayer(game, winner)
-  )
-}
-
-/* ================================================================
- * 5. REACTION BATTLE
- * ================================================================ */
-
-async function startReaction(m, game) {
-  const delay = rand(3, 8) * 1000
-
-  game.data.ready = {}
-  game.data.started = false
-
-  await m.reply(
-    `⚡ *REACTION BATTLE*\n\n` +
-    `Wait for the bot to say:\n\n` +
-    `🔥 *GO!*\n\n` +
-    `Then immediately reply *GO*.`
-  )
-
-  setTimeout(async () => {
-    const current = getGame(m.chat)
-
-    if (current !== game) return
-
-    game.data.started = true
-    game.data.goTime = Date.now()
-
-    await m.send(
-      `🔥🔥🔥 *GO!* 🔥🔥🔥`
-    ).catch(() => {})
-  }, delay)
-}
-
-async function handleReaction(m, game) {
-  if (!isPlayer(game, m.sender)) return false
-  if (clean(m.body) !== 'go') return false
-
-  if (!game.data.started) {
-    await m.reply('❌ Too early! Wait for GO!')
-    return true
-  }
-
-  if (game.data.ready[m.sender]) return true
-
-  game.data.ready[m.sender] =
-    Date.now() - game.data.goTime
-
-  await m.reply(
-    `⚡ ${playerTag(m.sender)} reacted in *${game.data.ready[m.sender]}ms*!`
-  )
-
-  if (Object.keys(game.data.ready).length !== 2) {
-    return true
-  }
-
-  clearTimeout(game.gameTimer)
-
-  const [a, b] = game.players
-
-  const winner =
-    game.data.ready[a] < game.data.ready[b] ? a : b
-
-  return finishGame(
-    m,
-    game,
-    winner,
-    otherPlayer(game, winner)
-  )
-}
-
-/* ================================================================
- * 6. NUMBER GUESS DUEL
- * ================================================================ */
-
-async function startNumber(m, game) {
-  game.data.targets = {}
-  game.data.guesses = {}
-
-  const target = rand(1, 50)
-
-  game.data.target = target
-
-  await m.reply(
-    `🔢 *NUMBER GUESS DUEL*\n\n` +
-    `The bot has selected a number from *1-50*.\n\n` +
-    `Both players should reply with a number.\n` +
-    `Closest guess wins!`
-  )
-}
-
-async function handleNumber(m, game) {
-  if (!isPlayer(game, m.sender)) return false
-
-  const n = parseInt(clean(m.body))
-
-  if (!Number.isInteger(n) || n < 1 || n > 50) {
-    return false
-  }
-
-  if (game.data.guesses[m.sender] !== undefined) {
-    await m.reply('🔢 You already guessed.')
-    return true
-  }
-
-  game.data.guesses[m.sender] = n
-
-  await m.reply(
-    `🔢 ${playerTag(m.sender)} locked in *${n}*.`
-  )
-
-  if (Object.keys(game.data.guesses).length !== 2) {
-    return true
-  }
-
-  const [a, b] = game.players
-
-  const da = Math.abs(game.data.target - game.data.guesses[a])
-  const db = Math.abs(game.data.target - game.data.guesses[b])
-
-  clearTimeout(game.gameTimer)
-
-  await m.send(
-    `🎯 The number was *${game.data.target}*.\n\n` +
-    `${playerTag(a)} → ${game.data.guesses[a]} (${da} away)\n` +
-    `${playerTag(b)} → ${game.data.guesses[b]} (${db} away)`
-  )
-
-  if (da === db) {
-    return finishGame(m, game, null, null, true)
-  }
-
-  const winner = da < db ? a : b
-
-  return finishGame(
-    m,
-    game,
-    winner,
-    otherPlayer(game, winner)
-  )
-}
-
-/* ================================================================
- * 7. MATH DUEL
- * ================================================================ */
-
-async function startMath(m, game) {
-  const a = rand(2, 20)
-  const b = rand(2, 20)
-  const ops = ['+', '-', '*']
-  const op = pick(ops)
-
-  let answer
-
-  if (op === '+') answer = a + b
-  if (op === '-') answer = a - b
-  if (op === '*') answer = a * b
-
-  game.data.answer = answer
-  game.data.answered = false
-
-  await m.reply(
-    `🧠 *MATH DUEL*\n\n` +
-    `First player to correctly answer wins!\n\n` +
-    `❓ *${a} ${op} ${b} = ?*\n\n` +
-    `Reply with the answer.`
-  )
-}
-
-async function handleMath(m, game) {
-  if (!isPlayer(game, m.sender)) return false
-
-  const answer = parseInt(clean(m.body))
-
-  if (!Number.isInteger(answer)) return false
-
-  if (answer !== game.data.answer) {
-    await m.reply('❌ Wrong answer.')
-    return true
-  }
-
-  clearTimeout(game.gameTimer)
-
-  game.data.answered = true
-
-  return finishGame(
-    m,
-    game,
-    m.sender,
-    otherPlayer(game, m.sender)
-  )
-}
-
-/* ================================================================
- * 8. WORD SCRAMBLE DUEL
- * ================================================================ */
+/* ----------------------------------------------------------------
+ * WORD DATA
+ * ---------------------------------------------------------------- */
 
 const WORDS = [
   'javascript',
@@ -728,2071 +203,3125 @@ const WORDS = [
   'dangerous',
   'fantastic',
   'important',
-  'programming',
+  'football',
+  'internet',
   'developer',
-  'technology',
-  'internet'
+  'programming',
+  'victory',
+  'champion',
+  'student',
+  'technology'
 ]
 
-function scramble(word) {
+function scrambleWord(word) {
   const a = [...word]
 
   for (let i = a.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1))
+
     ;[a[i], a[j]] = [a[j], a[i]]
   }
 
-  const out = a.join('')
+  const result = a.join('')
 
-  return out === word ? scramble(word) : out
+  return result === word
+    ? scrambleWord(word)
+    : result
 }
 
-async function startScramble(m, game) {
-  game.data.word = pick(WORDS)
+/* ----------------------------------------------------------------
+ * QUESTIONS
+ * ---------------------------------------------------------------- */
 
-  await m.reply(
-    `🔤 *WORD DUEL*\n\n` +
-    `First player to unscramble this wins:\n\n` +
-    `🔥 *${scramble(game.data.word).toUpperCase()}*\n\n` +
-    `Reply with the correct word.`
-  )
-}
-
-async function handleScramble(m, game) {
-  if (!isPlayer(game, m.sender)) return false
-
-  const guess = clean(m.body)
-
-  if (!/^[a-z]+$/.test(guess)) return false
-
-  if (guess !== game.data.word) {
-    return false
+const QUESTIONS = [
+  {
+    q: 'What is the capital of Nigeria?',
+    a: 'abuja',
+    options: ['Lagos', 'Abuja', 'Ibadan', 'Kano']
+  },
+  {
+    q: 'How many days are in a week?',
+    a: '7',
+    options: ['5', '6', '7', '8']
+  },
+  {
+    q: 'Which planet is known as the Red Planet?',
+    a: 'mars',
+    options: ['Earth', 'Mars', 'Venus', 'Jupiter']
+  },
+  {
+    q: 'What is 12 × 12?',
+    a: '144',
+    options: ['124', '134', '144', '154']
+  },
+  {
+    q: 'Which language runs in a web browser?',
+    a: 'javascript',
+    options: ['Python', 'Java', 'JavaScript', 'C++']
+  },
+  {
+    q: 'How many continents are there?',
+    a: '7',
+    options: ['5', '6', '7', '8']
+  },
+  {
+    q: 'What is the largest ocean?',
+    a: 'pacific',
+    options: ['Atlantic', 'Indian', 'Pacific', 'Arctic']
   }
-
-  clearTimeout(game.gameTimer)
-
-  return finishGame(
-    m,
-    game,
-    m.sender,
-    otherPlayer(game, m.sender)
-  )
-}
-
-/* ================================================================
- * 9. TARGET BATTLE
- * ================================================================ */
-
-async function startTarget(m, game) {
-  game.data.scores = {}
-
-  await m.reply(
-    `🎯 *TARGET BATTLE*\n\n` +
-    `Both players reply *SHOOT*.\n\n` +
-    `The bot will generate your accuracy score.`
-  )
-}
-
-async function handleTarget(m, game) {
-  if (!isPlayer(game, m.sender)) return false
-  if (clean(m.body) !== 'shoot') return false
-
-  if (game.data.scores[m.sender]) {
-    await m.reply('🎯 You already shot.')
-    return true
-  }
-
-  const score = rand(1, 100)
-
-  game.data.scores[m.sender] = score
-
-  await m.reply(
-    `🎯 ${playerTag(m.sender)} scored *${score}/100*!`
-  )
-
-  if (Object.keys(game.data.scores).length !== 2) {
-    return true
-  }
-
-  const [a, b] = game.players
-
-  clearTimeout(game.gameTimer)
-
-  if (game.data.scores[a] === game.data.scores[b]) {
-    return finishGame(m, game, null, null, true)
-  }
-
-  const winner =
-    game.data.scores[a] > game.data.scores[b] ? a : b
-
-  return finishGame(
-    m,
-    game,
-    winner,
-    otherPlayer(game, winner)
-  )
-}
-
-/* ================================================================
- * 10. BOWLING
- * ================================================================ */
-
-async function startBowling(m, game) {
-  game.data.scores = {}
-
-  await m.reply(
-    `🎳 *BOWLING DUEL*\n\n` +
-    `Both players reply *BOWL*.`
-  )
-}
-
-async function handleBowling(m, game) {
-  if (!isPlayer(game, m.sender)) return false
-  if (clean(m.body) !== 'bowl') return false
-
-  if (game.data.scores[m.sender]) {
-    await m.reply('🎳 You already bowled.')
-    return true
-  }
-
-  const score = rand(0, 10)
-
-  game.data.scores[m.sender] = score
-
-  await m.reply(
-    `🎳 ${playerTag(m.sender)} knocked down *${score} pins*!`
-  )
-
-  if (Object.keys(game.data.scores).length !== 2) {
-    return true
-  }
-
-  const [a, b] = game.players
-
-  clearTimeout(game.gameTimer)
-
-  if (game.data.scores[a] === game.data.scores[b]) {
-    return finishGame(m, game, null, null, true)
-  }
-
-  const winner =
-    game.data.scores[a] > game.data.scores[b] ? a : b
-
-  return finishGame(
-    m,
-    game,
-    winner,
-    otherPlayer(game, winner)
-  )
-}
-
-/* ================================================================
- * 11. ARCHERY
- * ================================================================ */
-
-async function startArchery(m, game) {
-  game.data.scores = {}
-
-  await m.reply(
-    `🏹 *ARCHERY DUEL*\n\n` +
-    `Reply *SHOOT* to fire your arrow.\n` +
-    `Closest to the bullseye wins!`
-  )
-}
-
-async function handleArchery(m, game) {
-  if (!isPlayer(game, m.sender)) return false
-  if (clean(m.body) !== 'shoot') return false
-
-  if (game.data.scores[m.sender]) return true
-
-  const score = rand(1, 100)
-
-  game.data.scores[m.sender] = score
-
-  await m.reply(
-    `🏹 ${playerTag(m.sender)} scored *${score}/100*!`
-  )
-
-  if (Object.keys(game.data.scores).length !== 2) {
-    return true
-  }
-
-  const [a, b] = game.players
-
-  clearTimeout(game.gameTimer)
-
-  if (game.data.scores[a] === game.data.scores[b]) {
-    return finishGame(m, game, null, null, true)
-  }
-
-  const winner =
-    game.data.scores[a] > game.data.scores[b] ? a : b
-
-  return finishGame(
-    m,
-    game,
-    winner,
-    otherPlayer(game, winner)
-  )
-}
-
-/* ================================================================
- * 12. RACING DUEL
- * ================================================================ */
-
-async function startRace(m, game) {
-  game.data.distance = {
-    [game.players[0]]: 0,
-    [game.players[1]]: 0
-  }
-
-  game.data.turns = 0
-
-  await m.reply(
-    `🏎️ *RACING DUEL*\n\n` +
-    `Each player should reply *GO*.\n` +
-    `First to reach 100 meters wins!\n\n` +
-    `You need 5 rounds.`
-  )
-}
-
-async function handleRace(m, game) {
-  if (!isPlayer(game, m.sender)) return false
-  if (clean(m.body) !== 'go') return false
-
-  const gain = rand(10, 30)
-
-  game.data.distance[m.sender] += gain
-
-  game.data.turns++
-
-  await m.reply(
-    `🏎️ ${playerTag(m.sender)} moved *${gain}m*.\n` +
-    `📍 Distance: *${game.data.distance[m.sender]}m*`
-  )
-
-  if (game.data.distance[m.sender] >= 100) {
-    clearTimeout(game.gameTimer)
-
-    return finishGame(
-      m,
-      game,
-      m.sender,
-      otherPlayer(game, m.sender)
-    )
-  }
-
-  return true
-}
-
-/* ================================================================
- * 13. PENALTY SHOOTOUT
- * ================================================================ */
-
-async function startPenalty(m, game) {
-  game.data.scores = {}
-
-  await m.reply(
-    `⚽ *PENALTY SHOOTOUT*\n\n` +
-    `Reply *SHOOT*.\n\n` +
-    `The bot will determine whether you score.`
-  )
-}
-
-async function handlePenalty(m, game) {
-  if (!isPlayer(game, m.sender)) return false
-  if (clean(m.body) !== 'shoot') return false
-
-  if (game.data.scores[m.sender]) return true
-
-  const scored = Math.random() < 0.65
-
-  game.data.scores[m.sender] = scored ? 1 : 0
-
-  await m.reply(
-    scored
-      ? `⚽ ${playerTag(m.sender)} *GOOOAL!* 🔥`
-      : `🧤 ${playerTag(m.sender)} MISSED!`
-  )
-
-  if (Object.keys(game.data.scores).length !== 2) {
-    return true
-  }
-
-  const [a, b] = game.players
-
-  clearTimeout(game.gameTimer)
-
-  if (game.data.scores[a] === game.data.scores[b]) {
-    return finishGame(m, game, null, null, true)
-  }
-
-  const winner =
-    game.data.scores[a] > game.data.scores[b] ? a : b
-
-  return finishGame(
-    m,
-    game,
-    winner,
-    otherPlayer(game, winner)
-  )
-}
-
-/* ================================================================
- * 14. BASKETBALL
- * ================================================================ */
-
-async function startBasketball(m, game) {
-  game.data.scores = {}
-
-  await m.reply(
-    `🏀 *BASKETBALL DUEL*\n\n` +
-    `Reply *SHOOT*.\n` +
-    `Higher score wins.`
-  )
-}
-
-async function handleBasketball(m, game) {
-  if (!isPlayer(game, m.sender)) return false
-  if (clean(m.body) !== 'shoot') return false
-
-  if (game.data.scores[m.sender]) return true
-
-  const score = rand(0, 30)
-
-  game.data.scores[m.sender] = score
-
-  await m.reply(
-    `🏀 ${playerTag(m.sender)} scored *${score} points*!`
-  )
-
-  if (Object.keys(game.data.scores).length !== 2) {
-    return true
-  }
-
-  const [a, b] = game.players
-
-  clearTimeout(game.gameTimer)
-
-  if (game.data.scores[a] === game.data.scores[b]) {
-    return finishGame(m, game, null, null, true)
-  }
-
-  const winner =
-    game.data.scores[a] > game.data.scores[b] ? a : b
-
-  return finishGame(
-    m,
-    game,
-    winner,
-    otherPlayer(game, winner)
-  )
-}
-
-/* ================================================================
- * 15. BOMB DUEL
- * ================================================================ */
-
-async function startBomb(m, game) {
-  game.data.choice = {}
-
-  await m.reply(
-    `💣 *BOMB DUEL*\n\n` +
-    `Choose a number from *1-5*.\n\n` +
-    `One number contains the bomb.\n` +
-    `If both survive, the higher number wins.\n\n` +
-    `Reply with *1*, *2*, *3*, *4* or *5*.`
-  )
-
-  game.data.bomb = rand(1, 5)
-}
-
-async function handleBomb(m, game) {
-  if (!isPlayer(game, m.sender)) return false
-
-  const choice = parseInt(clean(m.body))
-
-  if (!Number.isInteger(choice) || choice < 1 || choice > 5) {
-    return false
-  }
-
-  if (game.data.choice[m.sender]) return true
-
-  game.data.choice[m.sender] = choice
-
-  if (choice === game.data.bomb) {
-    clearTimeout(game.gameTimer)
-
-    const winner = otherPlayer(game, m.sender)
-
-    await m.reply(
-      `💥 *BOOM!*\n\n` +
-      `${playerTag(m.sender)} picked the bomb!\n` +
-      `💀 ${playerTag(winner)} wins!`
-    )
-
-    return finishGame(m, game, winner, m.sender)
-  }
-
-  await m.reply(
-    `😮 ${playerTag(m.sender)} survived!`
-  )
-
-  if (Object.keys(game.data.choice).length !== 2) {
-    return true
-  }
-
-  const [a, b] = game.players
-
-  clearTimeout(game.gameTimer)
-
-  if (game.data.choice[a] === game.data.choice[b]) {
-    return finishGame(m, game, null, null, true)
-  }
-
-  const winner =
-    game.data.choice[a] > game.data.choice[b] ? a : b
-
-  return finishGame(
-    m,
-    game,
-    winner,
-    otherPlayer(game, winner)
-  )
-}
-
-/* ================================================================
- * 16. EMOJI GUESS
- * ================================================================ */
-
-const EMOJIS = [
-  ['🍎🍎🍎', 'apple'],
-  ['🐘🌳', 'elephant'],
-  ['⚽🥅', 'football'],
-  ['🌧️🌈', 'rainbow'],
-  ['🍫', 'chocolate'],
-  ['🦋🌸', 'butterfly'],
-  ['🚗🏁', 'racing'],
-  ['🌙⭐', 'night'],
-  ['🔥🏠', 'fire'],
-  ['📱💬', 'whatsapp']
 ]
 
-async function startEmoji(m, game) {
-  const item = pick(EMOJIS)
+/* ----------------------------------------------------------------
+ * EMOJIS
+ * ---------------------------------------------------------------- */
 
-  game.data.answer = item[1]
-
-  await m.reply(
-    `🤔 *EMOJI GUESS DUEL*\n\n` +
-    `${item[0]}\n\n` +
-    `First player to guess the word wins!`
-  )
-}
-
-async function handleEmoji(m, game) {
-  if (!isPlayer(game, m.sender)) return false
-
-  const answer = clean(m.body)
-
-  if (!answer) return false
-
-  if (answer !== game.data.answer) {
-    return false
+const EMOJI_QUESTIONS = [
+  {
+    emoji: '🐘',
+    answer: 'elephant'
+  },
+  {
+    emoji: '🍕',
+    answer: 'pizza'
+  },
+  {
+    emoji: '⚽',
+    answer: 'football'
+  },
+  {
+    emoji: '🚗',
+    answer: 'car'
+  },
+  {
+    emoji: '🌧️☔',
+    answer: 'rain'
+  },
+  {
+    emoji: '🔥❤️',
+    answer: 'love'
+  },
+  {
+    emoji: '🐟🌊',
+    answer: 'fish'
+  },
+  {
+    emoji: '👑',
+    answer: 'king'
   }
+]
 
-  clearTimeout(game.gameTimer)
+/* ----------------------------------------------------------------
+ * ROCK PAPER SCISSORS
+ * ---------------------------------------------------------------- */
 
-  return finishGame(
-    m,
-    game,
-    m.sender,
-    otherPlayer(game, m.sender)
-  )
-}
+const RPS = ['rock', 'paper', 'scissors']
 
-/* ================================================================
- * 17. MEMORY DUEL
- * ================================================================ */
-
-async function startMemory(m, game) {
-  const sequence = Array.from(
-    { length: 5 },
-    () => rand(1, 9)
-  )
-
-  game.data.sequence = sequence
-
-  await m.reply(
-    `🧠 *MEMORY DUEL*\n\n` +
-    `Remember this number sequence:\n\n` +
-    `*${sequence.join(' - ')}*\n\n` +
-    `You have 5 seconds...`
-  )
-
-  setTimeout(async () => {
-    const current = getGame(m.chat)
-
-    if (current !== game) return
-
-    await m.send(
-      `🧠 *GO!*\n\n` +
-      `Reply with the sequence.`
-    ).catch(() => {})
-  }, 5000)
-}
-
-async function handleMemory(m, game) {
-  if (!isPlayer(game, m.sender)) return false
-
-  const answer = clean(m.body)
-    .replace(/\s+/g, '')
-
-  const correct =
-    game.data.sequence.join('')
-
-  if (answer !== correct) {
-    await m.reply('❌ Wrong sequence.')
-    return true
-  }
-
-  clearTimeout(game.gameTimer)
-
-  return finishGame(
-    m,
-    game,
-    m.sender,
-    otherPlayer(game, m.sender)
-  )
-}
-
-/* ================================================================
- * 18. ODDS OR EVENS
- * ================================================================ */
-
-async function startOdds(m, game) {
-  game.data.choices = {}
-
-  await m.reply(
-    `🔢 *ODDS OR EVENS*\n\n` +
-    `Choose *ODD* or *EVEN*.\n` +
-    `Then both players choose a number 1-5.`
-  )
-}
-
-async function handleOdds(m, game) {
-  if (!isPlayer(game, m.sender)) return false
-
-  const text = clean(m.body)
-
-  if (!game.data.choices[m.sender]) {
-    if (!['odd', 'even'].includes(text)) return false
-
-    game.data.choices[m.sender] = {
-      parity: text
-    }
-
-    await m.reply(
-      `✅ ${text.toUpperCase()} selected.\nNow choose a number *1-5*.`
-    )
-
-    return true
-  }
-
-  if (game.data.choices[m.sender].number) {
-    return true
-  }
-
-  const number = parseInt(text)
-
-  if (!Number.isInteger(number) || number < 1 || number > 5) {
-    return false
-  }
-
-  game.data.choices[m.sender].number = number
-
-  await m.reply(
-    `🔢 Number *${number}* locked.`
-  )
-
-  const [a, b] = game.players
+function rpsWinner(a, b) {
+  if (a === b) return 'draw'
 
   if (
-    !game.data.choices[a]?.number ||
-    !game.data.choices[b]?.number
+    (a === 'rock' && b === 'scissors') ||
+    (a === 'paper' && b === 'rock') ||
+    (a === 'scissors' && b === 'paper')
   ) {
-    return true
+    return 'a'
   }
 
-  const total =
-    game.data.choices[a].number +
-    game.data.choices[b].number
-
-  const parity =
-    total % 2 === 0 ? 'even' : 'odd'
-
-  const winner = game.players.find(
-    (p) => game.data.choices[p].parity === parity
-  )
-
-  clearTimeout(game.gameTimer)
-
-  if (!winner) {
-    return finishGame(m, game, null, null, true)
-  }
-
-  return finishGame(
-    m,
-    game,
-    winner,
-    otherPlayer(game, winner)
-  )
+  return 'b'
 }
 
-/* ================================================================
- * 19. TRIVIA DUEL
- * ================================================================ */
-
-async function startTrivia(m, game) {
-  try {
-    const d = await getJson(
-      'https://opentdb.com/api.php?amount=1&type=multiple'
-    )
-
-    const q = d.results?.[0]
-
-    if (!q) {
-      deleteGame(m.chat)
-      return m.reply('❌ Could not load a trivia question.')
-    }
-
-    const decode = (s) =>
-      String(s)
-        .replace(/&quot;/g, '"')
-        .replace(/&#039;/g, "'")
-        .replace(/&amp;/g, '&')
-        .replace(/&eacute;/g, 'é')
-        .replace(/&rsquo;/g, "'")
-
-    const correct = decode(q.correct_answer)
-
-    const answers = [
-      ...q.incorrect_answers.map(decode),
-      correct
-    ].sort(() => Math.random() - 0.5)
-
-    game.data.answer = correct
-    game.data.answers = answers
-
-    await m.reply(
-      `🧠 *TRIVIA DUEL*\n\n` +
-      `${decode(q.question)}\n\n` +
-      answers
-        .map(
-          (x, i) =>
-            `${String.fromCharCode(65 + i)}. ${x}`
-        )
-        .join('\n') +
-      `\n\nFirst player to answer correctly wins.`
-    )
-  } catch {
-    deleteGame(m.chat)
-    await m.reply('❌ Trivia service is unavailable.')
-  }
-}
-
-async function handleTrivia(m, game) {
-  if (!isPlayer(game, m.sender)) return false
-
-  const answer = clean(m.body)
-
-  const correct = clean(game.data.answer)
-
-  const index = game.data.answers.findIndex(
-    (x) => clean(x) === answer
-  )
-
-  const letterAnswer =
-    /^[a-d]$/.test(answer)
-      ? game.data.answers[answer.charCodeAt(0) - 97]
-      : null
-
-  if (
-    answer !== correct &&
-    clean(letterAnswer) !== correct
-  ) {
-    return false
-  }
-
-  clearTimeout(game.gameTimer)
-
-  return finishGame(
-    m,
-    game,
-    m.sender,
-    otherPlayer(game, m.sender)
-  )
-}
-
-/* ================================================================
- * 20. QUICK DRAW
- * ================================================================ */
-
-async function startQuickDraw(m, game) {
-  game.data.go = false
-  game.data.shots = {}
-
-  await m.reply(
-    `🔫 *QUICK DRAW*\n\n` +
-    `Wait for *DRAW!*.\n` +
-    `Then reply *FIRE* as quickly as possible.`
-  )
-
-  setTimeout(async () => {
-    const current = getGame(m.chat)
-
-    if (current !== game) return
-
-    game.data.go = true
-    game.data.time = Date.now()
-
-    await m.send('🔥 *DRAW!* 🔥').catch(() => {})
-  }, rand(3, 7) * 1000)
-}
-
-async function handleQuickDraw(m, game) {
-  if (!isPlayer(game, m.sender)) return false
-
-  if (clean(m.body) !== 'fire') return false
-
-  if (!game.data.go) {
-    await m.reply('❌ Too early!')
-    return true
-  }
-
-  if (game.data.shots[m.sender]) return true
-
-  game.data.shots[m.sender] =
-    Date.now() - game.data.time
-
-  await m.reply(
-    `⚡ ${playerTag(m.sender)} fired in *${game.data.shots[m.sender]}ms*!`
-  )
-
-  if (Object.keys(game.data.shots).length !== 2) {
-    return true
-  }
-
-  clearTimeout(game.gameTimer)
-
-  const [a, b] = game.players
-
-  const winner =
-    game.data.shots[a] < game.data.shots[b]
-      ? a
-      : b
-
-  return finishGame(
-    m,
-    game,
-    winner,
-    otherPlayer(game, winner)
-  )
-}
-
-/* ================================================================
- * 21. FORTUNE DUEL
- * ================================================================ */
-
-async function startFortune(m, game) {
-  game.data.scores = {}
-
-  await m.reply(
-    `🍀 *FORTUNE DUEL*\n\n` +
-    `Reply *FORTUNE*.\n` +
-    `The luckiest player wins!`
-  )
-}
-
-async function handleFortune(m, game) {
-  if (!isPlayer(game, m.sender)) return false
-  if (clean(m.body) !== 'fortune') return false
-
-  if (game.data.scores[m.sender]) return true
-
-  const score = rand(1, 100)
-
-  game.data.scores[m.sender] = score
-
-  await m.reply(
-    `🍀 ${playerTag(m.sender)} has *${score}% luck*!`
-  )
-
-  if (Object.keys(game.data.scores).length !== 2) {
-    return true
-  }
-
-  const [a, b] = game.players
-
-  clearTimeout(game.gameTimer)
-
-  if (game.data.scores[a] === game.data.scores[b]) {
-    return finishGame(m, game, null, null, true)
-  }
-
-  const winner =
-    game.data.scores[a] > game.data.scores[b] ? a : b
-
-  return finishGame(
-    m,
-    game,
-    winner,
-    otherPlayer(game, winner)
-  )
-}
-
-/* ================================================================
- * 22. STONE PAPER SCISSORS EXTREME
- * ================================================================ */
-
-async function startSps(m, game) {
-  game.data.moves = {}
-
-  await m.reply(
-    `🔥 *EXTREME RPS*\n\n` +
-    `Reply:\n` +
-    `ROCK\n` +
-    `PAPER\n` +
-    `SCISSORS\n` +
-    `FIRE\n\n` +
-    `FIRE beats everything except WATER.\n` +
-    `For this duel, WATER is randomly generated.`
-  )
-}
-
-async function handleSps(m, game) {
-  if (!isPlayer(game, m.sender)) return false
-
-  const move = clean(m.body)
-
-  if (
-    ![
-      'rock',
-      'paper',
-      'scissors',
-      'fire'
-    ].includes(move)
-  ) {
-    return false
-  }
-
-  if (game.data.moves[m.sender]) return true
-
-  game.data.moves[m.sender] = move
-
-  if (Object.keys(game.data.moves).length !== 2) {
-    await m.reply('🔥 Move locked.')
-    return true
-  }
-
-  const [a, b] = game.players
-
-  const x = game.data.moves[a]
-  const y = game.data.moves[b]
-
-  clearTimeout(game.gameTimer)
-
-  if (x === y) {
-    return finishGame(m, game, null, null, true)
-  }
-
-  const beats = {
-    rock: ['scissors'],
-    paper: ['rock'],
-    scissors: ['paper'],
-    fire: ['rock', 'paper', 'scissors']
-  }
-
-  const winner = beats[x]?.includes(y) ? a : b
-
-  return finishGame(
-    m,
-    game,
-    winner,
-    otherPlayer(game, winner)
-  )
-}
-
-/* ================================================================
- * 23. LUCKY NUMBER
- * ================================================================ */
-
-async function startLucky(m, game) {
-  game.data.guesses = {}
-
-  await m.reply(
-    `🍀 *LUCKY NUMBER DUEL*\n\n` +
-    `Choose a number from *1-20*.\n` +
-    `The player closest to the lucky number wins.`
-  )
-
-  game.data.target = rand(1, 20)
-}
-
-async function handleLucky(m, game) {
-  if (!isPlayer(game, m.sender)) return false
-
-  const n = parseInt(clean(m.body))
-
-  if (!Number.isInteger(n) || n < 1 || n > 20) {
-    return false
-  }
-
-  if (game.data.guesses[m.sender] !== undefined) {
-    return true
-  }
-
-  game.data.guesses[m.sender] = n
-
-  if (Object.keys(game.data.guesses).length !== 2) {
-    await m.reply('🍀 Number locked.')
-    return true
-  }
-
-  const [a, b] = game.players
-
-  const da =
-    Math.abs(game.data.target - game.data.guesses[a])
-
-  const db =
-    Math.abs(game.data.target - game.data.guesses[b])
-
-  clearTimeout(game.gameTimer)
-
-  await m.send(
-    `🍀 Lucky number: *${game.data.target}*\n\n` +
-    `${playerTag(a)} → ${game.data.guesses[a]}\n` +
-    `${playerTag(b)} → ${game.data.guesses[b]}`
-  )
-
-  if (da === db) {
-    return finishGame(m, game, null, null, true)
-  }
-
-  const winner = da < db ? a : b
-
-  return finishGame(
-    m,
-    game,
-    winner,
-    otherPlayer(game, winner)
-  )
-}
-
-/* ================================================================
- * 24. BOXING
- * ================================================================ */
-
-async function startBoxing(m, game) {
-  game.data.hp = {
-    [game.players[0]]: 100,
-    [game.players[1]]: 100
-  }
-
-  await m.reply(
-    `🥊 *BOXING DUEL*\n\n` +
-    `Players attack by replying *PUNCH*.\n` +
-    `Each punch deals random damage.\n` +
-    `First player to reduce opponent to 0 HP wins.`
-  )
-}
-
-async function handleBoxing(m, game) {
-  if (!isPlayer(game, m.sender)) return false
-  if (clean(m.body) !== 'punch') return false
-
-  const opponent = otherPlayer(game, m.sender)
-
-  const damage = rand(10, 25)
-
-  game.data.hp[opponent] -= damage
-
-  await m.reply(
-    `🥊 ${playerTag(m.sender)} punched ${playerTag(opponent)}!\n\n` +
-    `💥 Damage: *${damage}*\n` +
-    `❤️ ${playerTag(opponent)} HP: *${Math.max(
-      0,
-      game.data.hp[opponent]
-    )}*`
-  )
-
-  if (game.data.hp[opponent] <= 0) {
-    clearTimeout(game.gameTimer)
-
-    return finishGame(
-      m,
-      game,
-      m.sender,
-      opponent
-    )
-  }
-
-  return true
-}
-
-/* ================================================================
- * 25. SWORD DUEL
- * ================================================================ */
-
-async function startSword(m, game) {
-  game.data.hp = {
-    [game.players[0]]: 100,
-    [game.players[1]]: 100
-  }
-
-  await m.reply(
-    `⚔️ *SWORD DUEL*\n\n` +
-    `Reply *ATTACK* to strike your opponent.\n` +
-    `Reply *BLOCK* to reduce incoming damage.`
-  )
-}
-
-async function handleSword(m, game) {
-  if (!isPlayer(game, m.sender)) return false
-
-  const action = clean(m.body)
-
-  if (!['attack', 'block'].includes(action)) {
-    return false
-  }
-
-  const opponent = otherPlayer(game, m.sender)
-
-  if (action === 'block') {
-    game.data.blocked = game.data.blocked || {}
-    game.data.blocked[m.sender] = true
-
-    await m.reply('🛡️ You are blocking this round.')
-    return true
-  }
-
-  const damage =
-    game.data.blocked?.[opponent]
-      ? rand(2, 8)
-      : rand(10, 25)
-
-  if (game.data.blocked?.[opponent]) {
-    delete game.data.blocked[opponent]
-  }
-
-  game.data.hp[opponent] -= damage
-
-  await m.reply(
-    `⚔️ ${playerTag(m.sender)} attacked!\n` +
-    `💥 Damage: *${damage}*\n` +
-    `❤️ ${playerTag(opponent)}: *${Math.max(
-      0,
-      game.data.hp[opponent]
-    )} HP*`
-  )
-
-  if (game.data.hp[opponent] <= 0) {
-    clearTimeout(game.gameTimer)
-
-    return finishGame(
-      m,
-      game,
-      m.sender,
-      opponent
-    )
-  }
-
-  return true
-}
-
-/* ================================================================
- * 26. SURVIVAL DUEL
- * ================================================================ */
-
-async function startSurvival(m, game) {
-  game.data.hp = {
-    [game.players[0]]: 100,
-    [game.players[1]]: 100
-  }
-
-  await m.reply(
-    `🏝️ *SURVIVAL DUEL*\n\n` +
-    `Reply *SURVIVE* each round.\n` +
-    `Each round has a chance of damaging you.\n` +
-    `Last survivor wins.`
-  )
-}
-
-async function handleSurvival(m, game) {
-  if (!isPlayer(game, m.sender)) return false
-  if (clean(m.body) !== 'survive') return false
-
-  if (game.data.done?.[m.sender]) return true
-
-  game.data.done = game.data.done || {}
-
-  const damage =
-    Math.random() < 0.6
-      ? rand(5, 30)
-      : 0
-
-  game.data.hp[m.sender] -= damage
-  game.data.done[m.sender] = true
-
-  await m.reply(
-    damage
-      ? `🌪️ ${playerTag(m.sender)} took *${damage} damage*.\n❤️ HP: *${Math.max(
-          0,
-          game.data.hp[m.sender]
-        )}*`
-      : `🌴 ${playerTag(m.sender)} survived the round!`
-  )
-
-  if (game.data.hp[m.sender] <= 0) {
-    const winner = otherPlayer(game, m.sender)
-
-    clearTimeout(game.gameTimer)
-
-    return finishGame(
-      m,
-      game,
-      winner,
-      m.sender
-    )
-  }
-
-  return true
-}
-
-/* ================================================================
- * 27. TREASURE DUEL
- * ================================================================ */
-
-async function startTreasure(m, game) {
-  game.data.choices = {}
-
-  await m.reply(
-    `🏴‍☠️ *TREASURE DUEL*\n\n` +
-    `Choose one chest:\n\n` +
-    `CHEST 1 🧰\n` +
-    `CHEST 2 🧰\n` +
-    `CHEST 3 🧰\n\n` +
-    `One chest contains the treasure.`
-  )
-
-  game.data.treasure = rand(1, 3)
-}
-
-async function handleTreasure(m, game) {
-  if (!isPlayer(game, m.sender)) return false
-
-  const choice = parseInt(clean(m.body))
-
-  if (!Number.isInteger(choice) || choice < 1 || choice > 3) {
-    return false
-  }
-
-  if (game.data.choices[m.sender]) return true
-
-  game.data.choices[m.sender] = choice
-
-  if (choice === game.data.treasure) {
-    clearTimeout(game.gameTimer)
-
-    return finishGame(
-      m,
-      game,
-      m.sender,
-      otherPlayer(game, m.sender)
-    )
-  }
-
-  await m.reply('❌ Empty chest!')
-
-  if (Object.keys(game.data.choices).length === 2) {
-    clearTimeout(game.gameTimer)
-
-    return finishGame(m, game, null, null, true)
-  }
-
-  return true
-}
-
-/* ================================================================
- * 28. SPACE BATTLE
- * ================================================================ */
-
-async function startSpace(m, game) {
-  game.data.hp = {
-    [game.players[0]]: 100,
-    [game.players[1]]: 100
-  }
-
-  await m.reply(
-    `🚀 *SPACE BATTLE*\n\n` +
-    `Reply *FIRE* to attack.\n` +
-    `Your laser deals random damage.`
-  )
-}
-
-async function handleSpace(m, game) {
-  if (!isPlayer(game, m.sender)) return false
-  if (clean(m.body) !== 'fire') return false
-
-  const opponent = otherPlayer(game, m.sender)
-
-  const damage = rand(10, 30)
-
-  game.data.hp[opponent] -= damage
-
-  await m.reply(
-    `🚀 ${playerTag(m.sender)} fired!\n` +
-    `💥 Damage: *${damage}*\n` +
-    `🛸 ${playerTag(opponent)} HP: *${Math.max(
-      0,
-      game.data.hp[opponent]
-    )}*`
-  )
-
-  if (game.data.hp[opponent] <= 0) {
-    clearTimeout(game.gameTimer)
-
-    return finishGame(
-      m,
-      game,
-      m.sender,
-      opponent
-    )
-  }
-
-  return true
-}
-
-/* ================================================================
- * 29. ZOMBIE DUEL
- * ================================================================ */
-
-async function startZombie(m, game) {
-  game.data.hp = {
-    [game.players[0]]: 100,
-    [game.players[1]]: 100
-  }
-
-  await m.reply(
-    `🧟 *ZOMBIE SURVIVAL DUEL*\n\n` +
-    `Reply *ATTACK* to attack the zombies.\n` +
-    `Survive the longest to win.`
-  )
-}
-
-async function handleZombie(m, game) {
-  if (!isPlayer(game, m.sender)) return false
-  if (clean(m.body) !== 'attack') return false
-
-  const damage = rand(5, 25)
-
-  game.data.hp[m.sender] -= damage
-
-  await m.reply(
-    `🧟 Zombies attacked ${playerTag(m.sender)}!\n` +
-    `💥 Damage: *${damage}*\n` +
-    `❤️ HP: *${Math.max(
-      0,
-      game.data.hp[m.sender]
-    )}*`
-  )
-
-  if (game.data.hp[m.sender] <= 0) {
-    const winner = otherPlayer(game, m.sender)
-
-    clearTimeout(game.gameTimer)
-
-    return finishGame(
-      m,
-      game,
-      winner,
-      m.sender
-    )
-  }
-
-  return true
-}
-
-/* ================================================================
- * 30. BATTLE ARENA
- * ================================================================ */
-
-async function startArena(m, game) {
-  game.data.hp = {
-    [game.players[0]]: 100,
-    [game.players[1]]: 100
-  }
-
-  await m.reply(
-    `⚔️ *BATTLE ARENA*\n\n` +
-    `Available actions:\n\n` +
-    `⚔️ ATTACK\n` +
-    `🛡️ DEFEND\n    ` +
-    `💚 HEAL\n\n` +
-    `Reduce your opponent's HP to zero.`
-  )
-}
-
-async function handleArena(m, game) {
-  if (!isPlayer(game, m.sender)) return false
-
-  const action = clean(m.body)
-  const opponent = otherPlayer(game, m.sender)
-
-  if (!['attack', 'defend', 'heal'].includes(action)) {
-    return false
-  }
-
-  if (action === 'heal') {
-    const amount = rand(5, 15)
-
-    game.data.hp[m.sender] = Math.min(
-      100,
-      game.data.hp[m.sender] + amount
-    )
-
-    await m.reply(
-      `💚 ${playerTag(m.sender)} healed *${amount} HP*.\n` +
-      `❤️ HP: *${game.data.hp[m.sender]}*`
-    )
-
-    return true
-  }
-
-  if (action === 'defend') {
-    game.data.defend = game.data.defend || {}
-    game.data.defend[m.sender] = true
-
-    await m.reply(
-      `🛡️ ${playerTag(m.sender)} is defending.`
-    )
-
-    return true
-  }
-
-  let damage = rand(10, 25)
-
-  if (game.data.defend?.[opponent]) {
-    damage = Math.floor(damage / 2)
-    delete game.data.defend[opponent]
-  }
-
-  game.data.hp[opponent] -= damage
-
-  await m.reply(
-    `⚔️ ${playerTag(m.sender)} attacked!\n` +
-    `💥 Damage: *${damage}*\n` +
-    `❤️ ${playerTag(opponent)} HP: *${Math.max(
-      0,
-      game.data.hp[opponent]
-    )}`
-  )
-
-  if (game.data.hp[opponent] <= 0) {
-    clearTimeout(game.gameTimer)
-
-    return finishGame(
-      m,
-      game,
-      m.sender,
-      opponent
-    )
-  }
-
-  return true
-}
-
-/* ================================================================
- * GAME START ROUTER
- * ================================================================ */
-
-async function startGame(m, game) {
-  switch (game.type) {
-    case 'dice':
-      return startDice(m, game)
-
-    case 'rps':
-      return startRps(m, game)
-
-    case 'coin':
-      return startCoin(m, game)
-
-    case 'highcard':
-      return startHighCard(m, game)
-
-    case 'reaction':
-      return startReaction(m, game)
-
-    case 'guessduel':
-      return startNumber(m, game)
-
-    case 'mathduel':
-      return startMath(m, game)
-
-    case 'wordduel':
-      return startScramble(m, game)
-
-    case 'target':
-      return startTarget(m, game)
-
-    case 'bowling':
-      return startBowling(m, game)
-
-    case 'archery':
-      return startArchery(m, game)
-
-    case 'race':
-      return startRace(m, game)
-
-    case 'penalty':
-      return startPenalty(m, game)
-
-    case 'basketball':
-      return startBasketball(m, game)
-
-    case 'bomb':
-      return startBomb(m, game)
-
-    case 'emoji':
-      return startEmoji(m, game)
-
-    case 'memory':
-      return startMemory(m, game)
-
-    case 'oddeven':
-      return startOdds(m, game)
-
-    case 'trivia':
-      return startTrivia(m, game)
-
-    case 'quickdraw':
-      return startQuickDraw(m, game)
-
-    case 'fortune':
-      return startFortune(m, game)
-
-    case 'sps':
-      return startSps(m, game)
-
-    case 'lucky':
-      return startLucky(m, game)
-
-    case 'boxing':
-      return startBoxing(m, game)
-
-    case 'sword':
-      return startSword(m, game)
-
-    case 'survival':
-      return startSurvival(m, game)
-
-    case 'treasure':
-      return startTreasure(m, game)
-
-    case 'space':
-      return startSpace(m, game)
-
-    case 'zombie':
-      return startZombie(m, game)
-
-    case 'arena':
-      return startArena(m, game)
-
-    default:
-      throw new Error(`Unknown game: ${game.type}`)
-  }
-}
-
-/* ================================================================
- * GAME MESSAGE ROUTER
- * ================================================================ */
-
-async function handleGameMessage(m, game) {
-  if (!game) return false
-
-  if (Date.now() - game.createdAt > GAME_TIMEOUT + ACCEPT_TIMEOUT) {
-    clearTimeout(game.gameTimer)
-    clearTimeout(game.acceptTimer)
-    deleteGame(m.chat)
-
-    if (isPlayer(game, m.sender)) {
-      await m.reply('⏰ This game has expired.')
-      return true
-    }
-
-    return false
-  }
-
-  if (game.stage === 'accept') {
-    return handleAccept(m, game)
-  }
-
-  switch (game.type) {
-    case 'dice':
-      return handleDice(m, game)
-
-    case 'rps':
-      return handleRps(m, game)
-
-    case 'coin':
-      return handleCoin(m, game)
-
-    case 'highcard':
-      return handleHighCard(m, game)
-
-    case 'reaction':
-      return handleReaction(m, game)
-
-    case 'guessduel':
-      return handleNumber(m, game)
-
-    case 'mathduel':
-      return handleMath(m, game)
-
-    case 'wordduel':
-      return handleScramble(m, game)
-
-    case 'target':
-      return handleTarget(m, game)
-
-    case 'bowling':
-      return handleBowling(m, game)
-
-    case 'archery':
-      return handleArchery(m, game)
-
-    case 'race':
-      return handleRace(m, game)
-
-    case 'penalty':
-      return handlePenalty(m, game)
-
-    case 'basketball':
-      return handleBasketball(m, game)
-
-    case 'bomb':
-      return handleBomb(m, game)
-
-    case 'emoji':
-      return handleEmoji(m, game)
-
-    case 'memory':
-      return handleMemory(m, game)
-
-    case 'oddeven':
-      return handleOdds(m, game)
-
-    case 'trivia':
-      return handleTrivia(m, game)
-
-    case 'quickdraw':
-      return handleQuickDraw(m, game)
-
-    case 'fortune':
-      return handleFortune(m, game)
-
-    case 'sps':
-      return handleSps(m, game)
-
-    case 'lucky':
-      return handleLucky(m, game)
-
-    case 'boxing':
-      return handleBoxing(m, game)
-
-    case 'sword':
-      return handleSword(m, game)
-
-    case 'survival':
-      return handleSurvival(m, game)
-
-    case 'treasure':
-      return handleTreasure(m, game)
-
-    case 'space':
-      return handleSpace(m, game)
-
-    case 'zombie':
-      return handleZombie(m, game)
-
-    case 'arena':
-      return handleArena(m, game)
-
-    default:
-      return false
-  }
-}
-
-/* ================================================================
- * COMMAND FACTORY
- * ================================================================ */
-
-function duelCommand({
-  name,
-  alias = [],
-  title,
-  desc,
-  usage,
-  type = name,
-  instructions = 'Both players should reply *ACCEPT* to begin.'
-}) {
-  return {
-    name,
-    alias,
-    category: 'GAME',
-    desc,
-    usage,
-    group: true,
-
-    async run({ m }) {
-      const players = m.mentions || []
-
-      let selected
-
-      if (players.length >= 2) {
-        selected = [
-          players[0],
-          players[1]
-        ]
-      } else if (players.length === 1) {
-        selected = [
-          m.sender,
-          players[0]
-        ]
-      } else {
-        return m.reply(
-          `🎮 Usage:\n\n` +
-          `.${name} @player\n` +
-          `or\n` +
-          `.${name} @player1 @player2`
-        )
-      }
-
-      return createDuel({
-        m,
-        command: name,
-        players: selected,
-        title,
-        instructions,
-        data: {}
-      })
-    },
-
-    async before({ m }) {
-      const game = getGame(m.chat)
-
-      if (!game) return false
-
-      /*
-       * Only the two actual players can interact with
-       * an active game.
-       *
-       * This prevents spectators from accidentally
-       * controlling games.
-       */
-      if (!isPlayer(game, m.sender)) {
-        return false
-      }
-
-      return handleGameMessage(m, game)
+/* ----------------------------------------------------------------
+ * HANGMAN
+ * ---------------------------------------------------------------- */
+
+const HANGMAN_STAGES = [
+  '```\n  +---+\n      |\n      |\n      |\n     ===```',
+  '```\n  +---+\n  O   |\n      |\n      |\n     ===```',
+  '```\n  +---+\n  O   |\n  |   |\n      |\n     ===```',
+  '```\n  +---+\n  O   |\n /|   |\n      |\n     ===```',
+  '```\n  +---+\n  O   |\n /|\\  |\n      |\n     ===```',
+  '```\n  +---+\n  O   |\n /|\\  |\n /    |\n     ===```',
+  '```\n  +---+\n  O   |\n /|\\  |\n / \\  |\n     ===```'
+]
+
+/* ----------------------------------------------------------------
+ * CARDS
+ * ---------------------------------------------------------------- */
+
+const SUITS = ['♠️', '♥️', '♦️', '♣️']
+const VALUES = [
+  'A',
+  '2',
+  '3',
+  '4',
+  '5',
+  '6',
+  '7',
+  '8',
+  '9',
+  '10',
+  'J',
+  'Q',
+  'K'
+]
+
+function makeDeck() {
+  const deck = []
+
+  for (const suit of SUITS) {
+    for (const value of VALUES) {
+      deck.push({ suit, value })
     }
   }
+
+  return shuffle(deck)
 }
 
-/* ================================================================
- * END GAME COMMAND
- * ================================================================ */
+function cardValue(card) {
+  if (['J', 'Q', 'K'].includes(card.value)) return 10
+  if (card.value === 'A') return 11
+  return Number(card.value)
+}
 
-const endGameCommand = {
-  name: 'endgame',
-  alias: ['stopgame', 'cancelgame'],
+function handValue(hand) {
+  let total = hand.reduce(
+    (sum, card) => sum + cardValue(card),
+    0
+  )
+
+  let aces = hand.filter(
+    (c) => c.value === 'A'
+  ).length
+
+  while (total > 21 && aces > 0) {
+    total -= 10
+    aces--
+  }
+
+  return total
+}
+
+/* ----------------------------------------------------------------
+ * 1. TIC TAC TOE
+ * ---------------------------------------------------------------- */
+
+const tttGame = {
+  name: 'ttt',
+  alias: ['tictactoe'],
   category: 'GAME',
-  desc: 'End the active game in the group',
-  usage: '.endgame',
+  desc: 'Two-player Tic Tac Toe',
+  usage: '.ttt @user1 @user2',
   group: true,
 
   async run({ m }) {
-    const game = getGame(m.chat)
+    const result = await startDuel(
+      m,
+      'ttt'
+    )
 
-    if (!game) {
-      return m.reply('❌ There is no active game.')
+    if (result.error) {
+      return m.reply(result.error)
     }
 
-    /*
-     * Only the host can stop the game.
-     */
-    if (game.host !== m.sender) {
+    const [p1, p2] = result.players
+
+    setGame(m.chat, {
+      type: 'ttt',
+      players: [p1, p2],
+      turn: p1,
+      board: Array(9).fill(' '),
+      symbols: {
+        [p1]: 'X',
+        [p2]: 'O'
+      }
+    })
+
+    await m.reply({
+      text:
+        `🎮 *TIC TAC TOE*\n\n` +
+        `❌ ${nameOf(p1)}\n` +
+        `⭕ ${nameOf(p2)}\n\n` +
+        `${renderTTT(Array(9).fill(' '))}\n` +
+        `\n🎯 ${nameOf(p1)} goes first.\n` +
+        `Reply with a number from 1-9.`,
+      mentions: [p1, p2]
+    })
+  }
+}
+
+/* ----------------------------------------------------------------
+ * 2. ROCK PAPER SCISSORS
+ * ---------------------------------------------------------------- */
+
+const rpsGame = {
+  name: 'rps',
+  alias: ['rockpaperscissors'],
+  category: 'GAME',
+  desc: 'Two-player Rock Paper Scissors',
+  usage: '.rps @user1 @user2',
+  group: true,
+
+  async run({ m }) {
+    const result = await startDuel(
+      m,
+      'rps'
+    )
+
+    if (result.error) return m.reply(result.error)
+
+    const [p1, p2] = result.players
+
+    setGame(m.chat, {
+      type: 'rps',
+      players: [p1, p2],
+      moves: {}
+    })
+
+    await m.reply({
+      text:
+        `🥊 *ROCK PAPER SCISSORS*\n\n` +
+        `${nameOf(p1)} 🆚 ${nameOf(p2)}\n\n` +
+        `Each player privately chooses:\n` +
+        `🪨 rock\n` +
+        `📄 paper\n` +
+        `✂️ scissors\n\n` +
+        `Reply with your choice.`,
+      mentions: [p1, p2]
+    })
+  }
+}
+
+/* ----------------------------------------------------------------
+ * 3. DICE BATTLE
+ * ---------------------------------------------------------------- */
+
+const diceGame = {
+  name: 'dicebattle',
+  alias: ['dice'],
+  category: 'GAME',
+  desc: 'Two players battle with dice',
+  usage: '.dicebattle @user1 @user2',
+  group: true,
+
+  async run({ m }) {
+    const result = await startDuel(
+      m,
+      'dicebattle'
+    )
+
+    if (result.error) return m.reply(result.error)
+
+    const [p1, p2] = result.players
+
+    const a = rand(1, 6)
+    const b = rand(1, 6)
+
+    let text =
+      `🎲 *DICE BATTLE*\n\n` +
+      `${nameOf(p1)} → 🎲 ${a}\n` +
+      `${nameOf(p2)} → 🎲 ${b}\n\n`
+
+    if (a === b) {
+      text += '🤝 *DRAW!*'
+    } else {
+      const winner = a > b ? p1 : p2
+
+      await reward(winner, 500)
+
+      text +=
+        `🏆 ${nameOf(winner)} wins!\n` +
+        `💰 Prize: ${CURRENCY} 500`
+    }
+
+    await m.reply({
+      text,
+      mentions: [p1, p2]
+    })
+  }
+}
+
+/* ----------------------------------------------------------------
+ * 4. NUMBER GUESS BATTLE
+ * ---------------------------------------------------------------- */
+
+const numberBattle = {
+  name: 'guessbattle',
+  alias: ['numberbattle'],
+  category: 'GAME',
+  desc: 'Guess a hidden number against another player',
+  usage: '.guessbattle @user1 @user2',
+  group: true,
+
+  async run({ m }) {
+    const result = await startDuel(
+      m,
+      'guessbattle'
+    )
+
+    if (result.error) return m.reply(result.error)
+
+    const [p1, p2] = result.players
+
+    const target = rand(1, 50)
+
+    setGame(m.chat, {
+      type: 'guessbattle',
+      players: [p1, p2],
+      target,
+      guesses: {}
+    })
+
+    await m.reply({
+      text:
+        `🔢 *NUMBER GUESS BATTLE*\n\n` +
+        `${nameOf(p1)} 🆚 ${nameOf(p2)}\n\n` +
+        `I'm thinking of a number from *1-50*.\n` +
+        `Both players get one guess.\n\n` +
+        `Reply with your number.`,
+      mentions: [p1, p2]
+    })
+  }
+}
+
+/* ----------------------------------------------------------------
+ * 5. QUICK MATH
+ * ---------------------------------------------------------------- */
+
+const quickMath = {
+  name: 'quickmath',
+  category: 'GAME',
+  desc: 'Fast math duel',
+  usage: '.quickmath @user1 @user2',
+  group: true,
+
+  async run({ m }) {
+    const result = await startDuel(
+      m,
+      'quickmath'
+    )
+
+    if (result.error) return m.reply(result.error)
+
+    const [p1, p2] = result.players
+
+    const a = rand(5, 30)
+    const b = rand(2, 20)
+
+    const operators = ['+', '-', '*']
+    const op = randomChoice(operators)
+
+    let answer
+
+    if (op === '+') answer = a + b
+    if (op === '-') answer = a - b
+    if (op === '*') answer = a * b
+
+    setGame(m.chat, {
+      type: 'quickmath',
+      players: [p1, p2],
+      answer
+    })
+
+    await m.reply({
+      text:
+        `⚡ *QUICK MATH*\n\n` +
+        `${nameOf(p1)} 🆚 ${nameOf(p2)}\n\n` +
+        `Solve this:\n\n` +
+        `🧮 *${a} ${op} ${b} = ?*\n\n` +
+        `First correct answer wins!`,
+      mentions: [p1, p2]
+    })
+  }
+}
+
+/* ----------------------------------------------------------------
+ * 6. FASTEST FINGER
+ * ---------------------------------------------------------------- */
+
+const fastestFinger = {
+  name: 'fastfinger',
+  alias: ['fastestfinger'],
+  category: 'GAME',
+  desc: 'First player to type the target wins',
+  usage: '.fastfinger @user1 @user2',
+  group: true,
+
+  async run({ m }) {
+    const result = await startDuel(
+      m,
+      'fastfinger'
+    )
+
+    if (result.error) return m.reply(result.error)
+
+    const [p1, p2] = result.players
+
+    const target = randomChoice([
+      'AYLEE',
+      'VENOM',
+      'WINNER',
+      'FUOYE',
+      'WHATSAPP',
+      'CHAMPION'
+    ])
+
+    setGame(m.chat, {
+      type: 'fastfinger',
+      players: [p1, p2],
+      target
+    })
+
+    await m.reply({
+      text:
+        `⚡ *FASTEST FINGER*\n\n` +
+        `${nameOf(p1)} 🆚 ${nameOf(p2)}\n\n` +
+        `Wait for it...\n\n` +
+        `🎯 Type: *${target}*\n\n` +
+        `GO!`,
+      mentions: [p1, p2]
+    })
+  }
+}
+
+/* ----------------------------------------------------------------
+ * 7. WORD SCRAMBLE
+ * ---------------------------------------------------------------- */
+
+const wordScramble = {
+  name: 'wordscramble',
+  alias: ['wcg', 'scramble'],
+  category: 'GAME',
+  desc: 'Two players unscramble a word',
+  usage: '.wordscramble @user1 @user2',
+  group: true,
+
+  async run({ m }) {
+    const result = await startDuel(
+      m,
+      'wordscramble'
+    )
+
+    if (result.error) return m.reply(result.error)
+
+    const [p1, p2] = result.players
+
+    const word = pick(WORDS)
+
+    setGame(m.chat, {
+      type: 'wordscramble',
+      players: [p1, p2],
+      word
+    })
+
+    await m.reply({
+      text:
+        `🔤 *WORD SCRAMBLE*\n\n` +
+        `${nameOf(p1)} 🆚 ${nameOf(p2)}\n\n` +
+        `Unscramble:\n\n` +
+        `🔥 *${scrambleWord(word).toUpperCase()}*\n\n` +
+        `First correct answer wins ${CURRENCY} 500.`,
+      mentions: [p1, p2]
+    })
+  }
+}
+
+/* ----------------------------------------------------------------
+ * 8. HANGMAN
+ * ---------------------------------------------------------------- */
+
+const hangman = {
+  name: 'hangman',
+  category: 'GAME',
+  desc: 'Two-player Hangman',
+  usage: '.hangman @user1 @user2',
+  group: true,
+
+  async run({ m }) {
+    const result = await startDuel(
+      m,
+      'hangman'
+    )
+
+    if (result.error) return m.reply(result.error)
+
+    const [p1, p2] = result.players
+    const word = pick(WORDS)
+
+    setGame(m.chat, {
+      type: 'hangman',
+      players: [p1, p2],
+      word,
+      guessed: new Set(),
+      wrong: 0
+    })
+
+    await m.reply({
+      text:
+        `💀 *HANGMAN*\n\n` +
+        `${nameOf(p1)} 🆚 ${nameOf(p2)}\n\n` +
+        `${HANGMAN_STAGES[0]}\n\n` +
+        `${word
+          .split('')
+          .map(() => '_')
+          .join(' ')}\n\n` +
+        `Guess one letter at a time.`,
+      mentions: [p1, p2]
+    })
+  }
+}
+
+/* ----------------------------------------------------------------
+ * 9. TRIVIA BATTLE
+ * ---------------------------------------------------------------- */
+
+const trivia = {
+  name: 'triviabattle',
+  alias: ['quizbattle'],
+  category: 'GAME',
+  desc: 'Two-player trivia battle',
+  usage: '.triviabattle @user1 @user2',
+  group: true,
+
+  async run({ m }) {
+    const result = await startDuel(
+      m,
+      'triviabattle'
+    )
+
+    if (result.error) return m.reply(result.error)
+
+    const [p1, p2] = result.players
+
+    const q = randomChoice(QUESTIONS)
+
+    setGame(m.chat, {
+      type: 'trivia',
+      players: [p1, p2],
+      answer: clean(q.a)
+    })
+
+    await m.reply({
+      text:
+        `🧠 *TRIVIA BATTLE*\n\n` +
+        `${nameOf(p1)} 🆚 ${nameOf(p2)}\n\n` +
+        `❓ ${q.q}\n\n` +
+        q.options
+          .map(
+            (x, i) =>
+              `${String.fromCharCode(65 + i)}. ${x}`
+          )
+          .join('\n') +
+        `\n\nFirst correct answer wins!`,
+      mentions: [p1, p2]
+    })
+  }
+}
+
+/* ----------------------------------------------------------------
+ * 10. EMOJI GUESS
+ * ---------------------------------------------------------------- */
+
+const emojiGuess = {
+  name: 'emojiguess',
+  category: 'GAME',
+  desc: 'Guess what the emojis represent',
+  usage: '.emojiguess @user1 @user2',
+  group: true,
+
+  async run({ m }) {
+    const result = await startDuel(
+      m,
+      'emojiguess'
+    )
+
+    if (result.error) return m.reply(result.error)
+
+    const [p1, p2] = result.players
+    const item = randomChoice(EMOJI_QUESTIONS)
+
+    setGame(m.chat, {
+      type: 'emojiguess',
+      players: [p1, p2],
+      answer: clean(item.answer)
+    })
+
+    await m.reply({
+      text:
+        `😂 *EMOJI GUESS*\n\n` +
+        `${nameOf(p1)} 🆚 ${nameOf(p2)}\n\n` +
+        `What does this mean?\n\n` +
+        `👉 ${item.emoji}\n\n` +
+        `First correct answer wins!`,
+      mentions: [p1, p2]
+    })
+  }
+}
+
+/* ----------------------------------------------------------------
+ * 11. COIN FLIP BATTLE
+ * ---------------------------------------------------------------- */
+
+const coinFlip = {
+  name: 'coinbattle',
+  alias: ['coinflip'],
+  category: 'GAME',
+  desc: 'Choose heads or tails',
+  usage: '.coinbattle @user1 @user2',
+  group: true,
+
+  async run({ m }) {
+    const result = await startDuel(
+      m,
+      'coinbattle'
+    )
+
+    if (result.error) return m.reply(result.error)
+
+    const [p1, p2] = result.players
+
+    setGame(m.chat, {
+      type: 'coinbattle',
+      players: [p1, p2],
+      moves: {}
+    })
+
+    await m.reply({
+      text:
+        `🪙 *COIN FLIP BATTLE*\n\n` +
+        `${nameOf(p1)} 🆚 ${nameOf(p2)}\n\n` +
+        `${nameOf(p1)} and ${nameOf(p2)}, choose:\n\n` +
+        `HEADS or TAILS`,
+      mentions: [p1, p2]
+    })
+  }
+}
+
+/* ----------------------------------------------------------------
+ * 12. HIGHER OR LOWER
+ * ---------------------------------------------------------------- */
+
+const higherLower = {
+  name: 'higherlower',
+  category: 'GAME',
+  desc: 'Guess whether the next number is higher or lower',
+  usage: '.higherlower @user1 @user2',
+  group: true,
+
+  async run({ m }) {
+    const result = await startDuel(
+      m,
+      'higherlower'
+    )
+
+    if (result.error) return m.reply(result.error)
+
+    const [p1, p2] = result.players
+
+    const current = rand(1, 100)
+
+    setGame(m.chat, {
+      type: 'higherlower',
+      players: [p1, p2],
+      current,
+      moves: {}
+    })
+
+    await m.reply({
+      text:
+        `📈 *HIGHER OR LOWER*\n\n` +
+        `${nameOf(p1)} 🆚 ${nameOf(p2)}\n\n` +
+        `Current number: *${current}*\n\n` +
+        `Each player chooses:\n` +
+        `⬆️ HIGHER\n` +
+        `⬇️ LOWER`,
+      mentions: [p1, p2]
+    })
+  }
+}
+
+/* ----------------------------------------------------------------
+ * 13. TARGET NUMBER
+ * ---------------------------------------------------------------- */
+
+const targetNumber = {
+  name: 'target',
+  alias: ['targetnumber'],
+  category: 'GAME',
+  desc: 'Get closest to the target',
+  usage: '.target @user1 @user2',
+  group: true,
+
+  async run({ m }) {
+    const result = await startDuel(
+      m,
+      'target'
+    )
+
+    if (result.error) return m.reply(result.error)
+
+    const [p1, p2] = result.players
+
+    const target = rand(1, 100)
+
+    setGame(m.chat, {
+      type: 'target',
+      players: [p1, p2],
+      target,
+      guesses: {}
+    })
+
+    await m.reply({
+      text:
+        `🎯 *TARGET NUMBER*\n\n` +
+        `${nameOf(p1)} 🆚 ${nameOf(p2)}\n\n` +
+        `Target: *${target}*\n\n` +
+        `Both players choose a number from 1-100.\n` +
+        `Closest wins!`,
+      mentions: [p1, p2]
+    })
+  }
+}
+
+/* ----------------------------------------------------------------
+ * 14. ODD OR EVEN
+ * ---------------------------------------------------------------- */
+
+const oddEven = {
+  name: 'oddeven',
+  category: 'GAME',
+  desc: 'Guess odd or even',
+  usage: '.oddeven @user1 @user2',
+  group: true,
+
+  async run({ m }) {
+    const result = await startDuel(
+      m,
+      'oddeven'
+    )
+
+    if (result.error) return m.reply(result.error)
+
+    const [p1, p2] = result.players
+
+    setGame(m.chat, {
+      type: 'oddeven',
+      players: [p1, p2],
+      moves: {}
+    })
+
+    await m.reply({
+      text:
+        `🔢 *ODD OR EVEN*\n\n` +
+        `${nameOf(p1)} 🆚 ${nameOf(p2)}\n\n` +
+        `Choose *odd* or *even*.\n\n` +
+        `The bot will generate a number!`,
+      mentions: [p1, p2]
+    })
+  }
+}
+
+/* ----------------------------------------------------------------
+ * 15. LUCKY NUMBER
+ * ---------------------------------------------------------------- */
+
+const luckyNumber = {
+  name: 'luckynumber',
+  category: 'GAME',
+  desc: 'Pick a lucky number',
+  usage: '.luckynumber @user1 @user2',
+  group: true,
+
+  async run({ m }) {
+    const result = await startDuel(
+      m,
+      'luckynumber'
+    )
+
+    if (result.error) return m.reply(result.error)
+
+    const [p1, p2] = result.players
+
+    setGame(m.chat, {
+      type: 'luckynumber',
+      players: [p1, p2],
+      guesses: {}
+    })
+
+    await m.reply({
+      text:
+        `🍀 *LUCKY NUMBER*\n\n` +
+        `${nameOf(p1)} 🆚 ${nameOf(p2)}\n\n` +
+        `Pick a number from *1-10*.\n\n` +
+        `One number is secretly lucky.\n` +
+        `Choose wisely!`,
+      mentions: [p1, p2]
+    })
+  }
+}
+
+/* ----------------------------------------------------------------
+ * 16. RACE
+ * ---------------------------------------------------------------- */
+
+const raceGame = {
+  name: 'race',
+  category: 'GAME',
+  desc: 'Two players race to the finish',
+  usage: '.race @user1 @user2',
+  group: true,
+
+  async run({ m }) {
+    const result = await startDuel(
+      m,
+      'race'
+    )
+
+    if (result.error) return m.reply(result.error)
+
+    const [p1, p2] = result.players
+
+    setGame(m.chat, {
+      type: 'race',
+      players: [p1, p2],
+      progress: {
+        [p1]: 0,
+        [p2]: 0
+      }
+    })
+
+    await m.reply({
+      text:
+        `🏁 *RACE*\n\n` +
+        `${nameOf(p1)} 🆚 ${nameOf(p2)}\n\n` +
+        `Each reply with *go* moves your racer forward.\n` +
+        `First to 5 wins!\n\n` +
+        `🏎️ ${nameOf(p1)}: 0/5\n` +
+        `🏎️ ${nameOf(p2)}: 0/5`,
+      mentions: [p1, p2]
+    })
+  }
+}
+
+/* ----------------------------------------------------------------
+ * 17. SLAP BATTLE
+ * ---------------------------------------------------------------- */
+
+const slapBattle = {
+  name: 'slapbattle',
+  category: 'GAME',
+  desc: 'Two-player slap battle',
+  usage: '.slapbattle @user1 @user2',
+  group: true,
+
+  async run({ m }) {
+    const result = await startDuel(
+      m,
+      'slapbattle'
+    )
+
+    if (result.error) return m.reply(result.error)
+
+    const [p1, p2] = result.players
+
+    setGame(m.chat, {
+      type: 'slapbattle',
+      players: [p1, p2],
+      hp: {
+        [p1]: 100,
+        [p2]: 100
+      },
+      turn: p1
+    })
+
+    await m.reply({
+      text:
+        `👋 *SLAP BATTLE*\n\n` +
+        `${nameOf(p1)} 🆚 ${nameOf(p2)}\n\n` +
+        `❤️ ${nameOf(p1)}: 100\n` +
+        `❤️ ${nameOf(p2)}: 100\n\n` +
+        `${nameOf(p1)} goes first.\n` +
+        `Reply *slap* to attack.`,
+      mentions: [p1, p2]
+    })
+  }
+}
+
+/* ----------------------------------------------------------------
+ * 18. SWORD BATTLE
+ * ---------------------------------------------------------------- */
+
+const swordBattle = {
+  name: 'swordbattle',
+  category: 'GAME',
+  desc: 'Two-player sword battle',
+  usage: '.swordbattle @user1 @user2',
+  group: true,
+
+  async run({ m }) {
+    const result = await startDuel(
+      m,
+      'swordbattle'
+    )
+
+    if (result.error) return m.reply(result.error)
+
+    const [p1, p2] = result.players
+
+    setGame(m.chat, {
+      type: 'swordbattle',
+      players: [p1, p2],
+      hp: {
+        [p1]: 100,
+        [p2]: 100
+      },
+      turn: p1
+    })
+
+    await m.reply({
+      text:
+        `⚔️ *SWORD BATTLE*\n\n` +
+        `${nameOf(p1)} 🆚 ${nameOf(p2)}\n\n` +
+        `❤️ ${nameOf(p1)}: 100\n` +
+        `❤️ ${nameOf(p2)}: 100\n\n` +
+        `Commands during battle:\n` +
+        `⚔️ attack\n` +
+        `🛡️ defend\n\n` +
+        `${nameOf(p1)} starts.`,
+      mentions: [p1, p2]
+    })
+  }
+}
+
+/* ----------------------------------------------------------------
+ * 19. BOMB DEFUSE
+ * ---------------------------------------------------------------- */
+
+const bombGame = {
+  name: 'bomb',
+  alias: ['bombdefuse'],
+  category: 'GAME',
+  desc: 'Choose a wire to defuse the bomb',
+  usage: '.bomb @user1 @user2',
+  group: true,
+
+  async run({ m }) {
+    const result = await startDuel(
+      m,
+      'bomb'
+    )
+
+    if (result.error) return m.reply(result.error)
+
+    const [p1, p2] = result.players
+
+    setGame(m.chat, {
+      type: 'bomb',
+      players: [p1, p2],
+      moves: {}
+    })
+
+    await m.reply({
+      text:
+        `💣 *BOMB DEFUSE*\n\n` +
+        `${nameOf(p1)} 🆚 ${nameOf(p2)}\n\n` +
+        `Choose a wire:\n\n` +
+        `🔴 red\n` +
+        `🔵 blue\n` +
+        `🟢 green\n` +
+        `🟡 yellow\n\n` +
+        `One wire is dangerous...`,
+      mentions: [p1, p2]
+    })
+  }
+}
+
+/* ----------------------------------------------------------------
+ * 20. MEMORY GAME
+ * ---------------------------------------------------------------- */
+
+const memoryGame = {
+  name: 'memory',
+  category: 'GAME',
+  desc: 'Remember the number sequence',
+  usage: '.memory @user1 @user2',
+  group: true,
+
+  async run({ m }) {
+    const result = await startDuel(
+      m,
+      'memory'
+    )
+
+    if (result.error) return m.reply(result.error)
+
+    const [p1, p2] = result.players
+
+    const sequence = Array.from(
+      { length: 5 },
+      () => rand(0, 9)
+    ).join('')
+
+    setGame(m.chat, {
+      type: 'memory',
+      players: [p1, p2],
+      sequence,
+      answered: {}
+    })
+
+    await m.reply({
+      text:
+        `🧠 *MEMORY CHALLENGE*\n\n` +
+        `${nameOf(p1)} 🆚 ${nameOf(p2)}\n\n` +
+        `MEMORIZE THIS:\n\n` +
+        `🔢 *${sequence}*\n\n` +
+        `You have 5 seconds...`,
+      mentions: [p1, p2]
+    })
+
+    setTimeout(() => {
+      const g = games.get(m.chat)
+
+      if (
+        !g ||
+        g.type !== 'memory' ||
+        g.sequence !== sequence
+      ) {
+        return
+      }
+
+      m.send(
+        `🧠 Sequence hidden!\n\n` +
+        `Both players: type the number you remember.`
+      ).catch(() => {})
+    }, 5000)
+  }
+}
+
+/* ----------------------------------------------------------------
+ * 21. BLACKJACK DUEL
+ * ---------------------------------------------------------------- */
+
+const blackjack = {
+  name: 'blackjack',
+  category: 'GAME',
+  desc: 'Two-player blackjack',
+  usage: '.blackjack @user1 @user2',
+  group: true,
+
+  async run({ m }) {
+    const result = await startDuel(
+      m,
+      'blackjack'
+    )
+
+    if (result.error) return m.reply(result.error)
+
+    const [p1, p2] = result.players
+
+    const deck = makeDeck()
+
+    const hands = {
+      [p1]: [deck.pop(), deck.pop()],
+      [p2]: [deck.pop(), deck.pop()]
+    }
+
+    setGame(m.chat, {
+      type: 'blackjack',
+      players: [p1, p2],
+      deck,
+      hands,
+      stood: {}
+    })
+
+    await m.reply({
+      text:
+        `🃏 *BLACKJACK DUEL*\n\n` +
+        `${nameOf(p1)}: ${handValue(hands[p1])}\n` +
+        `${hands[p1]
+          .map((c) => `${c.value}${c.suit}`)
+          .join(' ')}\n\n` +
+        `${nameOf(p2)}: ${handValue(hands[p2])}\n` +
+        `${hands[p2]
+          .map((c) => `${c.value}${c.suit}`)
+          .join(' ')}\n\n` +
+        `Reply *hit* for another card or *stand*.`,
+      mentions: [p1, p2]
+    })
+  }
+}
+
+/* ----------------------------------------------------------------
+ * 22. WAR CARD BATTLE
+ * ---------------------------------------------------------------- */
+
+const war = {
+  name: 'war',
+  alias: ['cardwar'],
+  category: 'GAME',
+  desc: 'Card War',
+  usage: '.war @user1 @user2',
+  group: true,
+
+  async run({ m }) {
+    const result = await startDuel(
+      m,
+      'war'
+    )
+
+    if (result.error) return m.reply(result.error)
+
+    const [p1, p2] = result.players
+
+    const deck = makeDeck()
+
+    const value = (card) =>
+      VALUES.indexOf(card.value)
+
+    const a = deck.pop()
+    const b = deck.pop()
+
+    let text =
+      `🃏 *CARD WAR*\n\n` +
+      `${nameOf(p1)} → ${a.value}${a.suit}\n` +
+      `${nameOf(p2)} → ${b.value}${b.suit}\n\n`
+
+    if (value(a) === value(b)) {
+      text += '🤝 DRAW!'
+    } else {
+      const winner = value(a) > value(b) ? p1 : p2
+
+      await reward(winner, 600)
+
+      text +=
+        `🏆 ${nameOf(winner)} wins!\n` +
+        `💰 +${CURRENCY} 600`
+    }
+
+    await m.reply({
+      text,
+      mentions: [p1, p2]
+    })
+  }
+}
+
+/* ----------------------------------------------------------------
+ * 23. REACTION BATTLE
+ * ---------------------------------------------------------------- */
+
+const reaction = {
+  name: 'reaction',
+  alias: ['reactionbattle'],
+  category: 'GAME',
+  desc: 'First player to react with the target word wins',
+  usage: '.reaction @user1 @user2',
+  group: true,
+
+  async run({ m }) {
+    const result = await startDuel(
+      m,
+      'reaction'
+    )
+
+    if (result.error) return m.reply(result.error)
+
+    const [p1, p2] = result.players
+
+    const target = randomChoice([
+      'GO',
+      'NOW',
+      'RUN',
+      'WIN',
+      'FIRE'
+    ])
+
+    setGame(m.chat, {
+      type: 'reaction',
+      players: [p1, p2],
+      target
+    })
+
+    await m.reply({
+      text:
+        `⚡ *REACTION BATTLE*\n\n` +
+        `${nameOf(p1)} 🆚 ${nameOf(p2)}\n\n` +
+        `Wait...\n\n` +
+        `🚦 *${target}*`,
+      mentions: [p1, p2]
+    })
+  }
+}
+
+/* ----------------------------------------------------------------
+ * 24. FOOTBALL PENALTY
+ * ---------------------------------------------------------------- */
+
+const penalty = {
+  name: 'penalty',
+  alias: ['penaltybattle'],
+  category: 'GAME',
+  desc: 'Football penalty shootout',
+  usage: '.penalty @user1 @user2',
+  group: true,
+
+  async run({ m }) {
+    const result = await startDuel(
+      m,
+      'penalty'
+    )
+
+    if (result.error) return m.reply(result.error)
+
+    const [p1, p2] = result.players
+
+    setGame(m.chat, {
+      type: 'penalty',
+      players: [p1, p2],
+      moves: {}
+    })
+
+    await m.reply({
+      text:
+        `⚽ *PENALTY SHOOTOUT*\n\n` +
+        `${nameOf(p1)} 🆚 ${nameOf(p2)}\n\n` +
+        `Choose where to shoot:\n` +
+        `⬅️ left\n` +
+        `⬆️ center\n` +
+        `➡️ right\n\n` +
+        `Both players take one shot.`,
+      mentions: [p1, p2]
+    })
+  }
+}
+
+/* ----------------------------------------------------------------
+ * 25. BASKETBALL
+ * ---------------------------------------------------------------- */
+
+const basketball = {
+  name: 'basketball',
+  alias: ['hoops'],
+  category: 'GAME',
+  desc: 'Basketball shooting battle',
+  usage: '.basketball @user1 @user2',
+  group: true,
+
+  async run({ m }) {
+    const result = await startDuel(
+      m,
+      'basketball'
+    )
+
+    if (result.error) return m.reply(result.error)
+
+    const [p1, p2] = result.players
+
+    setGame(m.chat, {
+      type: 'basketball',
+      players: [p1, p2],
+      scores: {}
+    })
+
+    await m.reply({
+      text:
+        `🏀 *BASKETBALL BATTLE*\n\n` +
+        `${nameOf(p1)} 🆚 ${nameOf(p2)}\n\n` +
+        `Reply *shoot* 3 times.\n` +
+        `Each successful shot gives 1 point.`,
+      mentions: [p1, p2]
+    })
+  }
+}
+
+/* ----------------------------------------------------------------
+ * 26. FIGHTER BATTLE
+ * ---------------------------------------------------------------- */
+
+const fighter = {
+  name: 'fight',
+  alias: ['fighter'],
+  category: 'GAME',
+  desc: 'Choose attacks in a battle',
+  usage: '.fight @user1 @user2',
+  group: true,
+
+  async run({ m }) {
+    const result = await startDuel(
+      m,
+      'fight'
+    )
+
+    if (result.error) return m.reply(result.error)
+
+    const [p1, p2] = result.players
+
+    setGame(m.chat, {
+      type: 'fight',
+      players: [p1, p2],
+      hp: {
+        [p1]: 100,
+        [p2]: 100
+      },
+      turn: p1
+    })
+
+    await m.reply({
+      text:
+        `🥊 *FIGHTER BATTLE*\n\n` +
+        `${nameOf(p1)} 🆚 ${nameOf(p2)}\n\n` +
+        `❤️ ${nameOf(p1)}: 100\n` +
+        `❤️ ${nameOf(p2)}: 100\n\n` +
+        `Moves:\n` +
+        `👊 punch\n` +
+        `🦵 kick\n` +
+        `🛡️ defend\n\n` +
+        `${nameOf(p1)} starts.`,
+      mentions: [p1, p2]
+    })
+  }
+}
+
+/* ----------------------------------------------------------------
+ * 27. SLOT DUEL
+ * ---------------------------------------------------------------- */
+
+const slot = {
+  name: 'slotduel',
+  alias: ['slots'],
+  category: 'GAME',
+  desc: 'Two-player slot battle',
+  usage: '.slotduel @user1 @user2',
+  group: true,
+
+  async run({ m }) {
+    const result = await startDuel(
+      m,
+      'slotduel'
+    )
+
+    if (result.error) return m.reply(result.error)
+
+    const [p1, p2] = result.players
+
+    const symbols = ['🍒', '🍋', '🍇', '⭐', '💎', '7️⃣']
+
+    const spin = () =>
+      [
+        randomChoice(symbols),
+        randomChoice(symbols),
+        randomChoice(symbols)
+      ]
+
+    const a = spin()
+    const b = spin()
+
+    const score = (x) => {
+      if (
+        x[0] === x[1] &&
+        x[1] === x[2]
+      ) {
+        return x[0] === '7️⃣'
+          ? 100
+          : 50
+      }
+
+      if (
+        x[0] === x[1] ||
+        x[1] === x[2] ||
+        x[0] === x[2]
+      ) {
+        return 20
+      }
+
+      return 0
+    }
+
+    const sa = score(a)
+    const sb = score(b)
+
+    let text =
+      `🎰 *SLOT DUEL*\n\n` +
+      `${nameOf(p1)}\n${a.join(' | ')} → ${sa} pts\n\n` +
+      `${nameOf(p2)}\n${b.join(' | ')} → ${sb} pts\n\n`
+
+    if (sa === sb) {
+      text += '🤝 DRAW!'
+    } else {
+      const winner = sa > sb ? p1 : p2
+
+      await reward(winner, 500)
+
+      text +=
+        `🏆 ${nameOf(winner)} wins!\n` +
+        `💰 +${CURRENCY} 500`
+    }
+
+    await m.reply({
+      text,
+      mentions: [p1, p2]
+    })
+  }
+}
+
+/* ----------------------------------------------------------------
+ * 28. MIND READER
+ * ---------------------------------------------------------------- */
+
+const mindReader = {
+  name: 'mindreader',
+  alias: ['mind'],
+  category: 'GAME',
+  desc: 'Try to choose the same number',
+  usage: '.mindreader @user1 @user2',
+  group: true,
+
+  async run({ m }) {
+    const result = await startDuel(
+      m,
+      'mindreader'
+    )
+
+    if (result.error) return m.reply(result.error)
+
+    const [p1, p2] = result.players
+
+    setGame(m.chat, {
+      type: 'mindreader',
+      players: [p1, p2],
+      moves: {}
+    })
+
+    await m.reply({
+      text:
+        `🧠 *MIND READER*\n\n` +
+        `${nameOf(p1)} 🆚 ${nameOf(p2)}\n\n` +
+        `Both players secretly choose a number from 1-5.\n\n` +
+        `Reply with your number.`,
+      mentions: [p1, p2]
+    })
+  }
+}
+
+/* ----------------------------------------------------------------
+ * 29. SURVIVAL
+ * ---------------------------------------------------------------- */
+
+const survival = {
+  name: 'survival',
+  category: 'GAME',
+  desc: 'Survive random challenges',
+  usage: '.survival @user1 @user2',
+  group: true,
+
+  async run({ m }) {
+    const result = await startDuel(
+      m,
+      'survival'
+    )
+
+    if (result.error) return m.reply(result.error)
+
+    const [p1, p2] = result.players
+
+    setGame(m.chat, {
+      type: 'survival',
+      players: [p1, p2],
+      round: 1,
+      alive: {
+        [p1]: true,
+        [p2]: true
+      }
+    })
+
+    await m.reply({
+      text:
+        `☠️ *SURVIVAL CHALLENGE*\n\n` +
+        `${nameOf(p1)} 🆚 ${nameOf(p2)}\n\n` +
+        `Round 1:\n` +
+        `Choose:\n\n` +
+        `🏃 run\n` +
+        `🛡️ hide\n` +
+        `⚔️ fight\n\n` +
+        `Choose wisely.`,
+      mentions: [p1, p2]
+    })
+  }
+}
+
+/* ----------------------------------------------------------------
+ * 30. MAFIA
+ * ---------------------------------------------------------------- */
+
+const mafia = {
+  name: 'mafia',
+  category: 'GAME',
+  desc: 'Start a Mafia game for selected players',
+  usage: '.mafia @user1 @user2 @user3 @user4',
+  group: true,
+
+  async run({ m }) {
+    if (games.has(m.chat)) {
       return m.reply(
-        '❌ Only the person who started the game can end it.'
+        '🎮 A game is already running.\n\nUse *.endgame* first.'
       )
     }
 
-    clearTimeout(game.gameTimer)
-    clearTimeout(game.acceptTimer)
+    const players = [
+      ...(m.mentions || [])
+    ]
+
+    if (players.length < 4) {
+      return m.reply(
+        `🕵️ *MAFIA*\n\n` +
+        `Tag at least 4 players.\n\n` +
+        `Example:\n` +
+        `*.mafia @user1 @user2 @user3 @user4*`
+      )
+    }
+
+    const unique = [
+      ...new Set(players)
+    ]
+
+    const roles = [
+      'mafia',
+      'doctor',
+      'detective',
+      ...Array(
+        Math.max(0, unique.length - 3)
+      ).fill('citizen')
+    ]
+
+    const shuffledRoles =
+      shuffle(roles)
+
+    const roleMap = {}
+
+    unique.forEach((jid, i) => {
+      roleMap[jid] = shuffledRoles[i]
+    })
+
+    setGame(m.chat, {
+      type: 'mafia',
+      players: unique,
+      roles: roleMap,
+      alive: Object.fromEntries(
+        unique.map((x) => [x, true])
+      ),
+      phase: 'night'
+    })
+
+    /*
+     * We intentionally don't reveal roles in the group.
+     * The bot sends each player their private role.
+     */
+
+    for (const jid of unique) {
+      const role = roleMap[jid]
+
+      await m.send({
+        text:
+          `🕵️ *MAFIA ROLE*\n\n` +
+          `Your role is: *${role.toUpperCase()}*\n\n` +
+          (
+            role === 'mafia'
+              ? 'You are Mafia. Eliminate the citizens.'
+              : role === 'doctor'
+                ? 'You are the Doctor. Protect someone.'
+                : role === 'detective'
+                  ? 'You are the Detective. Find the Mafia.'
+                  : 'You are a Citizen. Find the Mafia.'
+          ),
+        mentions: [jid]
+      }).catch(() => {})
+    }
+
+    await m.reply({
+      text:
+        `🕵️ *MAFIA STARTED!*\n\n` +
+        `Players: ${unique.length}\n\n` +
+        `🌙 Night phase has started.\n\n` +
+        `The bot will privately give everyone their role.\n\n` +
+        `You do NOT need the "." prefix to play.`,
+      mentions: unique
+    })
+  }
+}
+
+/* ----------------------------------------------------------------
+ * PLUGIN
+ * ---------------------------------------------------------------- */
+
+export default [
+  ttt,
+  rpsGame,
+  diceGame,
+  numberBattle,
+  quickMath,
+  fastestFinger,
+  wordScramble,
+  hangman,
+  trivia,
+  emojiGuess,
+  coinFlip,
+  higherLower,
+  targetNumber,
+  oddEven,
+  luckyNumber,
+  raceGame,
+  slapBattle,
+  swordBattle,
+  bombGame,
+  memoryGame,
+  blackjack,
+  war,
+  reaction,
+  penalty,
+  basketball,
+  fighter,
+  slot,
+  mindReader,
+  survival,
+  mafia,
+
+  /* --------------------------------------------------------------
+   * UNIVERSAL GAME ENDER
+   * -------------------------------------------------------------- */
+
+  {
+    name: 'endgame',
+    alias: [
+      'stopgame',
+      'cancelgame',
+      'delgame'
+    ],
+    category: 'GAME',
+    desc: 'End the current group game',
+    usage: '.endgame',
+    group: true,
+
+    async run({ m }) {
+      if (!games.has(m.chat)) {
+        return m.reply(
+          '❌ There is no active game in this group.'
+        )
+      }
+
+      const g = games.get(m.chat)
+
+      games.delete(m.chat)
+
+      await m.reply(
+        `🛑 *GAME ENDED*\n\n` +
+        `The ${g.type} game has been cancelled.`
+      )
+    }
+  },
+
+  /* --------------------------------------------------------------
+   * GAME LIST
+   * -------------------------------------------------------------- */
+
+  {
+    name: 'games',
+    alias: ['gamelist'],
+    category: 'GAME',
+    desc: 'Show available games',
+    usage: '.games',
+    group: true,
+
+    async run({ m }) {
+      await m.reply(
+        `🎮 *AY-LEE BOT GAMES*\n\n` +
+
+        `⚔️ *BATTLE*\n` +
+        `• .ttt\n` +
+        `• .rps\n` +
+        `• .dicebattle\n` +
+        `• .guessbattle\n` +
+        `• .slapbattle\n` +
+        `• .swordbattle\n` +
+        `• .fight\n` +
+        `• .war\n` +
+        `• .slotduel\n\n` +
+
+        `🧠 *BRAIN*\n` +
+        `• .quickmath\n` +
+        `• .fastfinger\n` +
+        `• .wordscramble\n` +
+        `• .hangman\n` +
+        `• .triviabattle\n` +
+        `• .emojiguess\n` +
+        `• .memory\n` +
+        `• .mindreader\n` +
+        `• .target\n` +
+        `• .higherlower\n\n` +
+
+        `🎯 *CHALLENGE*\n` +
+        `• .coinbattle\n` +
+        `• .oddeven\n` +
+        `• .luckynumber\n` +
+        `• .race\n` +
+        `• .bomb\n` +
+        `• .reaction\n` +
+        `• .penalty\n` +
+        `• .basketball\n` +
+        `• .survival\n\n` +
+
+        `🕵️ *SOCIAL*\n` +
+        `• .mafia\n\n` +
+
+        `🛑 *CONTROL*\n` +
+        `• .endgame\n\n` +
+
+        `📌 *HOW TO PLAY*\n\n` +
+        `Only the game starter needs the "." prefix.\n\n` +
+        `Example:\n` +
+        `*.dicebattle @user1 @user2*\n\n` +
+        `The selected players then play normally.\n` +
+        `The person who starts the game does NOT have to participate.`
+      )
+    }
+  }
+]
+
+/* ================================================================
+ * GLOBAL BEFORE HANDLER
+ * ================================================================
+ *
+ * Players interact with an active game by simply sending messages.
+ * They do NOT need the "." prefix.
+ * ================================================================ */
+
+export async function before({ m }) {
+  const g = getGame(m.chat)
+
+  if (!g) return false
+
+  /*
+   * Never allow random people to control the game.
+   */
+  if (!playerInGame(g, m.sender)) {
+    return false
+  }
+
+  const text = clean(m.body)
+
+  /* --------------------------------------------------------------
+   * TIC TAC TOE
+   * -------------------------------------------------------------- */
+
+  if (g.type === 'ttt') {
+    if (m.sender !== g.turn) {
+      await m.reply(
+        `⏳ ${nameOf(g.turn)}'s turn.`
+      )
+
+      return true
+    }
+
+    if (!/^[1-9]$/.test(text)) {
+      return true
+    }
+
+    const pos = Number(text) - 1
+
+    if (g.board[pos] !== ' ') {
+      await m.reply(
+        '❌ That square is already taken.'
+      )
+
+      return true
+    }
+
+    g.board[pos] =
+      g.symbols[m.sender]
+
+    const result =
+      tttWinner(g.board)
+
+    if (result === 'draw') {
+      deleteGame(m.chat)
+
+      await m.reply(
+        `🤝 *DRAW!*\n\n${renderTTT(g.board)}`
+      )
+
+      return true
+    }
+
+    if (result) {
+      const winner =
+        g.players.find(
+          (p) =>
+            g.symbols[p] === result
+        )
+
+      deleteGame(m.chat)
+
+      await reward(winner, 500)
+
+      await m.reply({
+        text:
+          `🏆 *TIC TAC TOE WINNER!*\n\n` +
+          `${renderTTT(g.board)}\n` +
+          `${nameOf(winner)} wins!\n\n` +
+          `💰 +${CURRENCY} 500`,
+        mentions: g.players
+      })
+
+      return true
+    }
+
+    g.turn =
+      g.players.find(
+        (p) => p !== m.sender
+      )
+
+    await m.reply({
+      text:
+        `${renderTTT(g.board)}\n\n` +
+        `👉 ${nameOf(g.turn)}'s turn.`,
+      mentions: [g.turn]
+    })
+
+    return true
+  }
+
+  /* --------------------------------------------------------------
+   * RPS
+   * -------------------------------------------------------------- */
+
+  if (g.type === 'rps') {
+    if (!RPS.includes(text)) {
+      return true
+    }
+
+    g.moves[m.sender] = text
+
+    if (
+      Object.keys(g.moves).length < 2
+    ) {
+      await m.reply(
+        '✅ Choice locked. Waiting for the other player...'
+      )
+
+      return true
+    }
+
+    const [p1, p2] =
+      g.players
+
+    const a = g.moves[p1]
+    const b = g.moves[p2]
+
+    const result =
+      rpsWinner(a, b)
 
     deleteGame(m.chat)
 
+    if (result === 'draw') {
+      return m.reply(
+        `🤝 *DRAW!*\n\n` +
+        `${nameOf(p1)}: ${a}\n` +
+        `${nameOf(p2)}: ${b}`
+      )
+    }
+
+    const winner =
+      result === 'a'
+        ? p1
+        : p2
+
+    await reward(winner, 500)
+
+    await m.reply({
+      text:
+        `🥊 *RPS RESULT*\n\n` +
+        `${nameOf(p1)}: ${a}\n` +
+        `${nameOf(p2)}: ${b}\n\n` +
+        `🏆 ${nameOf(winner)} wins!\n` +
+        `💰 +${CURRENCY} 500`,
+      mentions: g.players
+    })
+
+    return true
+  }
+
+  /* --------------------------------------------------------------
+   * NUMBER GUESS BATTLE
+   * -------------------------------------------------------------- */
+
+  if (g.type === 'guessbattle') {
+    const guess = Number(text)
+
+    if (
+      !Number.isInteger(guess) ||
+      guess < 1 ||
+      guess > 50
+    ) {
+      return true
+    }
+
+    g.guesses[m.sender] = guess
+
+    if (
+      Object.keys(g.guesses).length < 2
+    ) {
+      await m.reply(
+        '🔢 Guess recorded. Waiting for the other player...'
+      )
+
+      return true
+    }
+
+    const [p1, p2] = g.players
+
+    const d1 =
+      Math.abs(g.target - g.guesses[p1])
+
+    const d2 =
+      Math.abs(g.target - g.guesses[p2])
+
+    deleteGame(m.chat)
+
+    if (d1 === d2) {
+      return m.reply(
+        `🤝 *DRAW!*\n\n` +
+        `Hidden number: *${g.target}*\n\n` +
+        `${nameOf(p1)} guessed ${g.guesses[p1]}\n` +
+        `${nameOf(p2)} guessed ${g.guesses[p2]}`
+      )
+    }
+
+    const winner =
+      d1 < d2 ? p1 : p2
+
+    await reward(winner, 700)
+
+    await m.reply({
+      text:
+        `🔢 *RESULT*\n\n` +
+        `Number: *${g.target}*\n\n` +
+        `${nameOf(p1)} → ${g.guesses[p1]}\n` +
+        `${nameOf(p2)} → ${g.guesses[p2]}\n\n` +
+        `🏆 ${nameOf(winner)} wins!\n` +
+        `💰 +${CURRENCY} 700`,
+      mentions: g.players
+    })
+
+    return true
+  }
+
+  /* --------------------------------------------------------------
+   * QUICK MATH
+   * -------------------------------------------------------------- */
+
+  if (g.type === 'quickmath') {
+    if (text !== String(g.answer)) {
+      return true
+    }
+
+    deleteGame(m.chat)
+
+    await reward(m.sender, 700)
+
+    await m.reply({
+      text:
+        `⚡ *CORRECT!*\n\n` +
+        `🏆 ${nameOf(m.sender)} was fastest!\n` +
+        `💰 +${CURRENCY} 700`,
+      mentions: [m.sender]
+    })
+
+    return true
+  }
+
+  /* --------------------------------------------------------------
+   * FAST FINGER
+   * -------------------------------------------------------------- */
+
+  if (g.type === 'fastfinger') {
+    if (
+      text !== clean(g.target)
+    ) {
+      return true
+    }
+
+    deleteGame(m.chat)
+
+    await reward(m.sender, 500)
+
+    await m.reply({
+      text:
+        `⚡ *FASTEST!*\n\n` +
+        `${nameOf(m.sender)} wins!\n` +
+        `💰 +${CURRENCY} 500`,
+      mentions: [m.sender]
+    })
+
+    return true
+  }
+
+  /* --------------------------------------------------------------
+   * WORD SCRAMBLE
+   * -------------------------------------------------------------- */
+
+  if (g.type === 'wordscramble') {
+    if (text !== g.word) {
+      return true
+    }
+
+    deleteGame(m.chat)
+
+    await reward(m.sender, 500)
+
+    await m.reply({
+      text:
+        `🎉 *CORRECT!*\n\n` +
+        `The word was *${g.word}*.\n\n` +
+        `🏆 ${nameOf(m.sender)} wins!\n` +
+        `💰 +${CURRENCY} 500`,
+      mentions: [m.sender]
+    })
+
+    return true
+  }
+
+  /* --------------------------------------------------------------
+   * HANGMAN
+   * -------------------------------------------------------------- */
+
+  if (g.type === 'hangman') {
+    if (
+      !/^[a-z]$/.test(text)
+    ) {
+      return true
+    }
+
+    if (g.guessed.has(text)) {
+      return true
+    }
+
+    g.guessed.add(text)
+
+    if (!g.word.includes(text)) {
+      g.wrong++
+    }
+
+    const display =
+      g.word
+        .split('')
+        .map((c) =>
+          g.guessed.has(c)
+            ? c
+            : '_'
+        )
+        .join(' ')
+
+    if (!display.includes('_')) {
+      deleteGame(m.chat)
+
+      await reward(m.sender, 600)
+
+      await m.reply({
+        text:
+          `🎉 *HANGMAN WON!*\n\n` +
+          `Word: *${g.word}*\n\n` +
+          `🏆 ${nameOf(m.sender)} wins!\n` +
+          `💰 +${CURRENCY} 600`,
+        mentions: [m.sender]
+      })
+
+      return true
+    }
+
+    if (g.wrong >= 6) {
+      deleteGame(m.chat)
+
+      await m.reply(
+        `💀 *GAME OVER!*\n\n` +
+        `${HANGMAN_STAGES[6]}\n\n` +
+        `The word was *${g.word}*.`
+      )
+
+      return true
+    }
+
+    await m.reply(
+      `${HANGMAN_STAGES[g.wrong]}\n\n` +
+      `${display}\n\n` +
+      `❤️ Lives: ${6 - g.wrong}/6`
+    )
+
+    return true
+  }
+
+  /* --------------------------------------------------------------
+   * TRIVIA
+   * -------------------------------------------------------------- */
+
+  if (g.type === 'trivia') {
+    if (
+      clean(text) !==
+      clean(g.answer)
+    ) {
+      return true
+    }
+
+    deleteGame(m.chat)
+
+    await reward(m.sender, 600)
+
+    await m.reply({
+      text:
+        `🧠 *CORRECT!*\n\n` +
+        `🏆 ${nameOf(m.sender)} wins the trivia!\n` +
+        `💰 +${CURRENCY} 600`,
+      mentions: [m.sender]
+    })
+
+    return true
+  }
+
+  /* --------------------------------------------------------------
+   * EMOJI GUESS
+   * -------------------------------------------------------------- */
+
+  if (g.type === 'emojiguess') {
+    if (
+      clean(text) !==
+      clean(g.answer)
+    ) {
+      return true
+    }
+
+    deleteGame(m.chat)
+
+    await reward(m.sender, 500)
+
+    await m.reply({
+      text:
+        `😂 *CORRECT!*\n\n` +
+        `🏆 ${nameOf(m.sender)} wins!\n` +
+        `💰 +${CURRENCY} 500`,
+      mentions: [m.sender]
+    })
+
+    return true
+  }
+
+  /* --------------------------------------------------------------
+   * COIN BATTLE
+   * -------------------------------------------------------------- */
+
+  if (g.type === 'coinbattle') {
+    if (
+      !['heads', 'tails'].includes(text)
+    ) {
+      return true
+    }
+
+    g.moves[m.sender] = text
+
+    if (
+      Object.keys(g.moves).length < 2
+    ) {
+      return true
+    }
+
+    const [p1, p2] = g.players
+
+    const coin =
+      randomChoice([
+        'heads',
+        'tails'
+      ])
+
+    const correct =
+      g.players.filter(
+        (p) =>
+          g.moves[p] === coin
+      )
+
+    deleteGame(m.chat)
+
+    if (correct.length === 0) {
+      return m.reply(
+        `🪙 Coin: *${coin.toUpperCase()}*\n\n` +
+        `❌ Nobody guessed correctly.`
+      )
+    }
+
+    if (correct.length === 2) {
+      return m.reply(
+        `🪙 Coin: *${coin.toUpperCase()}*\n\n` +
+        `🤝 Both guessed correctly!`
+      )
+    }
+
+    const winner = correct[0]
+
+    await reward(winner, 500)
+
+    await m.reply({
+      text:
+        `🪙 *COIN RESULT*\n\n` +
+        `Coin: *${coin.toUpperCase()}*\n\n` +
+        `🏆 ${nameOf(winner)} wins!\n` +
+        `💰 +${CURRENCY} 500`,
+      mentions: g.players
+    })
+
+    return true
+  }
+
+  /* --------------------------------------------------------------
+   * HIGHER LOWER
+   * -------------------------------------------------------------- */
+
+  if (g.type === 'higherlower') {
+    if (
+      !['higher', 'lower'].includes(text)
+    ) {
+      return true
+    }
+
+    g.moves[m.sender] = text
+
+    if (
+      Object.keys(g.moves).length < 2
+    ) {
+      return true
+    }
+
+    const next = rand(1, 100)
+
+    const [p1, p2] = g.players
+
+    const correct = (choice) => {
+      if (
+        next === g.current
+      ) {
+        return true
+      }
+
+      return choice === 'higher'
+        ? next > g.current
+        : next < g.current
+    }
+
+    const winners =
+      g.players.filter(
+        (p) =>
+          correct(g.moves[p])
+      )
+
+    deleteGame(m.chat)
+
+    if (winners.length === 1) {
+      await reward(winners[0], 500)
+    }
+
+    await m.reply({
+      text:
+        `📈 *HIGHER OR LOWER*\n\n` +
+        `Old: *${g.current}*\n` +
+        `New: *${next}*\n\n` +
+        (
+          winners.length
+            ? `🏆 ${nameOf(winners[0])} wins!\n💰 +${CURRENCY} 500`
+            : '❌ Nobody guessed correctly.'
+        ),
+      mentions: g.players
+    })
+
+    return true
+  }
+
+  /* --------------------------------------------------------------
+   * TARGET NUMBER
+   * -------------------------------------------------------------- */
+
+  if (g.type === 'target') {
+    const guess = Number(text)
+
+    if (
+      !Number.isInteger(guess) ||
+      guess < 1 ||
+      guess > 100
+    ) {
+      return true
+    }
+
+    g.guesses[m.sender] = guess
+
+    if (
+      Object.keys(g.guesses).length < 2
+    ) {
+      return true
+    }
+
+    const [p1, p2] = g.players
+
+    const d1 =
+      Math.abs(
+        g.target - g.guesses[p1]
+      )
+
+    const d2 =
+      Math.abs(
+        g.target - g.guesses[p2]
+      )
+
+    deleteGame(m.chat)
+
+    if (d1 === d2) {
+      return m.reply(
+        `🎯 *DRAW!*\n\n` +
+        `Target: ${g.target}\n` +
+        `${nameOf(p1)}: ${g.guesses[p1]}\n` +
+        `${nameOf(p2)}: ${g.guesses[p2]}`
+      )
+    }
+
+    const winner =
+      d1 < d2 ? p1 : p2
+
+    await reward(winner, 700)
+
+    await m.reply({
+      text:
+        `🎯 *TARGET RESULT*\n\n` +
+        `Target: *${g.target}*\n\n` +
+        `${nameOf(p1)} → ${g.guesses[p1]}\n` +
+        `${nameOf(p2)} → ${g.guesses[p2]}\n\n` +
+        `🏆 ${nameOf(winner)} wins!\n` +
+        `💰 +${CURRENCY} 700`,
+      mentions: g.players
+    })
+
+    return true
+  }
+
+  /* --------------------------------------------------------------
+   * ODD EVEN
+   * -------------------------------------------------------------- */
+
+  if (g.type === 'oddeven') {
+    if (
+      !['odd', 'even'].includes(text)
+    ) {
+      return true
+    }
+
+    g.moves[m.sender] = text
+
+    if (
+      Object.keys(g.moves).length < 2
+    ) {
+      return true
+    }
+
+    const number = rand(1, 100)
+    const answer =
+      number % 2 === 0
+        ? 'even'
+        : 'odd'
+
+    const winners =
+      g.players.filter(
+        (p) =>
+          g.moves[p] === answer
+      )
+
+    deleteGame(m.chat)
+
+    if (winners.length === 1) {
+      await reward(winners[0], 500)
+    }
+
+    await m.reply({
+      text:
+        `🔢 Number: *${number}*\n` +
+        `Result: *${answer.toUpperCase()}*\n\n` +
+        (
+          winners.length === 1
+            ? `🏆 ${nameOf(winners[0])} wins!\n💰 +${CURRENCY} 500`
+            : winners.length === 2
+              ? '🤝 Both guessed correctly!'
+              : '❌ Nobody guessed correctly.'
+        ),
+      mentions: g.players
+    })
+
+    return true
+  }
+
+  /* --------------------------------------------------------------
+   * LUCKY NUMBER
+   * -------------------------------------------------------------- */
+
+  if (g.type === 'luckynumber') {
+    const guess = Number(text)
+
+    if (
+      !Number.isInteger(guess) ||
+      guess < 1 ||
+      guess > 10
+    ) {
+      return true
+    }
+
+    g.guesses[m.sender] = guess
+
+    if (
+      Object.keys(g.guesses).length < 2
+    ) {
+      return true
+    }
+
+    const lucky = rand(1, 10)
+
+    const winners =
+      g.players.filter(
+        (p) =>
+          g.guesses[p] === lucky
+      )
+
+    deleteGame(m.chat)
+
+    if (winners.length === 1) {
+      await reward(winners[0], 1000)
+    }
+
+    await m.reply({
+      text:
+        `🍀 *LUCKY NUMBER*\n\n` +
+        `Lucky number: *${lucky}*\n\n` +
+        (
+          winners.length
+            ? `🏆 ${nameOf(winners[0])} hit the lucky number!\n💰 +${CURRENCY} 1,000`
+            : '😔 Nobody got it.'
+        ),
+      mentions: g.players
+    })
+
+    return true
+  }
+
+  /* --------------------------------------------------------------
+   * RACE
+   * -------------------------------------------------------------- */
+
+  if (g.type === 'race') {
+    if (text !== 'go') {
+      return true
+    }
+
+    g.progress[m.sender]++
+
+    if (g.progress[m.sender] >= 5) {
+      deleteGame(m.chat)
+
+      await reward(m.sender, 600)
+
+      await m.reply({
+        text:
+          `🏁 *FINISH!*\n\n` +
+          `🏆 ${nameOf(m.sender)} wins the race!\n` +
+          `💰 +${CURRENCY} 600`,
+        mentions: [m.sender]
+      })
+
+      return true
+    }
+
+    await m.reply(
+      `🏎️ ${nameOf(m.sender)} → ${g.progress[m.sender]}/5`
+    )
+
+    return true
+  }
+
+  /* --------------------------------------------------------------
+   * SLAP / SWORD / FIGHT
+   * -------------------------------------------------------------- */
+
+  if (
+    ['slapbattle', 'swordbattle', 'fight'].includes(
+      g.type
+    )
+  ) {
+    if (m.sender !== g.turn) {
+      return true
+    }
+
+    const moves =
+      g.type === 'slapbattle'
+        ? ['slap']
+        : g.type === 'swordbattle'
+          ? ['attack', 'defend']
+          : ['punch', 'kick', 'defend']
+
+    if (!moves.includes(text)) {
+      return true
+    }
+
+    const opponent =
+      g.players.find(
+        (p) => p !== m.sender
+      )
+
+    if (
+      text === 'defend'
+    ) {
+      g.turn = opponent
+
+      await m.reply(
+        `🛡️ ${nameOf(m.sender)} defended.\n\n` +
+        `👉 ${nameOf(opponent)}'s turn.`
+      )
+
+      return true
+    }
+
+    let damage =
+      g.type === 'slapbattle'
+        ? rand(10, 25)
+        : g.type === 'swordbattle'
+          ? rand(15, 30)
+          : text === 'kick'
+            ? rand(15, 30)
+            : rand(10, 25)
+
+    g.hp[opponent] -= damage
+
+    if (g.hp[opponent] <= 0) {
+      g.hp[opponent] = 0
+
+      deleteGame(m.chat)
+
+      await reward(m.sender, 800)
+
+      await m.reply({
+        text:
+          `💥 *KNOCKOUT!*\n\n` +
+          `${nameOf(m.sender)} wins!\n\n` +
+          `❤️ ${nameOf(m.sender)}: ${g.hp[m.sender]}\n` +
+          `💀 ${nameOf(opponent)}: 0\n\n` +
+          `💰 +${CURRENCY} 800`,
+        mentions: g.players
+      })
+
+      return true
+    }
+
+    g.turn = opponent
+
+    await m.reply({
+      text:
+        `💥 ${nameOf(m.sender)} dealt *${damage} damage*!\n\n` +
+        `❤️ ${nameOf(m.sender)}: ${g.hp[m.sender]}\n` +
+        `❤️ ${nameOf(opponent)}: ${g.hp[opponent]}\n\n` +
+        `👉 ${nameOf(opponent)}'s turn.`,
+      mentions: g.players
+    })
+
+    return true
+  }
+
+  /* --------------------------------------------------------------
+   * BOMB
+   * -------------------------------------------------------------- */
+
+  if (g.type === 'bomb') {
+    if (
+      !['red', 'blue', 'green', 'yellow'].includes(
+        text
+      )
+    ) {
+      return true
+    }
+
+    g.moves[m.sender] = text
+
+    if (
+      Object.keys(g.moves).length < 2
+    ) {
+      return true
+    }
+
+    const bomb =
+      randomChoice([
+        'red',
+        'blue',
+        'green',
+        'yellow'
+      ])
+
+    const survivors =
+      g.players.filter(
+        (p) =>
+          g.moves[p] !== bomb
+      )
+
+    deleteGame(m.chat)
+
+    if (survivors.length === 1) {
+      await reward(survivors[0], 700)
+    }
+
+    await m.reply({
+      text:
+        `💣 *BOMB RESULT*\n\n` +
+        `💥 Dangerous wire: *${bomb}*\n\n` +
+        (
+          survivors.length === 1
+            ? `🏆 ${nameOf(survivors[0])} survived!\n💰 +${CURRENCY} 700`
+            : survivors.length === 2
+              ? '🎉 Both survived!'
+              : '💀 Both picked the bomb!'
+        ),
+      mentions: g.players
+    })
+
+    return true
+  }
+
+  /* --------------------------------------------------------------
+   * MEMORY
+   * -------------------------------------------------------------- */
+
+  if (g.type === 'memory') {
+    if (
+      !/^\d+$/.test(text)
+    ) {
+      return true
+    }
+
+    g.answered[m.sender] = text
+
+    if (
+      Object.keys(g.answered).length < 2
+    ) {
+      return true
+    }
+
+    const [p1, p2] = g.players
+
+    const a =
+      g.answered[p1] === g.sequence
+
+    const b =
+      g.answered[p2] === g.sequence
+
+    deleteGame(m.chat)
+
+    if (a && !b) {
+      await reward(p1, 700)
+
+      return m.reply({
+        text:
+          `🧠 *MEMORY WINNER!*\n\n` +
+          `${nameOf(p1)} remembered correctly!\n` +
+          `💰 +${CURRENCY} 700`,
+        mentions: [p1]
+      })
+    }
+
+    if (b && !a) {
+      await reward(p2, 700)
+
+      return m.reply({
+        text:
+          `🧠 *MEMORY WINNER!*\n\n` +
+          `${nameOf(p2)} remembered correctly!\n` +
+          `💰 +${CURRENCY} 700`,
+        mentions: [p2]
+      })
+    }
+
     return m.reply(
-      `🛑 *GAME ENDED*\n\n` +
-      `The host cancelled the active game.`
+      `🧠 *MEMORY RESULT*\n\n` +
+      `Correct sequence: *${g.sequence}*\n\n` +
+      `🤝 Draw!`
     )
   }
-}
 
-/* ================================================================
- * HELP COMMAND
- * ================================================================ */
+  /* --------------------------------------------------------------
+   * BLACKJACK
+   * -------------------------------------------------------------- */
 
-const gamesCommand = {
-  name: 'games',
-  alias: ['game', 'gamehelp'],
-  category: 'GAME',
-  desc: 'Show all available games',
-  usage: '.games',
-  group: true,
+  if (g.type === 'blackjack') {
+    if (
+      !['hit', 'stand'].includes(text)
+    ) {
+      return true
+    }
 
-  async run({ m }) {
+    const hand = g.hands[m.sender]
+
+    if (text === 'hit') {
+      hand.push(g.deck.pop())
+
+      const value =
+        handValue(hand)
+
+      if (value > 21) {
+        deleteGame(m.chat)
+
+        return m.reply(
+          `💥 ${nameOf(m.sender)} busted with *${value}*!\n\n` +
+          `🏆 The other player wins!`
+        )
+      }
+    }
+
+    g.stood[m.sender] = true
+
+    if (
+      Object.keys(g.stood).length < 2
+    ) {
+      return m.reply(
+        `🃏 ${nameOf(m.sender)}: ${handValue(hand)}`
+      )
+    }
+
+    const [p1, p2] = g.players
+
+    const a =
+      handValue(g.hands[p1])
+
+    const b =
+      handValue(g.hands[p2])
+
+    deleteGame(m.chat)
+
+    if (a === b) {
+      return m.reply(
+        `🃏 *BLACKJACK DRAW!*\n\n` +
+        `${nameOf(p1)}: ${a}\n` +
+        `${nameOf(p2)}: ${b}`
+      )
+    }
+
+    const winner =
+      a > b ? p1 : p2
+
+    await reward(winner, 800)
+
+    await m.reply({
+      text:
+        `🃏 *BLACKJACK RESULT*\n\n` +
+        `${nameOf(p1)}: ${a}\n` +
+        `${nameOf(p2)}: ${b}\n\n` +
+        `🏆 ${nameOf(winner)} wins!\n` +
+        `💰 +${CURRENCY} 800`,
+      mentions: g.players
+    })
+
+    return true
+  }
+
+  /* --------------------------------------------------------------
+   * MIND READER
+   * -------------------------------------------------------------- */
+
+  if (g.type === 'mindreader') {
+    const guess = Number(text)
+
+    if (
+      !Number.isInteger(guess) ||
+      guess < 1 ||
+      guess > 5
+    ) {
+      return true
+    }
+
+    g.moves[m.sender] = guess
+
+    if (
+      Object.keys(g.moves).length < 2
+    ) {
+      return true
+    }
+
+    const [p1, p2] = g.players
+
+    deleteGame(m.chat)
+
+    if (
+      g.moves[p1] ===
+      g.moves[p2]
+    ) {
+      await reward(p1, 700)
+      await reward(p2, 700)
+
+      return m.reply({
+        text:
+          `🧠 *MIND READER!*\n\n` +
+          `Both players chose *${g.moves[p1]}*!\n\n` +
+          `🤝 Both win!\n` +
+          `💰 +${CURRENCY} 700 each`,
+        mentions: g.players
+      })
+    }
+
     return m.reply(
-      `🎮 *AY-LEE GAME CENTER*\n\n` +
-
-      `🥊 *DUEL GAMES*\n` +
-      `1. 🎲 .dice\n` +
-      `2. ✊ .rps\n` +
-      `3. 🪙 .coin\n` +
-      `4. 🃏 .highcard\n` +
-      `5. ⚡ .reaction\n` +
-      `6. 🔢 .guessduel\n` +
-      `7. 🧠 .mathduel\n` +
-      `8. 🔤 .wordduel\n` +
-      `9. 🎯 .target\n` +
-      `10. 🎳 .bowling\n` +
-      `11. 🏹 .archery\n` +
-      `12. 🏎️ .race\n` +
-      `13. ⚽ .penalty\n` +
-      `14. 🏀 .basketball\n` +
-      `15. 💣 .bomb\n` +
-      `16. 🤔 .emoji\n` +
-      `17. 🧠 .memory\n` +
-      `18. 🔢 .oddeven\n` +
-      `19. 🧠 .trivia\n` +
-      `20. 🔫 .quickdraw\n` +
-      `21. 🍀 .fortune\n` +
-      `22. 🔥 .sps\n` +
-      `23. 🍀 .lucky\n` +
-      `24. 🥊 .boxing\n` +
-      `25. ⚔️ .sword\n` +
-      `26. 🏝️ .survival\n` +
-      `27. 🏴‍☠️ .treasure\n` +
-      `28. 🚀 .space\n` +
-      `29. 🧟 .zombie\n` +
-      `30. ⚔️ .arena\n\n` +
-
-      `📌 *HOW TO PLAY*\n\n` +
-
-      `Play against someone:\n` +
-      `*.dice @player*\n\n` +
-
-      `Host two other people:\n` +
-      `*.dice @player1 @player2*\n\n` +
-
-      `👑 You can host without participating.\n` +
-      `👥 Players don't need the . prefix.\n` +
-      `👀 Spectators cannot interfere.\n\n` +
-
-      `🛑 End a game:\n` +
-      `*.endgame*`
+      `🧠 *MIND READER*\n\n` +
+      `${nameOf(p1)} → ${g.moves[p1]}\n` +
+      `${nameOf(p2)} → ${g.moves[p2]}\n\n` +
+      `❌ Different choices!`
     )
   }
+
+  /* --------------------------------------------------------------
+   * REACTION
+   * -------------------------------------------------------------- */
+
+  if (g.type === 'reaction') {
+    if (
+      text !== clean(g.target)
+    ) {
+      return true
+    }
+
+    deleteGame(m.chat)
+
+    await reward(m.sender, 500)
+
+    await m.reply({
+      text:
+        `⚡ *REACTION WINNER!*\n\n` +
+        `${nameOf(m.sender)} was fastest!\n` +
+        `💰 +${CURRENCY} 500`,
+      mentions: [m.sender]
+    })
+
+    return true
+  }
+
+  /* --------------------------------------------------------------
+   * PENALTY
+   * -------------------------------------------------------------- */
+
+  if (g.type === 'penalty') {
+    if (
+      !['left', 'center', 'right'].includes(
+        text
+      )
+    ) {
+      return true
+    }
+
+    g.moves[m.sender] = text
+
+    if (
+      Object.keys(g.moves).length < 2
+    ) {
+      return true
+    }
+
+    const [p1, p2] = g.players
+
+    const keeper1 =
+      randomChoice([
+        'left',
+        'center',
+        'right'
+      ])
+
+    const keeper2 =
+      randomChoice([
+        'left',
+        'center',
+        'right'
+      ])
+
+    const score1 =
+      g.moves[p1] !== keeper1
+
+    const score2 =
+      g.moves[p2] !== keeper2
+
+    deleteGame(m.chat)
+
+    if (score1 && !score2) {
+      await reward(p1, 700)
+
+      return m.reply({
+        text:
+          `⚽ *PENALTY RESULT*\n\n` +
+          `🏆 ${nameOf(p1)} scores!\n` +
+          `💰 +${CURRENCY} 700`,
+        mentions: [p1]
+      })
+    }
+
+    if (score2 && !score1) {
+      await reward(p2, 700)
+
+      return m.reply({
+        text:
+          `⚽ *PENALTY RESULT*\n\n` +
+          `🏆 ${nameOf(p2)} scores!\n` +
+          `💰 +${CURRENCY} 700`,
+        mentions: [p2]
+      })
+    }
+
+    return m.reply(
+      score1 && score2
+        ? '⚽ Both players scored! 🤝'
+        : '🧤 Both penalties were saved!'
+    )
+  }
+
+  /* --------------------------------------------------------------
+   * BASKETBALL
+   * -------------------------------------------------------------- */
+
+  if (g.type === 'basketball') {
+    if (text !== 'shoot') {
+      return true
+    }
+
+    if (!g.scores[m.sender]) {
+      g.scores[m.sender] = {
+        shots: 0,
+        score: 0
+      }
+    }
+
+    const s =
+      g.scores[m.sender]
+
+    if (s.shots >= 3) {
+      return true
+    }
+
+    s.shots++
+
+    if (Math.random() < 0.65) {
+      s.score++
+    }
+
+    await m.reply(
+      `🏀 ${nameOf(m.sender)}\n` +
+      `Shot ${s.shots}/3\n` +
+      `Score: ${s.score}`
+    )
+
+    const finished =
+      g.players.every(
+        (p) =>
+          g.scores[p]?.shots >= 3
+      )
+
+    if (!finished) {
+      return true
+    }
+
+    const [p1, p2] = g.players
+
+    deleteGame(m.chat)
+
+    const a = g.scores[p1].score
+    const b = g.scores[p2].score
+
+    if (a === b) {
+      return m.reply(
+        `🏀 *DRAW!*\n\n` +
+        `${nameOf(p1)}: ${a}\n` +
+        `${nameOf(p2)}: ${b}`
+      )
+    }
+
+    const winner =
+      a > b ? p1 : p2
+
+    await reward(winner, 600)
+
+    await m.reply({
+      text:
+        `🏀 *BASKETBALL RESULT*\n\n` +
+        `${nameOf(p1)}: ${a}\n` +
+        `${nameOf(p2)}: ${b}\n\n` +
+        `🏆 ${nameOf(winner)} wins!\n` +
+        `💰 +${CURRENCY} 600`,
+      mentions: g.players
+    })
+
+    return true
+  }
+
+  /* --------------------------------------------------------------
+   * SLOT
+   * -------------------------------------------------------------- */
+
+  if (g.type === 'slotduel') {
+    return false
+  }
+
+  /* --------------------------------------------------------------
+   * SURVIVAL
+   * -------------------------------------------------------------- */
+
+  if (g.type === 'survival') {
+    if (
+      !['run', 'hide', 'fight'].includes(
+        text
+      )
+    ) {
+      return true
+    }
+
+    g.moves ||= {}
+
+    g.moves[m.sender] = text
+
+    if (
+      Object.keys(g.moves).length < 2
+    ) {
+      return true
+    }
+
+    const [p1, p2] = g.players
+
+    const outcomes = {
+      run: 1,
+      hide: 2,
+      fight: 3
+    }
+
+    const a = outcomes[g.moves[p1]]
+    const b = outcomes[g.moves[p2]]
+
+    deleteGame(m.chat)
+
+    if (a === b) {
+      return m.reply(
+        `☠️ Both players chose *${g.moves[p1]}*.\n\n🤝 Draw!`
+      )
+    }
+
+    const winner =
+      a > b ? p1 : p2
+
+    await reward(winner, 800)
+
+    await m.reply({
+      text:
+        `☠️ *SURVIVAL RESULT*\n\n` +
+        `${nameOf(p1)}: ${g.moves[p1]}\n` +
+        `${nameOf(p2)}: ${g.moves[p2]}\n\n` +
+        `🏆 ${nameOf(winner)} survived!\n` +
+        `💰 +${CURRENCY} 800`,
+      mentions: g.players
+    })
+
+    return true
+  }
+
+  return false
 }
-
-/* ================================================================
- * EXPORT
- * ================================================================ */
-
-export default [
-
-  /* Help */
-  gamesCommand,
-  endGameCommand,
-
-  /* 1 */
-  duelCommand({
-    name: 'dice',
-    alias: ['dicebattle'],
-    title: '🎲 DICE BATTLE',
-    desc: 'Battle another player with dice',
-    usage: '.dice @player'
-  }),
-
-  /* 2 */
-  duelCommand({
-    name: 'rps',
-    alias: ['rockpaperscissors'],
-    title: '✊ ROCK PAPER SCISSORS',
-    desc: 'Play rock paper scissors',
-    usage: '.rps @player'
-  }),
-
-  /* 3 */
-  duelCommand({
-    name: 'coin',
-    alias: ['coinduel'],
-    title: '🪙 COIN DUEL',
-    desc: 'Battle using heads or tails',
-    usage: '.coin @player'
-  }),
-
-  /* 4 */
-  duelCommand({
-    name: 'highcard',
-    alias: ['cardduel'],
-    title: '🃏 HIGH CARD',
-    desc: 'Draw the highest card',
-    usage: '.highcard @player'
-  }),
-
-  /* 5 */
-  duelCommand({
-    name: 'reaction',
-    alias: ['react'],
-    title: '⚡ REACTION BATTLE',
-    desc: 'Test reaction speed',
-    usage: '.reaction @player'
-  }),
-
-  /* 6 */
-  duelCommand({
-    name: 'guessduel',
-    alias: ['numberduel'],
-    title: '🔢 NUMBER GUESS DUEL',
-    desc: 'Guess closest to the secret number',
-    usage: '.guessduel @player'
-  }),
-
-  /* 7 */
-  duelCommand({
-    name: 'mathduel',
-    alias: ['mathbattle'],
-    title: '🧠 MATH DUEL',
-    desc: 'Solve a math problem first',
-    usage: '.mathduel @player'
-  }),
-
-  /* 8 */
-  duelCommand({
-    name: 'wordduel',
-    alias: ['scrambleduel'],
-    title: '🔤 WORD DUEL',
-    desc: 'Unscramble a word faster',
-    usage: '.wordduel @player'
-  }),
-
-  /* 9 */
-  duelCommand({
-    name: 'target',
-    alias: ['targetbattle'],
-    title: '🎯 TARGET BATTLE',
-    desc: 'Compete for the highest accuracy',
-    usage: '.target @player'
-  }),
-
-  /* 10 */
-  duelCommand({
-    name: 'bowling',
-    alias: ['bowlduel'],
-    title: '🎳 BOWLING DUEL',
-    desc: 'Compete for the highest bowling score',
-    usage: '.bowling @player'
-  }),
-
-  /* 11 */
-  duelCommand({
-    name: 'archery',
-    alias: ['archer'],
-    title: '🏹 ARCHERY DUEL',
-    desc: 'Compete for the highest archery score',
-    usage: '.archery @player'
-  }),
-
-  /* 12 */
-  duelCommand({
-    name: 'race',
-    alias: ['racing'],
-    title: '🏎️ RACING DUEL',
-    desc: 'Race against another player',
-    usage: '.race @player'
-  }),
-
-  /* 13 */
-  duelCommand({
-    name: 'penalty',
-    alias: ['penaltyshootout'],
-    title: '⚽ PENALTY SHOOTOUT',
-    desc: 'Battle in a penalty shootout',
-    usage: '.penalty @player'
-  }),
-
-  /* 14 */
-  duelCommand({
-    name: 'basketball',
-    alias: ['basket'],
-    title: '🏀 BASKETBALL DUEL',
-    desc: 'Compete for the highest basketball score',
-    usage: '.basketball @player'
-  }),
-
-  /* 15 */
-  duelCommand({
-    name: 'bomb',
-    alias: ['bombduel'],
-    title: '💣 BOMB DUEL',
-    desc: 'Avoid the hidden bomb',
-    usage: '.bomb @player'
-  }),
-
-  /* 16 */
-  duelCommand({
-    name: 'emoji',
-    alias: ['emojiguess'],
-    title: '🤔 EMOJI GUESS DUEL',
-    desc: 'Guess the emoji clue first',
-    usage: '.emoji @player'
-  }),
-
-  /* 17 */
-  duelCommand({
-    name: 'memory',
-    alias: ['memoryduel'],
-    title: '🧠 MEMORY DUEL',
-    desc: 'Remember the sequence',
-    usage: '.memory @player'
-  }),
-
-  /* 18 */
-  duelCommand({
-    name: 'oddeven',
-    alias: ['evenodd'],
-    title: '🔢 ODD OR EVEN',
-    desc: 'Battle with numbers and parity',
-    usage: '.oddeven @player'
-  }),
-
-  /* 19 */
-  duelCommand({
-    name: 'trivia',
-    alias: ['quizduel'],
-    title: '🧠 TRIVIA DUEL',
-    desc: 'Answer trivia questions first',
-    usage: '.trivia @player'
-  }),
-
-  /* 20 */
-  duelCommand({
-    name: 'quickdraw',
-    alias: ['quick'],
-    title: '🔫 QUICK DRAW',
-    desc: 'Test your reaction speed',
-    usage: '.quickdraw @player'
-  }),
-
-  /* 21 */
-  duelCommand({
-    name: 'fortune',
-    alias: ['luckduel'],
-    title: '🍀 FORTUNE DUEL',
-    desc: 'Battle using luck',
-    usage: '.fortune @player'
-  }),
-
-  /* 22 */
-  duelCommand({
-    name: 'sps',
-    alias: ['extremerps'],
-    title: '🔥 EXTREME RPS',
-    desc: 'Play an enhanced rock paper scissors',
-    usage: '.sps @player'
-  }),
-
-  /* 23 */
-  duelCommand({
-    name: 'lucky',
-    alias: ['luckynumber'],
-    title: '🍀 LUCKY NUMBER',
-    desc: 'Guess closest to the lucky number',
-    usage: '.lucky @player'
-  }),
-
-  /* 24 */
-  duelCommand({
-    name: 'boxing',
-    alias: ['box'],
-    title: '🥊 BOXING DUEL',
-    desc: 'Fight another player',
-    usage: '.boxing @player'
-  }),
-
-  /* 25 */
-  duelCommand({
-    name: 'sword',
-    alias: ['swordduel'],
-    title: '⚔️ SWORD DUEL',
-    desc: 'Fight using attack and defense',
-    usage: '.sword @player'
-  }),
-
-  /* 26 */
-  duelCommand({
-    name: 'survival',
-    alias: ['survivalduel'],
-    title: '🏝️ SURVIVAL DUEL',
-    desc: 'Survive longer than your opponent',
-    usage: '.survival @player'
-  }),
-
-  /* 27 */
-  duelCommand({
-    name: 'treasure',
-    alias: ['treasureduel'],
-    title: '🏴‍☠️ TREASURE DUEL',
-    desc: 'Find the hidden treasure',
-    usage: '.treasure @player'
-  }),
-
-  /* 28 */
-  duelCommand({
-    name: 'space',
-    alias: ['spacebattle'],
-    title: '🚀 SPACE BATTLE',
-    desc: 'Battle in space',
-    usage: '.space @player'
-  }),
-
-  /* 29 */
-  duelCommand({
-    name: 'zombie',
-    alias: ['zombieduel'],
-    title: '🧟 ZOMBIE DUEL',
-    desc: 'Survive the zombie attack',
-    usage: '.zombie @player'
-  }),
-
-  /* 30 */
-  duelCommand({
-    name: 'arena',
-    alias: ['battle', 'battlearena'],
-    title: '⚔️ BATTLE ARENA',
-    desc: 'Full battle with attack, defend and heal',
-    usage: '.arena @player'
-  })
-]
