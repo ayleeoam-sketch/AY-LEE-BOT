@@ -86,14 +86,50 @@ async function reward(jid, amount) {
 }
 
 async function startDuel(m, command, playersNeeded = 2) {
-  const players = m.mentions || []
+  const mentions = [...new Set(m.mentions || [])]
+  const sender = m.sender
 
-  if (players.length !== playersNeeded) {
+  /*
+   * PLAYER SELECTION
+   *
+   * 1 tag  → sender + tagged person
+   * 2 tags → tagged person 1 + tagged person 2
+   *
+   * This allows the person starting the game to participate
+   * without needing to tag themselves on WhatsApp.
+   */
+
+  let players
+
+  if (mentions.length === playersNeeded - 1) {
+    // Sender participates automatically
+    players = [sender, ...mentions]
+  } else if (mentions.length === playersNeeded) {
+    // Sender is only starting the game
+    players = mentions
+  } else {
+    const tagText =
+      playersNeeded === 2
+        ? `🎮 *Choose the players for the game.*\n\n` +
+          `You can either:\n\n` +
+          `1️⃣ *Play yourself:*\n` +
+          `*.${command} @user*\n` +
+          `→ You vs @user\n\n` +
+          `2️⃣ *Let two other people play:*\n` +
+          `*.${command} @user1 @user2*\n` +
+          `→ @user1 vs @user2`
+        : `🎮 *Choose ${playersNeeded} players.*\n\n` +
+          `Tag ${playersNeeded - 1} players if you want to participate, ` +
+          `or tag all ${playersNeeded} players if you are only starting the game.\n\n` +
+          `Example:\n` +
+          `*.${command} @user1 @user2*`
+
     return {
-      error: `🎮 Tag exactly ${playersNeeded} players.\n\nExample:\n*.${command} @user1 @user2*`
+      error: tagText
     }
   }
 
+  // Make absolutely sure there are no duplicate players
   const unique = [...new Set(players)]
 
   if (unique.length !== playersNeeded) {
@@ -102,6 +138,14 @@ async function startDuel(m, command, playersNeeded = 2) {
     }
   }
 
+  // Don't allow the same person to occupy multiple positions
+  if (unique.includes(sender) && mentions.includes(sender)) {
+    return {
+      error: '❌ You cannot tag yourself. The bot already knows who started the game.'
+    }
+  }
+
+  // Check whether another game is already running
   if (games.has(m.chat)) {
     return {
       error:
