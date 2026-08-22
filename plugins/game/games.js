@@ -1926,10 +1926,12 @@ export default [
   mindReader,
   survival,
   mafia,
-{
-  name: 'game-middleware',
-  before
-}
+
+  {
+    name: 'game-middleware',
+    before
+  }
+]
   /* --------------------------------------------------------------
    * UNIVERSAL GAME ENDER
    * -------------------------------------------------------------- */
