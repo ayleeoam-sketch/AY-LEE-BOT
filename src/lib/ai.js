@@ -50,15 +50,15 @@ export const PROVIDERS = {
     signup: 'https://cloud.cerebras.ai'
   },
 
-  agentrouter: {
-    label: 'AgentRouter',
-    env: 'AGENTROUTER_API_KEY',
-    url: 'https://co.agentrouter.org/v1/chat/completions',
-    model: 'gpt-5.5',
-    quality: 87,
-    free: 'AgentRouter API — model availability depends on your API key',
-    signup: 'https://co.agentrouter.org'
-  },
+ agentrouter: {
+  label: 'AgentRouter',
+  env: 'AGENTROUTER_API_KEY',
+  url: 'https://co.agentrouter.org/v1/chat/completions',
+  model: 'gpt-5.6-sol',
+  quality: 95,
+  free: 'AgentRouter',
+  signup: 'https://co.agentrouter.org'
+},
 
   openrouter: {
     label: 'OpenRouter',
