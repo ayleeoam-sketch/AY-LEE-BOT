@@ -19,10 +19,6 @@ import { builtinKey } from '../builtin-keys.js'
  * Provider definitions
  * ------------------------------------------------------------------ */
 
-/**
- * Most of these speak the OpenAI chat-completions dialect, so one adapter
- * covers them. `quality` orders the fallback chain (higher tried first).
- */
 export const PROVIDERS = {
   groq: {
     label: 'Groq',
@@ -54,13 +50,6 @@ export const PROVIDERS = {
     signup: 'https://cloud.cerebras.ai'
   },
 
-  /*
-   * AgentRouter
-   *
-   * OpenAI-compatible API.
-   * Official base URL:
-   * https://co.agentrouter.org/v1
-   */
   agentrouter: {
     label: 'AgentRouter',
     env: 'AGENTROUTER_API_KEY',
@@ -129,14 +118,10 @@ export const PROVIDERS = {
 
 /* ------------------------------------------------------------------ *
  * Key resolution
- *   1. .env / panel environment  (a deployer's own key always wins)
- *   2. .setkey, stored in the database
- *   3. keys shipped in src/builtin-keys.js, so a fresh clone just works
  * ------------------------------------------------------------------ */
 
 const runtimeKeys = new Map()
 
-/** Load any keys stored in the database (set with .setkey). */
 export async function loadKeys() {
   try {
     const rows = await DB.vars.all()
@@ -172,7 +157,6 @@ export async function clearKey(envName) {
   await DB.vars.delete({ key: envName })
 }
 
-/** Providers that currently have a usable key, best first. */
 export function available() {
   return Object.entries(PROVIDERS)
     .filter(([name]) => getKey(name))
@@ -213,8 +197,9 @@ async function callOpenAIStyle(p, key, messages, opts) {
 }
 
 async function callGemini(p, key, messages, opts) {
-  // Gemini keeps the system prompt separate and calls the assistant "model"
-  const system = messages.find((m) => m.role === 'system')?.content
+  const system = messages.find(
+    (m) => m.role === 'system'
+  )?.content
 
   const contents = messages
     .filter((m) => m.role !== 'system')
@@ -295,20 +280,12 @@ async function callCohere(p, key, messages, opts) {
   return out.trim()
 }
 
-/**
- * Keyless last resort.
- *
- * Be warned: free keyless AI is dying. Pollinations moved its legacy text API
- * behind payment in 2026 and now returns 402 for most requests; DuckDuckGo's
- * chat backend requires a browser challenge. What remains works sometimes and
- * rate-limits aggressively.
- *
- * This is a courtesy fallback so a fresh install answers *something*. For a
- * bot you actually rely on, set a free Groq or Gemini key — see .aikeys.
- */
+/* ------------------------------------------------------------------ *
+ * Keyless fallback
+ * ------------------------------------------------------------------ */
+
 async function callFree(messages, opts) {
   const attempts = [
-    // current endpoint, OpenAI-shaped
     async () => {
       const { data } = await axios.post(
         'https://text.pollinations.ai/openai',
@@ -327,7 +304,6 @@ async function callFree(messages, opts) {
       return data?.choices?.[0]?.message?.content
     },
 
-    // same endpoint, a different pool
     async () => {
       const { data } = await axios.post(
         'https://text.pollinations.ai/openai',
@@ -346,7 +322,6 @@ async function callFree(messages, opts) {
       return data?.choices?.[0]?.message?.content
     },
 
-    // legacy GET, flattened prompt
     async () => {
       const prompt = messages
         .map((m) => m.content)
@@ -361,7 +336,9 @@ async function callFree(messages, opts) {
         }
       )
 
-      return typeof data === 'string' ? data : null
+      return typeof data === 'string'
+        ? data
+        : null
     }
   ]
 
@@ -383,7 +360,15 @@ async function callFree(messages, opts) {
   )
 }
 
-async function callProvider(name, messages, opts = {}) {
+/* ------------------------------------------------------------------ *
+ * Provider caller
+ * ------------------------------------------------------------------ */
+
+async function callProvider(
+  name,
+  messages,
+  opts = {}
+) {
   const p = PROVIDERS[name]
   const key = getKey(name)
 
@@ -392,29 +377,39 @@ async function callProvider(name, messages, opts = {}) {
   }
 
   if (p.dialect === 'gemini') {
-    return callGemini(p, key, messages, opts)
+    return callGemini(
+      p,
+      key,
+      messages,
+      opts
+    )
   }
 
   if (p.dialect === 'cohere') {
-    return callCohere(p, key, messages, opts)
+    return callCohere(
+      p,
+      key,
+      messages,
+      opts
+    )
   }
 
-  return callOpenAIStyle(p, key, messages, opts)
+  return callOpenAIStyle(
+    p,
+    key,
+    messages,
+    opts
+  )
 }
 
 /* ------------------------------------------------------------------ *
  * Public API
  * ------------------------------------------------------------------ */
 
-/**
- * Ask the AI.
- *
- * Tries the preferred provider, then every other keyed provider
- * best-first, then the keyless fallback.
- *
- * @returns {Promise<{text:string, provider:string, model:string}>}
- */
-export async function chat(messages, opts = {}) {
+export async function chat(
+  messages,
+  opts = {}
+) {
   if (typeof messages === 'string') {
     messages = [
       {
@@ -467,21 +462,33 @@ export async function chat(messages, opts = {}) {
           PROVIDERS[name].model
       }
     } catch (e) {
-      const status = e.response?.status
+      const status =
+        e.response?.status
 
       const detail =
         e.response?.data?.error?.message ||
-        e.message
+        e.response?.data?.error ||
+        e.response?.data?.message ||
+        e.message ||
+        'Unknown provider error'
 
+      /*
+       * IMPORTANT:
+       * Do not truncate this anymore.
+       * We need the complete provider error while debugging.
+       */
       errors.push(
         `${PROVIDERS[name].label}: ${
           status || ''
-        } ${String(detail).slice(0, 60)}`
+        } ${String(detail)}`
       )
     }
   }
 
-  // nothing keyed worked - fall back to the free endpoint
+  /* -------------------------------------------------------------- *
+   * Keyless fallback
+   * -------------------------------------------------------------- */
+
   if (!opts.noFallback) {
     try {
       const text = await callFree(
@@ -506,15 +513,15 @@ export async function chat(messages, opts = {}) {
       ? `Every AI provider failed.\n\n${errors.join(
           '\n'
         )}\n\n_Check *.aistatus*._`
-      : 'No AI key is set, and the free keyless services are now paywalled or ' +
-          'rate-limited.\n\n*Fix this in 2 minutes — both are free:*\n\n' +
-          '⚡ *Groq* — fastest, generous free tier\n' +
-          '   https://console.groq.com/keys\n' +
-          '   then: *.setkey groq gsk_xxx*\n\n' +
-          '✨ *Gemini* — free, very capable\n' +
-          '   https://aistudio.google.com/apikey\n' +
-          '   then: *.setkey gemini AIza_xxx*\n\n' +
-          '_Run *.aikeys* for all providers._'
+      : 'No AI key is set, and the free keyless services are now paywalled or rate-limited.\n\n' +
+        '*Fix this in 2 minutes — both are free:*\n\n' +
+        '⚡ *Groq* — fastest, generous free tier\n' +
+        '   https://console.groq.com/keys\n' +
+        '   then: *.setkey groq gsk_xxx*\n\n' +
+        '✨ *Gemini* — free, very capable\n' +
+        '   https://aistudio.google.com/apikey\n' +
+        '   then: *.setkey gemini AIza_xxx*\n\n' +
+        '_Run *.aikeys* for all providers._'
   )
 
   err.providerErrors = errors
@@ -522,8 +529,14 @@ export async function chat(messages, opts = {}) {
   throw err
 }
 
-/** Convenience: single-prompt ask that returns just the text. */
-export async function ask(prompt, opts = {}) {
+/* ------------------------------------------------------------------ *
+ * Convenience
+ * ------------------------------------------------------------------ */
+
+export async function ask(
+  prompt,
+  opts = {}
+) {
   const { text } = await chat(
     prompt,
     opts
@@ -533,7 +546,7 @@ export async function ask(prompt, opts = {}) {
 }
 
 /* ------------------------------------------------------------------ *
- * Conversation memory (for .chatbot / follow-up questions)
+ * Conversation memory
  * ------------------------------------------------------------------ */
 
 const HISTORY_LIMIT = 12
@@ -544,15 +557,22 @@ export function history(jid) {
   return histories.get(jid) || []
 }
 
-export function remember(jid, role, content) {
-  const h = histories.get(jid) || []
+export function remember(
+  jid,
+  role,
+  content
+) {
+  const h =
+    histories.get(jid) || []
 
   h.push({
     role,
     content
   })
 
-  while (h.length > HISTORY_LIMIT) {
+  while (
+    h.length > HISTORY_LIMIT
+  ) {
     h.shift()
   }
 
