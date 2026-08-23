@@ -1,51 +1,33 @@
-```js
 /* ================================================================
  * TIC TAC TOE
+ * ================================================================
+ *
+ * Command:
+ *   .ttt @player1 @player2
+ *
+ * Examples:
+ *
+ *   .ttt @friend
+ *   -> You vs friend
+ *
+ *   .ttt @player1 @player2
+ *   -> player1 vs player2
+ *
+ * Players:
+ *   exactly 2
+ *
+ * Input:
+ *   1 - 9
+ *
  * ================================================================ */
 
 import {
   createTTTBoard,
+  renderTTT,
   checkTTTWinner,
   isTTTDraw,
   extractNumber
 } from '../utils.js'
-
-/* ----------------------------------------------------------------
- * BOARD DISPLAY
- * ---------------------------------------------------------------- */
-
-function renderBoard(board) {
-  const numbers = [
-    '1️⃣', '2️⃣', '3️⃣',
-    '4️⃣', '5️⃣', '6️⃣',
-    '7️⃣', '8️⃣', '9️⃣'
-  ]
-
-  const cells = board.map((cell, index) => {
-    if (cell === 'X') return '❌'
-    if (cell === 'O') return '⭕'
-
-    return numbers[index]
-  })
-
-  return [
-    `${cells[0]} ${cells[1]} ${cells[2]}`,
-    `${cells[3]} ${cells[4]} ${cells[5]}`,
-    `${cells[6]} ${cells[7]} ${cells[8]}`
-  ].join('\n')
-}
-
-/* ----------------------------------------------------------------
- * PLAYER NAME
- * ---------------------------------------------------------------- */
-
-function nameOf(jid) {
-  if (!jid) {
-    return 'Player'
-  }
-
-  return `@${String(jid).split('@')[0]}`
-}
 
 /* ----------------------------------------------------------------
  * GAME DEFINITION
@@ -63,7 +45,7 @@ const ttt = {
   description: 'Two-player Tic Tac Toe',
 
   usage: '.ttt @player',
-  
+
   mode: 'duel',
 
   players: {
@@ -125,7 +107,10 @@ const ttt = {
       game
     )
 
-    if (!result || !result.ok) {
+    if (
+      !result ||
+      !result.ok
+    ) {
       return {
         error:
           result?.error ||
@@ -135,13 +120,18 @@ const ttt = {
 
     await m.reply({
       text:
-        `🎮 *TIC TAC TOE*\n\n` +
+        '🎮 *TIC TAC TOE*\n\n' +
+
         `❌ ${nameOf(p1)}\n` +
         `⭕ ${nameOf(p2)}\n\n` +
-        `${renderBoard(board)}\n\n` +
+
+        '1️⃣ 2️⃣ 3️⃣\n' +
+        '4️⃣ 5️⃣ 6️⃣\n' +
+        '7️⃣ 8️⃣ 9️⃣\n\n' +
+
         `🎯 ${nameOf(p1)} goes first.\n` +
-        `Reply with a number from *1-9*.`,
-      
+        'Reply with a number from 1-9.',
+
       mentions: [
         p1,
         p2
@@ -155,7 +145,7 @@ const ttt = {
   },
 
   /* --------------------------------------------------------------
-   * PROCESS PLAYER MOVE
+   * PROCESS MOVE
    * -------------------------------------------------------------- */
 
   async process({
@@ -189,10 +179,14 @@ const ttt = {
     }
 
     /*
-     * Extract board position.
+     * Extract the board number.
      */
-    const position = extractNumber(text)
+    const position =
+      extractNumber(text)
 
+    /*
+     * Accept only 1-9.
+     */
     if (
       position === null ||
       !Number.isInteger(position) ||
@@ -202,16 +196,17 @@ const ttt = {
       return false
     }
 
-    const index = position - 1
+    const index =
+      position - 1
 
     /*
-     * Prevent playing an occupied position.
+     * Position already occupied.
      */
     if (
       game.board[index] !== ' '
     ) {
       await m.reply(
-        '❌ That position is already occupied.\n\n' +
+        '❌ That position is already occupied.\n' +
         'Choose another number from *1-9*.'
       )
 
@@ -219,7 +214,7 @@ const ttt = {
     }
 
     /*
-     * Get the player's symbol.
+     * Get player's symbol.
      */
     const symbol =
       game.symbols[m.sender]
@@ -229,73 +224,91 @@ const ttt = {
     }
 
     /*
-     * Place the move.
+     * Place symbol.
      */
-    game.board[index] = symbol
+    game.board[index] =
+      symbol
 
-    /* ------------------------------------------------------------
-     * CHECK WINNER
-     * ------------------------------------------------------------ */
-
+    /*
+     * Check winner.
+     */
     const winner =
-      checkTTTWinner(game.board)
+      checkTTTWinner(
+        game.board
+      )
 
     if (winner) {
       const winnerJid =
-        Object.keys(game.symbols).find(
+        Object.keys(
+          game.symbols
+        ).find(
           jid =>
             game.symbols[jid] === winner
         )
 
       await m.reply({
         text:
-          `🎮 *TIC TAC TOE — GAME OVER!*\n\n` +
-          `${renderBoard(game.board)}\n\n` +
+          '🎉 *TIC TAC TOE — GAME OVER!*\n\n' +
+
+          renderBoard(game.board) +
+          '\n\n' +
+
           `🏆 Winner: ${nameOf(winnerJid)}\n` +
-          `🎯 ${winner === 'X' ? '❌' : '⭕'} *WINS!*`,
-        
+          `🎯 ${symbolName(winner)} *${winner}* wins!`,
+
         mentions: [
           winnerJid
         ]
       })
 
-      engine.endGame(m.chat)
+      engine.endGame(
+        m.chat
+      )
 
       return true
     }
 
-    /* ------------------------------------------------------------
-     * CHECK DRAW
-     * ------------------------------------------------------------ */
-
+    /*
+     * Check draw.
+     */
     if (
-      isTTTDraw(game.board)
+      isTTTDraw(
+        game.board
+      )
     ) {
       await m.reply({
         text:
-          `🤝 *TIC TAC TOE — DRAW!*\n\n` +
-          `${renderBoard(game.board)}\n\n` +
-          `Nobody wins this round.`
+          '🤝 *TIC TAC TOE — DRAW!*\n\n' +
+
+          renderBoard(game.board) +
+          '\n\n' +
+
+          'Nobody wins this round.'
       })
 
-      engine.endGame(m.chat)
+      engine.endGame(
+        m.chat
+      )
 
       return true
     }
 
-    /* ------------------------------------------------------------
-     * NEXT TURN
-     * ------------------------------------------------------------ */
-
+    /*
+     * Move to next player.
+     */
     const next =
-      engine.nextTurn(game)
+      engine.nextTurn(
+        game
+      )
 
     await m.reply({
       text:
-        `${renderBoard(game.board)}\n\n` +
+        renderBoard(game.board) +
+        '\n\n' +
+
         `🎯 ${nameOf(next)}'s turn.\n` +
-        `Reply with a number from *1-9*.`,
-      
+        'Reply with a number from 1-9.',
+
       mentions: [
         next
       ]
@@ -306,8 +319,114 @@ const ttt = {
 }
 
 /* ----------------------------------------------------------------
+ * BOARD RENDERER
+ * ----------------------------------------------------------------
+ *
+ * Empty squares are displayed as:
+ *
+ * 1️⃣ 2️⃣ 3️⃣
+ * 4️⃣ 5️⃣ 6️⃣
+ * 7️⃣ 8️⃣ 9️⃣
+ *
+ * Played squares display X / O.
+ * ---------------------------------------------------------------- */
+
+function renderBoard(board) {
+  if (
+    !Array.isArray(board) ||
+    board.length !== 9
+  ) {
+    return (
+      '1️⃣ 2️⃣ 3️⃣\n' +
+      '4️⃣ 5️⃣ 6️⃣\n' +
+      '7️⃣ 8️⃣ 9️⃣'
+    )
+  }
+
+  const cells = board.map(
+    (value, index) => {
+      if (
+        value === 'X'
+      ) {
+        return '❌'
+      }
+
+      if (
+        value === 'O'
+      ) {
+        return '⭕'
+      }
+
+      return numberEmoji(
+        index + 1
+      )
+    }
+  )
+
+  return (
+    `${cells[0]} ${cells[1]} ${cells[2]}\n` +
+    `${cells[3]} ${cells[4]} ${cells[5]}\n` +
+    `${cells[6]} ${cells[7]} ${cells[8]}`
+  )
+}
+
+/* ----------------------------------------------------------------
+ * NUMBER EMOJI
+ * ---------------------------------------------------------------- */
+
+function numberEmoji(number) {
+  const emojis = [
+    '1️⃣',
+    '2️⃣',
+    '3️⃣',
+    '4️⃣',
+    '5️⃣',
+    '6️⃣',
+    '7️⃣',
+    '8️⃣',
+    '9️⃣'
+  ]
+
+  return (
+    emojis[number - 1] ||
+    String(number)
+  )
+}
+
+/* ----------------------------------------------------------------
+ * SYMBOL NAME
+ * ---------------------------------------------------------------- */
+
+function symbolName(symbol) {
+  if (
+    symbol === 'X'
+  ) {
+    return '❌'
+  }
+
+  if (
+    symbol === 'O'
+  ) {
+    return '⭕'
+  }
+
+  return symbol
+}
+
+/* ----------------------------------------------------------------
+ * PLAYER NAME
+ * ---------------------------------------------------------------- */
+
+function nameOf(jid) {
+  if (!jid) {
+    return 'Player'
+  }
+
+  return `@${String(jid).split('@')[0]}`
+}
+
+/* ----------------------------------------------------------------
  * EXPORT
  * ---------------------------------------------------------------- */
 
 export default ttt
-```
