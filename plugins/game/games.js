@@ -2045,15 +2045,27 @@ export async function before({ m }) {
 
   if (!g) return false
 
-  /*
-   * Never allow random people to control the game.
-   */
-  if (!playerInGame(g, m.sender)) {
+  const text = clean(
+    typeof m.body === 'string'
+      ? m.body
+      : typeof m.text === 'string'
+        ? m.text
+        : ''
+  )
+
+  // Empty message — ignore.
+  if (!text) return false
+
+  // Commands must go to the normal command handler.
+  // This keeps .endgame working during an active game.
+  if (text.startsWith('.')) {
     return false
   }
 
-  const text = clean(m.body)
-
+  // Only actual players can interact with the game.
+  if (!playerInGame(g, m.sender)) {
+    return false
+  }
   /* --------------------------------------------------------------
    * TIC TAC TOE
    * -------------------------------------------------------------- */
