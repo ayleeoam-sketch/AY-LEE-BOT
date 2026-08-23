@@ -1,45 +1,83 @@
 /* ================================================================
- * GAME SYSTEM INDEX
- * ================================================================
- *
- * Central entry point for the modular game system.
- *
- * Every individual game will eventually live in:
- *
- *   plugins/game/games/
- *
- * This file loads the game modules and exposes them to the
- * game engine.
+ * MODULAR GAME LOADER
  * ================================================================ */
 
 import fs from 'fs'
 import path from 'path'
 import { fileURLToPath, pathToFileURL } from 'url'
 
+import {
+  registerProcessor
+} from './engine.js'
+
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
 const gamesDir = path.join(__dirname, 'games')
 
-/*
- * Loaded game modules.
- */
 const gameRegistry = new Map()
 
-/*
- * Load all JavaScript game files from ./games
- */
+/* ----------------------------------------------------------------
+ * REGISTER GAME
+ * ---------------------------------------------------------------- */
+
+function registerGame(game) {
+  if (!game || typeof game !== 'object') {
+    return false
+  }
+
+  if (!game.name) {
+    console.warn('[GAME] Game has no name. Skipping.')
+    return false
+  }
+
+  const name = String(game.name).toLowerCase()
+
+  gameRegistry.set(name, game)
+
+  /*
+   * Register the game's message processor with the engine.
+   */
+  if (typeof game.process === 'function') {
+    registerProcessor(name, game.process)
+  } else {
+    console.warn(
+      `[GAME] ${name} has no process() function.`
+    )
+  }
+
+  /*
+   * Register aliases.
+   */
+  if (Array.isArray(game.alias)) {
+    for (const alias of game.alias) {
+      if (!alias) continue
+
+      const aliasName =
+        String(alias).toLowerCase()
+
+      gameRegistry.set(aliasName, game)
+    }
+  }
+
+  return true
+}
+
+/* ----------------------------------------------------------------
+ * LOAD ALL GAMES
+ * ---------------------------------------------------------------- */
+
 export async function loadGames() {
   gameRegistry.clear()
 
-  /*
-   * The games directory may not exist yet while we are migrating
-   * the old games.js system.
-   */
   if (!fs.existsSync(gamesDir)) {
-    fs.mkdirSync(gamesDir, { recursive: true })
+    fs.mkdirSync(gamesDir, {
+      recursive: true
+    })
 
-    console.log('[GAME] Created games directory.')
+    console.log(
+      '[GAME] Created games directory.'
+    )
 
     return gameRegistry
   }
@@ -53,72 +91,30 @@ export async function loadGames() {
 
   for (const file of files) {
     try {
-      const filePath = path.join(gamesDir, file)
+      const filePath =
+        path.join(gamesDir, file)
 
-      /*
-       * Cache-busting allows the loader to pick up updated game
-       * files when the bot is restarted/reloaded.
-       */
       const moduleUrl =
         `${pathToFileURL(filePath).href}?update=${Date.now()}`
 
-      const imported = await import(moduleUrl)
+      const imported =
+        await import(moduleUrl)
 
-      /*
-       * Support:
-       *
-       * export default game
-       *
-       * and:
-       *
-       * export default [game1, game2]
-       */
-      const exported = imported.default
+      const exported =
+        imported.default
 
-      const games = Array.isArray(exported)
-        ? exported
-        : [exported]
+      const games =
+        Array.isArray(exported)
+          ? exported
+          : [exported]
 
       for (const game of games) {
-        if (!game || typeof game !== 'object') {
-          console.warn(
-            `[GAME] Skipping invalid game export: ${file}`
+        if (registerGame(game)) {
+          console.log(
+            `[GAME] Loaded ${file}: ${game.name}`
           )
-          continue
-        }
-
-        if (!game.name) {
-          console.warn(
-            `[GAME] Game in ${file} has no name. Skipping.`
-          )
-          continue
-        }
-
-        const name = String(game.name).toLowerCase()
-
-        if (gameRegistry.has(name)) {
-          console.warn(
-            `[GAME] Duplicate game "${name}" from ${file} - overriding`
-          )
-        }
-
-        gameRegistry.set(name, game)
-
-        /*
-         * Register aliases.
-         */
-        if (Array.isArray(game.alias)) {
-          for (const alias of game.alias) {
-            if (!alias) continue
-
-            const aliasName = String(alias).toLowerCase()
-
-            gameRegistry.set(aliasName, game)
-          }
         }
       }
-
-      console.log(`[GAME] Loaded ${file}`)
 
     } catch (error) {
       console.error(
@@ -129,95 +125,63 @@ export async function loadGames() {
   }
 
   console.log(
-    `[GAME] ${gameRegistry.size} game entries registered.`
+    `[GAME] ${getGames().length} modular game(s) loaded.`
   )
 
   return gameRegistry
 }
 
-/*
- * Get a game by command/name/alias.
- */
+/* ----------------------------------------------------------------
+ * GET GAME
+ * ---------------------------------------------------------------- */
+
 export function getGame(name) {
-  if (!name) return null
+  if (!name) {
+    return null
+  }
 
   return gameRegistry.get(
     String(name).toLowerCase()
   ) || null
 }
 
-/*
- * Get all registered games.
- *
- * Duplicate aliases are removed.
- */
+/* ----------------------------------------------------------------
+ * GET ALL GAMES
+ * ---------------------------------------------------------------- */
+
 export function getGames() {
   return [
-    ...new Set(gameRegistry.values())
+    ...new Set(
+      gameRegistry.values()
+    )
   ]
 }
 
-/*
- * Check whether a game exists.
- */
+/* ----------------------------------------------------------------
+ * HAS GAME
+ * ---------------------------------------------------------------- */
+
 export function hasGame(name) {
-  return Boolean(getGame(name))
+  return Boolean(
+    getGame(name)
+  )
 }
 
-/*
- * Register a game manually.
- *
- * Useful for future dynamic game loading.
- */
-export function registerGame(game) {
-  if (!game || typeof game !== 'object') {
-    throw new TypeError(
-      '[GAME] Invalid game module.'
-    )
-  }
+/* ----------------------------------------------------------------
+ * UNREGISTER GAME
+ * ---------------------------------------------------------------- */
 
-  if (!game.name) {
-    throw new Error(
-      '[GAME] Game must have a name.'
-    )
-  }
-
-  const name = String(game.name).toLowerCase()
-
-  gameRegistry.set(name, game)
-
-  if (Array.isArray(game.alias)) {
-    for (const alias of game.alias) {
-      if (!alias) continue
-
-      gameRegistry.set(
-        String(alias).toLowerCase(),
-        game
-      )
-    }
-  }
-
-  return game
-}
-
-/*
- * Remove a game from the registry.
- */
 export function unregisterGame(name) {
   const game = getGame(name)
 
-  if (!game) return false
+  if (!game) {
+    return false
+  }
 
-  /*
-   * Remove the main name.
-   */
   gameRegistry.delete(
     String(game.name).toLowerCase()
   )
 
-  /*
-   * Remove aliases.
-   */
   if (Array.isArray(game.alias)) {
     for (const alias of game.alias) {
       gameRegistry.delete(
@@ -229,14 +193,14 @@ export function unregisterGame(name) {
   return true
 }
 
-/*
- * Export the registry itself for the engine.
- */
-export { gameRegistry }
+/* ----------------------------------------------------------------
+ * EXPORT
+ * ---------------------------------------------------------------- */
 
-/*
- * Default export.
- */
+export {
+  gameRegistry
+}
+
 export default {
   loadGames,
   getGame,
