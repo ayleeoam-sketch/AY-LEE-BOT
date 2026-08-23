@@ -15,15 +15,15 @@ import {
  * ---------------------------------------------------------------- */
 
 function renderBoard(board) {
+  const numbers = [
+    '1️⃣', '2️⃣', '3️⃣',
+    '4️⃣', '5️⃣', '6️⃣',
+    '7️⃣', '8️⃣', '9️⃣'
+  ]
+
   const cells = board.map((cell, index) => {
     if (cell === 'X') return '❌'
     if (cell === 'O') return '⭕'
-
-    const numbers = [
-      '1️⃣', '2️⃣', '3️⃣',
-      '4️⃣', '5️⃣', '6️⃣',
-      '7️⃣', '8️⃣', '9️⃣'
-    ]
 
     return numbers[index]
   })
@@ -36,17 +36,19 @@ function renderBoard(board) {
 }
 
 /* ----------------------------------------------------------------
- * NAME
+ * PLAYER NAME
  * ---------------------------------------------------------------- */
 
 function nameOf(jid) {
-  if (!jid) return 'Player'
+  if (!jid) {
+    return 'Player'
+  }
 
   return `@${String(jid).split('@')[0]}`
 }
 
 /* ----------------------------------------------------------------
- * GAME
+ * GAME DEFINITION
  * ---------------------------------------------------------------- */
 
 const ttt = {
@@ -60,8 +62,8 @@ const ttt = {
 
   description: 'Two-player Tic Tac Toe',
 
-  usage: '.ttt @player1 @player2',
-
+  usage: '.ttt @player',
+  
   mode: 'duel',
 
   players: {
@@ -74,7 +76,7 @@ const ttt = {
   type: 'ttt',
 
   /* --------------------------------------------------------------
-   * START
+   * START GAME
    * -------------------------------------------------------------- */
 
   async start({
@@ -123,9 +125,11 @@ const ttt = {
       game
     )
 
-    if (!result.ok) {
+    if (!result || !result.ok) {
       return {
-        error: result.error
+        error:
+          result?.error ||
+          '❌ Failed to start Tic Tac Toe.'
       }
     }
 
@@ -137,6 +141,7 @@ const ttt = {
         `${renderBoard(board)}\n\n` +
         `🎯 ${nameOf(p1)} goes first.\n` +
         `Reply with a number from *1-9*.`,
+      
       mentions: [
         p1,
         p2
@@ -150,7 +155,7 @@ const ttt = {
   },
 
   /* --------------------------------------------------------------
-   * PROCESS MOVE
+   * PROCESS PLAYER MOVE
    * -------------------------------------------------------------- */
 
   async process({
@@ -172,7 +177,7 @@ const ttt = {
     }
 
     /*
-     * Only the current player can move.
+     * Only the player whose turn it is can move.
      */
     if (
       !engine.isTurn(
@@ -184,7 +189,7 @@ const ttt = {
     }
 
     /*
-     * Get board position.
+     * Extract board position.
      */
     const position = extractNumber(text)
 
@@ -200,20 +205,21 @@ const ttt = {
     const index = position - 1
 
     /*
-     * Position already used.
+     * Prevent playing an occupied position.
      */
     if (
       game.board[index] !== ' '
     ) {
       await m.reply(
-        '❌ That position is already occupied.\nChoose another number from *1-9*.'
+        '❌ That position is already occupied.\n\n' +
+        'Choose another number from *1-9*.'
       )
 
       return true
     }
 
     /*
-     * Player symbol.
+     * Get the player's symbol.
      */
     const symbol =
       game.symbols[m.sender]
@@ -222,11 +228,15 @@ const ttt = {
       return false
     }
 
+    /*
+     * Place the move.
+     */
     game.board[index] = symbol
 
-    /*
-     * Check winner.
-     */
+    /* ------------------------------------------------------------
+     * CHECK WINNER
+     * ------------------------------------------------------------ */
+
     const winner =
       checkTTTWinner(game.board)
 
@@ -242,7 +252,8 @@ const ttt = {
           `🎮 *TIC TAC TOE — GAME OVER!*\n\n` +
           `${renderBoard(game.board)}\n\n` +
           `🏆 Winner: ${nameOf(winnerJid)}\n` +
-          `🎯 ${winner === 'X' ? '❌' : '⭕'} wins!`,
+          `🎯 ${winner === 'X' ? '❌' : '⭕'} *WINS!*`,
+        
         mentions: [
           winnerJid
         ]
@@ -253,9 +264,10 @@ const ttt = {
       return true
     }
 
-    /*
-     * Check draw.
-     */
+    /* ------------------------------------------------------------
+     * CHECK DRAW
+     * ------------------------------------------------------------ */
+
     if (
       isTTTDraw(game.board)
     ) {
@@ -271,9 +283,10 @@ const ttt = {
       return true
     }
 
-    /*
-     * Next player.
-     */
+    /* ------------------------------------------------------------
+     * NEXT TURN
+     * ------------------------------------------------------------ */
+
     const next =
       engine.nextTurn(game)
 
@@ -282,6 +295,7 @@ const ttt = {
         `${renderBoard(game.board)}\n\n` +
         `🎯 ${nameOf(next)}'s turn.\n` +
         `Reply with a number from *1-9*.`,
+      
       mentions: [
         next
       ]
@@ -290,6 +304,10 @@ const ttt = {
     return true
   }
 }
+
+/* ----------------------------------------------------------------
+ * EXPORT
+ * ---------------------------------------------------------------- */
 
 export default ttt
 ```
