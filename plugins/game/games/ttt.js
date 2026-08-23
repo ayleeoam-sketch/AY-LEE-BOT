@@ -1,9 +1,15 @@
+```js
 /* ================================================================
  * TIC TAC TOE
  * ================================================================
  *
- * Mode:
- *   duel
+ * Modes:
+ *   .ttt @player
+ *      → sender vs tagged player
+ *
+ *   .ttt @player1 @player2
+ *      → player1 vs player2
+ *        sender only starts/hosts the game
  *
  * Players:
  *   exactly 2
@@ -11,20 +17,63 @@
  * Input:
  *   1 - 9
  *
- * The person who starts the game can:
- *   1. Play against a tagged person
- *   2. Play against a bot-selected opponent when supported
- *
  * ================================================================ */
 
 import {
   createTTTBoard,
-  renderTTT,
   checkTTTWinner,
   isTTTDraw,
-  clean,
   extractNumber
 } from '../utils.js'
+
+/* ----------------------------------------------------------------
+ * NUMBER BOARD
+ * ---------------------------------------------------------------- */
+
+const numberEmojis = [
+  '1️⃣', '2️⃣', '3️⃣',
+  '4️⃣', '5️⃣', '6️⃣',
+  '7️⃣', '8️⃣', '9️⃣'
+]
+
+const symbolEmoji = {
+  X: '❌',
+  O: '⭕'
+}
+
+/**
+ * Render the Tic Tac Toe board.
+ *
+ * Empty cells show their number.
+ * Played cells show ❌ or ⭕.
+ */
+function renderBoard(board) {
+  if (
+    !Array.isArray(board) ||
+    board.length !== 9
+  ) {
+    return ''
+  }
+
+  const cells = board.map(
+    (cell, index) => {
+      if (
+        cell === 'X' ||
+        cell === 'O'
+      ) {
+        return symbolEmoji[cell]
+      }
+
+      return numberEmojis[index]
+    }
+  )
+
+  return [
+    `${cells[0]} ${cells[1]} ${cells[2]}`,
+    `${cells[3]} ${cells[4]} ${cells[5]}`,
+    `${cells[6]} ${cells[7]} ${cells[8]}`
+  ].join('\n')
+}
 
 /* ----------------------------------------------------------------
  * GAME DEFINITION
@@ -39,9 +88,11 @@ const ttt = {
 
   category: 'GAME',
 
-  description: 'Two-player Tic Tac Toe',
+  description:
+    'Two-player Tic Tac Toe',
 
-  usage: '.ttt @player',
+  usage:
+    '.ttt @player',
 
   mode: 'duel',
 
@@ -54,9 +105,10 @@ const ttt = {
 
   type: 'ttt',
 
-  /*
-   * Start a new Tic Tac Toe game.
-   */
+  /* --------------------------------------------------------------
+   * START
+   * -------------------------------------------------------------- */
+
   async start({
     m,
     players,
@@ -74,7 +126,8 @@ const ttt = {
 
     const [p1, p2] = players
 
-    const board = createTTTBoard()
+    const board =
+      createTTTBoard()
 
     const game = {
       type: 'ttt',
@@ -93,19 +146,27 @@ const ttt = {
         [p2]: 'O'
       },
 
-      startedBy: m.sender,
+      /*
+       * The person who typed .ttt.
+       * They may or may not be one of the players.
+       */
+      startedBy:
+        m.sender,
 
-      startedAt: Date.now()
+      startedAt:
+        Date.now()
     }
 
-    const result = engine.startGame(
-      m.chat,
-      game
-    )
+    const result =
+      engine.startGame(
+        m.chat,
+        game
+      )
 
     if (!result.ok) {
       return {
-        error: result.error
+        error:
+          result.error
       }
     }
 
@@ -116,12 +177,11 @@ const ttt = {
         `❌ ${nameOf(p1)}\n` +
         `⭕ ${nameOf(p2)}\n\n` +
 
-        `${renderTTT(board)}\n\n` +
+        `${renderBoard(board)}\n\n` +
 
-        `🎯 ${nameOf(p1)} goes first.\n\n` +
-
+        `🎯 ${nameOf(p1)} goes first.\n` +
         `Reply with a number from *1-9*.`,
-
+      
       mentions: [
         p1,
         p2
@@ -134,9 +194,10 @@ const ttt = {
     }
   },
 
-  /*
-   * Process a player's move.
-   */
+  /* --------------------------------------------------------------
+   * PROCESS MOVE
+   * -------------------------------------------------------------- */
+
   async process({
     m,
     game,
@@ -144,7 +205,7 @@ const ttt = {
     engine
   }) {
     /*
-     * Only players can interact.
+     * Only the two actual players can make moves.
      */
     if (
       !engine.playerInGame(
@@ -156,16 +217,10 @@ const ttt = {
     }
 
     /*
-     * Ignore messages from players who are not currently
-     * supposed to make a move.
+     * If it isn't this player's turn,
+     * completely ignore the message.
      *
-     * IMPORTANT:
-     *
-     * We return false here so the message is ignored instead
-     * of replying "it's not your turn".
-     *
-     * This prevents normal group conversation from being
-     * hijacked by the game.
+     * No "it's not your turn" response.
      */
     if (
       !engine.isTurn(
@@ -177,11 +232,18 @@ const ttt = {
     }
 
     /*
-     * Only accept a single valid board number.
+     * Only accept a valid single board number.
      *
-     * Anything else is ignored.
+     * Examples accepted:
+     *
+     * 1
+     * 2
+     * 9
+     *
+     * Everything else is ignored.
      */
-    const position = extractNumber(text)
+    const position =
+      extractNumber(text)
 
     if (
       position === null ||
@@ -192,23 +254,25 @@ const ttt = {
       return false
     }
 
-    const index = position - 1
+    const index =
+      position - 1
 
     /*
-     * Ignore an already occupied square.
+     * Ignore occupied positions.
      */
     if (
       game.board[index] !== ' '
     ) {
       await m.reply(
-        '❌ That position is already occupied. Choose another number from *1-9*.'
+        '❌ That position is already occupied.\n' +
+        'Choose another number from *1-9*.'
       )
 
       return true
     }
 
     /*
-     * Place the player's symbol.
+     * Get player's symbol.
      */
     const symbol =
       game.symbols[m.sender]
@@ -217,37 +281,46 @@ const ttt = {
       return false
     }
 
-    game.board[index] = symbol
+    /*
+     * Place symbol.
+     */
+    game.board[index] =
+      symbol
 
     /*
      * Check winner.
      */
     const winner =
-      checkTTTWinner(game.board)
+      checkTTTWinner(
+        game.board
+      )
 
     if (winner) {
       const winnerJid =
-        Object.keys(game.symbols)
-          .find(
-            jid =>
-              game.symbols[jid] === winner
-          )
+        Object.keys(
+          game.symbols
+        ).find(
+          jid =>
+            game.symbols[jid] === winner
+        )
 
       await m.reply({
         text:
-          `🎉 *TIC TAC TOE — GAME OVER!*\n\n` +
+          `🎮 *TIC TAC TOE — GAME OVER!*\n\n` +
 
-          `${renderTTT(game.board)}\n\n` +
+          `${renderBoard(game.board)}\n\n` +
 
           `🏆 Winner: ${nameOf(winnerJid)}\n` +
-          `🎯 ${winner === 'X' ? '❌' : '⭕'} *${winner}* wins!`,
-
+          `${symbolEmoji[winner]} *${winner}* wins!`,
+        
         mentions: [
           winnerJid
         ]
       })
 
-      engine.endGame(m.chat)
+      engine.endGame(
+        m.chat
+      )
 
       return true
     }
@@ -256,33 +329,41 @@ const ttt = {
      * Check draw.
      */
     if (
-      isTTTDraw(game.board)
+      isTTTDraw(
+        game.board
+      )
     ) {
       await m.reply({
         text:
-          `🤝 *TIC TAC TOE — DRAW!*\n\n` +
-          `${renderTTT(game.board)}\n\n` +
-          `Nobody wins this round.`
+          `🎮 *TIC TAC TOE — DRAW!*\n\n` +
+
+          `${renderBoard(game.board)}\n\n` +
+
+          `🤝 Nobody wins this round.`
       })
 
-      engine.endGame(m.chat)
+      engine.endGame(
+        m.chat
+      )
 
       return true
     }
 
     /*
-     * Move to the next player.
+     * Move to next player.
      */
     const next =
-      engine.nextTurn(game)
+      engine.nextTurn(
+        game
+      )
 
     await m.reply({
       text:
-        `${renderTTT(game.board)}\n\n` +
+        `${renderBoard(game.board)}\n\n` +
 
         `🎯 ${nameOf(next)}'s turn.\n` +
-
         `Reply with a number from *1-9*.`,
+      
       mentions: [
         next
       ]
@@ -301,10 +382,6 @@ function nameOf(jid) {
     return 'Player'
   }
 
-  /*
-   * Keep the actual JID available for WhatsApp mentions.
-   * The display name will be handled by WhatsApp when mentioned.
-   */
   return `@${String(jid).split('@')[0]}`
 }
 
@@ -313,3 +390,4 @@ function nameOf(jid) {
  * ---------------------------------------------------------------- */
 
 export default ttt
+```
