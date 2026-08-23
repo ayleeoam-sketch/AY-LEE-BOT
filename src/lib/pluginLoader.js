@@ -1,559 +1,388 @@
-/* ================================================================
- * MODULAR GAME PLUGIN BRIDGE
- * ================================================================
- *
- * Individual games live in:
- *
- *   plugins/game/games/
- *
- * Adding a new game only requires adding a new .js file there.
- *
- * This file automatically:
- * - Loads all modular games
- * - Registers their commands
- * - Registers their aliases
- * - Routes active-game messages
- * - Provides .endgame
- * ================================================================ */
+import fs from 'fs'
+import path from 'path'
+import { pathToFileURL } from 'url'
+import config from '../config.js'
+import log from './logger.js'
 
-import {
-  loadGames,
-  getGame,
-  getGames
-} from './index.js'
+/* ============================================================
+ * PLUGIN REGISTRIES
+ * ============================================================ */
 
-import {
-  getGame as getActiveGame,
-  processGameMessage,
-  endGame,
-  playerInGame,
-  getPlayers,
-  addPlayer,
-  removePlayer,
-  isTurn,
-  setTurn,
-  nextTurn,
-  startGame,
-  setGame,
-  deleteGame
-} from './engine.js'
+/*
+ * Command name/alias -> plugin
+ */
+export const commands = new Map()
 
-/* ----------------------------------------------------------------
- * LOAD ALL GAMES BEFORE PLUGIN REGISTRATION
- * ---------------------------------------------------------------- */
+/*
+ * Plugins that have before()
+ */
+export const middlewares = []
 
-await loadGames()
+/*
+ * Plugins that have onDelete()
+ */
+export const deleteHandlers = []
 
-console.log(
-  `[GAME] Modular games ready: ${getGames().length} game(s)`
-)
+/*
+ * category -> plugins
+ */
+export const categories = new Map()
 
-/* ----------------------------------------------------------------
- * ENGINE API
- * ---------------------------------------------------------------- */
+let loadedCount = 0
 
-const engine = {
-  getGame: getActiveGame,
-  setGame,
-  deleteGame,
-  startGame,
-  endGame,
+/* ============================================================
+ * WALK PLUGIN DIRECTORY
+ * ============================================================ */
 
-  playerInGame,
-  getPlayers,
-  addPlayer,
-  removePlayer,
+function walk(dir) {
+  const out = []
 
-  isTurn,
-  setTurn,
-  nextTurn
-}
-
-/* ----------------------------------------------------------------
- * TEXT
- * ---------------------------------------------------------------- */
-
-function getText(m) {
-  if (!m) return ''
-
-  if (typeof m.body === 'string') {
-    return m.body.trim()
+  if (!fs.existsSync(dir)) {
+    return out
   }
 
-  if (typeof m.text === 'string') {
-    return m.text.trim()
-  }
-
-  return ''
-}
-
-/* ----------------------------------------------------------------
- * COMMAND ARGUMENTS
- * ---------------------------------------------------------------- */
-
-function getArguments(m) {
-  const text = getText(m)
-
-  if (!text.startsWith('.')) {
-    return []
-  }
-
-  const parts = text
-    .slice(1)
-    .trim()
-    .split(/\s+/)
-
-  parts.shift()
-
-  return parts
-}
-
-/* ----------------------------------------------------------------
- * PLAYER SELECTION
- * ----------------------------------------------------------------
- *
- * For a 2-player game:
- *
- * .ttt @user
- * → sender vs tagged user
- *
- * .ttt @user1 @user2
- * → user1 vs user2
- *
- * This solves the WhatsApp self-tag problem.
- * ---------------------------------------------------------------- */
-
-function selectPlayers(m, game) {
-  const mentions = [
-    ...new Set(
-      Array.isArray(m?.mentions)
-        ? m.mentions.filter(Boolean)
-        : []
+  for (
+    const entry of fs.readdirSync(
+      dir,
+      { withFileTypes: true }
     )
-  ]
-
-  const sender = m.sender
-
-  const minimum =
-    Number(game.players?.min || 1)
-
-  const maximum =
-    Number(game.players?.max || 2)
-
-  /*
-   * Two-player game.
-   *
-   * One tag:
-   * starter participates.
-   */
-  if (
-    minimum === 2 &&
-    maximum === 2
   ) {
-    if (mentions.length === 1) {
-      return [
-        sender,
-        mentions[0]
-      ]
-    }
+    const full = path.join(
+      dir,
+      entry.name
+    )
 
-    if (mentions.length === 2) {
-      return mentions
-    }
-
-    return null
-  }
-
-  /*
-   * General multiplayer game.
-   *
-   * If the number of tags is one less than required,
-   * the sender automatically joins.
-   *
-   * Example:
-   *
-   * 3-player game:
-   * .game @user1 @user2
-   *
-   * becomes:
-   *
-   * sender + user1 + user2
-   */
-  if (
-    mentions.length === maximum - 1
-  ) {
-    return [
-      sender,
-      ...mentions
-    ]
-  }
-
-  /*
-   * Starter can also select all players.
-   */
-  if (
-    mentions.length === maximum
-  ) {
-    return mentions
-  }
-
-  /*
-   * Single-player game.
-   */
-  if (
-    minimum === 1 &&
-    maximum === 1 &&
-    mentions.length === 0
-  ) {
-    return [
-      sender
-    ]
-  }
-
-  return null
-}
-
-/* ----------------------------------------------------------------
- * START ERROR
- * ---------------------------------------------------------------- */
-
-function playerError(game) {
-  const min =
-    Number(game.players?.min || 1)
-
-  const max =
-    Number(game.players?.max || min)
-
-  if (min === max) {
-    if (min === 2) {
-      return (
-        '🎮 *Choose the players for the game.*\n\n' +
-        'You can either:\n\n' +
-        '1️⃣ *Play yourself:*\n' +
-        `*.${game.name} @user*\n` +
-        '→ You vs @user\n\n' +
-        '2️⃣ *Let two other people play:*\n' +
-        `*.${game.name} @user1 @user2*\n` +
-        '→ @user1 vs @user2'
+    if (entry.isDirectory()) {
+      out.push(
+        ...walk(full)
       )
+    } else if (
+      entry.name.endsWith('.js')
+    ) {
+      out.push(full)
     }
+  }
 
-    return (
-      `🎮 This game requires *${min} players*.\n\n` +
-      `Tag ${min - 1} players if you want to participate, ` +
-      `or tag all ${min} players if you are only starting it.`
+  return out
+}
+
+/* ============================================================
+ * REGISTER PLUGIN
+ * ============================================================ */
+
+function register(plugin, file) {
+  if (
+    !plugin ||
+    typeof plugin !== 'object'
+  ) {
+    log.warn(
+      `Skipped ${path.basename(file)} - invalid plugin export`
+    )
+
+    return false
+  }
+
+  /*
+   * Store the source file on the plugin when possible.
+   */
+  try {
+    if (Object.isExtensible(plugin)) {
+      plugin.file = file
+    }
+  } catch {
+    // Ignore non-extensible plugins.
+  }
+
+  /* ==========================================================
+   * BEFORE MIDDLEWARE
+   * ========================================================== */
+
+  if (
+    typeof plugin.before === 'function'
+  ) {
+    middlewares.push(plugin)
+  }
+
+  /* ==========================================================
+   * DELETE HANDLER
+   * ========================================================== */
+
+  if (
+    typeof plugin.onDelete === 'function'
+  ) {
+    deleteHandlers.push(plugin)
+
+    log.info(
+      `[PLUGIN] Delete handler registered: ${
+        plugin.name ||
+        path.basename(file)
+      }`
     )
   }
 
-  return (
-    `🎮 This game requires between *${min} and ${max} players*.`
-  )
-}
+  /* ==========================================================
+   * COMMAND
+   * ========================================================== */
 
-/* ----------------------------------------------------------------
- * CREATE GAME COMMAND PLUGIN
- * ---------------------------------------------------------------- */
-
-function createGamePlugin(game) {
-  return {
-    name: game.name,
-
-    alias: Array.isArray(game.alias)
-      ? game.alias
-      : [],
-
-    category:
+  if (
+    plugin.name &&
+    typeof plugin.run === 'function'
+  ) {
+    plugin.category =
       String(
-        game.category || 'GAME'
-      ).toUpperCase(),
+        plugin.category ||
+        'MISC'
+      ).toUpperCase()
 
-    description:
-      game.description ||
-      game.desc ||
-      'Game',
+    const names = [
+      plugin.name,
+      ...(Array.isArray(plugin.alias)
+        ? plugin.alias
+        : [])
+    ]
+      .filter(Boolean)
+      .map(
+        name =>
+          String(name).toLowerCase()
+      )
 
-    usage:
-      game.usage ||
-      `.${game.name}`,
-
-    group: true,
-
-    async run({ m, args }) {
-      /*
-       * Don't start another game while one is active.
-       */
-      if (getActiveGame(m.chat)) {
-        return m.reply(
-          '🎮 A game is already running in this group.\n\n' +
-          'Use *.endgame* to stop it first.'
-        )
-      }
-
-      /*
-       * Make sure the game actually has start().
-       */
+    for (
+      const name of names
+    ) {
       if (
-        typeof game.start !== 'function'
+        commands.has(name)
       ) {
-        console.error(
-          `[GAME] ${game.name} has no start() function.`
-        )
-
-        return m.reply(
-          `❌ The game *${game.name}* is not configured correctly.`
+        log.warn(
+          `Duplicate command "${name}" in ${path.basename(file)} - overriding`
         )
       }
 
-      /*
-       * Determine players.
-       */
-      const players =
-        selectPlayers(
-          m,
-          game
-        )
-
-      if (!players) {
-        return m.reply(
-          playerError(game)
-        )
-      }
-
-      /*
-       * Remove duplicate players.
-       */
-      const uniquePlayers = [
-        ...new Set(players)
-      ]
-
-      const minimum =
-        Number(game.players?.min || 1)
-
-      const maximum =
-        Number(game.players?.max || minimum)
-
-      if (
-        uniquePlayers.length < minimum ||
-        uniquePlayers.length > maximum
-      ) {
-        return m.reply(
-          playerError(game)
-        )
-      }
-
-      /*
-       * Start the game.
-       */
-      try {
-        const result =
-          await game.start({
-            m,
-            args,
-            players: uniquePlayers,
-            engine
-          })
-
-        /*
-         * Game can return an error instead of replying itself.
-         */
-        if (
-          result &&
-          result.error
-        ) {
-          return m.reply(
-            result.error
-          )
-        }
-
-        return result
-
-      } catch (error) {
-        console.error(
-          `[GAME] Failed to start ${game.name}:`,
-          error
-        )
-
-        return m.reply(
-          '❌ Failed to start the game.'
-        )
-      }
-    }
-  }
-}
-
-/* ----------------------------------------------------------------
- * END GAME
- * ---------------------------------------------------------------- */
-
-const endGamePlugin = {
-  name: 'endgame',
-
-  alias: [
-    'stopgame'
-  ],
-
-  category: 'GAME',
-
-  group: true,
-
-  async run({ m }) {
-    const game =
-      getActiveGame(m.chat)
-
-    if (!game) {
-      return m.reply(
-        '❌ There is no active game in this group.'
+      commands.set(
+        name,
+        plugin
       )
     }
 
-    const result =
-      endGame(m.chat)
-
-    if (!result.ok) {
-      return m.reply(
-        result.error
+    if (
+      !categories.has(
+        plugin.category
+      )
+    ) {
+      categories.set(
+        plugin.category,
+        []
       )
     }
 
-    return m.reply(
-      '🛑 *GAME ENDED*\n\n' +
-      'The active game has been stopped.'
-    )
+    categories
+      .get(plugin.category)
+      .push(plugin)
+
+    return true
   }
+
+  /* ==========================================================
+   * EVENT-ONLY PLUGIN
+   * ========================================================== */
+
+  if (
+    typeof plugin.before === 'function' ||
+    typeof plugin.onDelete === 'function'
+  ) {
+    return true
+  }
+
+  log.warn(
+    `Skipped ${path.basename(file)} - missing "name" or "run"`
+  )
+
+  return false
 }
 
-/* ----------------------------------------------------------------
- * GLOBAL GAME MESSAGE MIDDLEWARE
- * ----------------------------------------------------------------
- *
- * Players send normal messages during a game.
- *
- * Examples:
- *
- * 9
- * rock
- * paper
- * g
- * abuja
- *
- * These are passed to the active game's process().
- *
- * IMPORTANT:
- *
- * Invalid/random group messages are ignored.
- * Commands beginning with "." are ignored here so that commands
- * such as .endgame continue through the normal command system.
- * ---------------------------------------------------------------- */
+/* ============================================================
+ * LOAD PLUGINS
+ * ============================================================ */
 
-const gameMiddleware = {
-  name: 'game-middleware',
+export async function loadPlugins() {
+  /*
+   * Clear old registries before loading.
+   */
+  commands.clear()
 
-  async before({ m }) {
+  middlewares.length = 0
+
+  deleteHandlers.length = 0
+
+  categories.clear()
+
+  loadedCount = 0
+
+  /*
+   * Get every plugin file.
+   */
+  const files =
+    walk(config.pluginDir)
+
+  for (
+    const file of files
+  ) {
     try {
-      const game =
-        getActiveGame(m.chat)
-
       /*
-       * No active game.
-       */
-      if (!game) {
-        return false
-      }
-
-      const text =
-        getText(m)
-
-      /*
-       * Ignore empty messages.
-       */
-      if (!text) {
-        return false
-      }
-
-      /*
-       * NEVER treat bot commands as game moves.
+       * IMPORTANT:
        *
-       * This is important for:
+       * We only import the actual plugin file.
        *
-       * .endgame
-       * .menu
-       * .help
-       * etc.
+       * There is NO import of:
+       *
+       * src/lib/index.js
+       *
+       * and NO dependency on a central index.js.
        */
+      const moduleUrl =
+        `${pathToFileURL(file).href}?t=${Date.now()}`
+
+      const mod =
+        await import(moduleUrl)
+
+      /*
+       * Support:
+       *
+       * export default plugin
+       *
+       * and:
+       *
+       * export default [plugin1, plugin2]
+       */
+      const plugin =
+        mod.default || mod
+
       if (
-        text.startsWith('.')
+        Array.isArray(plugin)
       ) {
-        return false
+        for (
+          const p of plugin
+        ) {
+          if (
+            register(
+              p,
+              file
+            )
+          ) {
+            loadedCount++
+          }
+        }
+      } else {
+        if (
+          register(
+            plugin,
+            file
+          )
+        ) {
+          loadedCount++
+        }
       }
-
-      /*
-       * Group-wide games can accept messages from anyone.
-       *
-       * Player-only games are restricted by engine.js.
-       */
-      if (
-        game.inputMode !== 'group' &&
-        !playerInGame(
-          game,
-          m.sender
-        )
-      ) {
-        return false
-      }
-
-      /*
-       * Route the message to the active game's processor.
-       *
-       * If the processor returns false, the message is simply
-       * ignored and normal group conversation continues.
-       */
-      return await processGameMessage({
-        m,
-        text
-      })
 
     } catch (error) {
-      console.error(
-        '[GAME] Middleware error:',
-        error
+      log.error(
+        `Failed to load ${path.relative(
+          config.pluginDir,
+          file
+        )}: ${
+          error?.stack ||
+          error?.message ||
+          error
+        }`
       )
-
-      /*
-       * Never let one game message crash the bot.
-       */
-      return false
     }
+  }
+
+  /* ==========================================================
+   * STABLE MENU ORDERING
+   * ========================================================== */
+
+  for (
+    const [, list] of categories
+  ) {
+    list.sort(
+      (a, b) =>
+        String(a.name)
+          .localeCompare(
+            String(b.name)
+          )
+    )
+  }
+
+  /* ==========================================================
+   * LOAD SUMMARY
+   * ========================================================== */
+
+  log.ok(
+    `Loaded ${loadedCount} plugins across ${categories.size} categories`
+  )
+
+  log.ok(
+    `Message middleware: ${middlewares.length}`
+  )
+
+  log.ok(
+    `Delete handlers: ${deleteHandlers.length}`
+  )
+
+  if (
+    deleteHandlers.length
+  ) {
+    log.ok(
+      `Delete handlers loaded: ${
+        deleteHandlers
+          .map(
+            plugin =>
+              plugin.name ||
+              'unnamed'
+          )
+          .join(', ')
+      }`
+    )
+  } else {
+    log.warn(
+      'No delete handlers were registered.'
+    )
+  }
+
+  return {
+    commands,
+    categories,
+    middlewares,
+    deleteHandlers,
+    count: loadedCount
   }
 }
 
-/* ----------------------------------------------------------------
- * BUILD PLUGIN LIST AUTOMATICALLY
- * ---------------------------------------------------------------- */
+/* ============================================================
+ * HELPERS
+ * ============================================================ */
 
-const gamePlugins =
-  getGames()
-    .map(
-      game =>
-        createGamePlugin(game)
+export const pluginCount =
+  () =>
+    loadedCount
+
+export const findCommand =
+  name =>
+    commands.get(
+      String(
+        name || ''
+      ).toLowerCase()
     )
 
-/* ----------------------------------------------------------------
- * FINAL EXPORT
- * ----------------------------------------------------------------
- *
- * The plugin loader already supports arrays.
- *
- * Therefore:
- *
- * - Every game gets its own command automatically.
- * - Every alias gets registered automatically.
- * - No index.js editing is needed.
- * - No engine.js editing is needed.
- * - No games.js editing is needed.
- * ---------------------------------------------------------------- */
+/* ============================================================
+ * DEFAULT EXPORT
+ * ============================================================ */
 
-export default [
-  endGamePlugin,
-  gameMiddleware,
-  ...gamePlugins
-]
+export default {
+  loadPlugins,
+  commands,
+  categories,
+  middlewares,
+  deleteHandlers,
+  findCommand,
+  pluginCount
+}
