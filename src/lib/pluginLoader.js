@@ -34,6 +34,26 @@ let loadedCount = 0
  * WALK PLUGIN DIRECTORY
  * ============================================================ */
 
+/*
+ * IMPORTANT:
+ *
+ * The game system is modular.
+ *
+ * plugins/game/
+ *
+ * contains:
+ *
+ *   games.js   -> normal plugin bridge
+ *   index.js   -> game loader
+ *   engine.js  -> game engine
+ *   utils.js   -> game utilities
+ *   games/     -> individual games
+ *
+ * Only games.js should be loaded by the normal plugin loader.
+ *
+ * The individual games are loaded by plugins/game/index.js.
+ */
+
 function walk(dir) {
   const out = []
 
@@ -52,15 +72,90 @@ function walk(dir) {
       entry.name
     )
 
+    /*
+     * Directories
+     */
     if (entry.isDirectory()) {
+
+      /*
+       * NEVER let the normal plugin loader enter
+       * plugins/game/games/
+       *
+       * Individual game files are handled by the
+       * modular game loader.
+       */
+      if (
+        path.basename(full) === 'games' &&
+        path.basename(dir) === 'game'
+      ) {
+        continue
+      }
+
       out.push(
         ...walk(full)
       )
-    } else if (
-      entry.name.endsWith('.js')
-    ) {
-      out.push(full)
+
+      continue
     }
+
+    /*
+     * Only JavaScript files.
+     */
+    if (
+      !entry.name.endsWith('.js')
+    ) {
+      continue
+    }
+
+    /*
+     * Determine where this file is located relative
+     * to the plugin directory.
+     */
+    const relative =
+      path.relative(
+        config.pluginDir,
+        full
+      )
+
+    const parts =
+      relative.split(path.sep)
+
+    /*
+     * ========================================================
+     * MODULAR GAME SYSTEM
+     * ========================================================
+     *
+     * plugins/game/
+     */
+
+    if (
+      parts[0] === 'game'
+    ) {
+
+      /*
+       * Only plugins/game/games.js is a real plugin.
+       *
+       * Do NOT load:
+       *
+       * game/index.js
+       * game/engine.js
+       * game/utils.js
+       * game/games/*.js
+       */
+      if (
+        parts.length === 2 &&
+        entry.name === 'games.js'
+      ) {
+        out.push(full)
+      }
+
+      continue
+    }
+
+    /*
+     * Everything else in plugins/ is a normal plugin.
+     */
+    out.push(full)
   }
 
   return out
@@ -83,14 +178,19 @@ function register(plugin, file) {
   }
 
   /*
-   * Store the source file on the plugin when possible.
+   * Store source file on plugin when possible.
    */
   try {
-    if (Object.isExtensible(plugin)) {
+    if (
+      Object.isExtensible(plugin)
+    ) {
       plugin.file = file
     }
   } catch {
-    // Ignore non-extensible plugins.
+    /*
+     * Non-extensible plugin.
+     * Continue normally.
+     */
   }
 
   /* ==========================================================
@@ -163,6 +263,9 @@ function register(plugin, file) {
       )
     }
 
+    /*
+     * Add to category.
+     */
     if (
       !categories.has(
         plugin.category
@@ -192,6 +295,9 @@ function register(plugin, file) {
     return true
   }
 
+  /*
+   * Anything that reaches here isn't a valid normal plugin.
+   */
   log.warn(
     `Skipped ${path.basename(file)} - missing "name" or "run"`
   )
@@ -205,7 +311,7 @@ function register(plugin, file) {
 
 export async function loadPlugins() {
   /*
-   * Clear old registries before loading.
+   * Reset registries.
    */
   commands.clear()
 
@@ -218,7 +324,12 @@ export async function loadPlugins() {
   loadedCount = 0
 
   /*
-   * Get every plugin file.
+   * Get plugin files.
+   *
+   * IMPORTANT:
+   *
+   * walk() automatically excludes the internal modular
+   * game files.
    */
   const files =
     walk(config.pluginDir)
@@ -228,15 +339,7 @@ export async function loadPlugins() {
   ) {
     try {
       /*
-       * IMPORTANT:
-       *
-       * We only import the actual plugin file.
-       *
-       * There is NO import of:
-       *
-       * src/lib/index.js
-       *
-       * and NO dependency on a central index.js.
+       * Cache-busting import.
        */
       const moduleUrl =
         `${pathToFileURL(file).href}?t=${Date.now()}`
@@ -256,6 +359,9 @@ export async function loadPlugins() {
       const plugin =
         mod.default || mod
 
+      /*
+       * Multiple plugins from one file.
+       */
       if (
         Array.isArray(plugin)
       ) {
@@ -271,7 +377,12 @@ export async function loadPlugins() {
             loadedCount++
           }
         }
-      } else {
+      }
+
+      /*
+       * Single plugin.
+       */
+      else {
         if (
           register(
             plugin,
