@@ -1297,4 +1297,3 @@ WhatsApp > Settings > Linked devices > Link with phone number
  * DEFAULT EXPORT
  * ============================================================ */
 
-export default startSocket
