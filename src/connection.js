@@ -1,5 +1,7 @@
 import makeWASocket, {
   DisconnectReason,
+  fetchLatestBaileysVersion,
+  fetchLatestWaWebVersion,
   makeCacheableSignalKeyStore,
   useMultiFileAuthState,
   Browsers,
@@ -45,7 +47,7 @@ const messageStore = new Map()
 const MAX_STORE = 10000
 
 /* ============================================================
- * DELETE EVENT DEDUPLICATION
+ * DELETE DEDUPE
  * ============================================================ */
 
 const processedDeletes = new NodeCache({
@@ -81,7 +83,14 @@ let reconnecting = false
 let currentSocket = null
 
 /* ============================================================
- * SAFE NUMBER CLEANER
+ * PAIRING STATE
+ * ============================================================ */
+
+let pairingTimer = null
+let pairingRequested = false
+
+/* ============================================================
+ * NUMBER CLEANER
  * ============================================================ */
 
 function cleanPhoneNumber(number) {
@@ -100,13 +109,24 @@ function clearReconnectTimer() {
 }
 
 /* ============================================================
+ * CLEAR PAIRING TIMER
+ * ============================================================ */
+
+function clearPairingTimer() {
+  if (pairingTimer) {
+    clearTimeout(pairingTimer)
+    pairingTimer = null
+  }
+}
+
+/* ============================================================
  * CLEAR FILE SESSION SAFELY
  *
  * IMPORTANT:
- * /app/session may be a Railway Volume.
+ * NEVER DELETE /app/session ITSELF.
  *
- * NEVER delete /app/session itself.
- * Only delete files/folders inside it.
+ * Railway Volume is mounted there.
+ * We only delete the contents.
  * ============================================================ */
 
 function clearFileSession(sessionDir) {
@@ -115,9 +135,12 @@ function clearFileSession(sessionDir) {
       recursive: true
     })
 
-    const entries = fs.readdirSync(sessionDir, {
-      withFileTypes: true
-    })
+    const entries = fs.readdirSync(
+      sessionDir,
+      {
+        withFileTypes: true
+      }
+    )
 
     for (const entry of entries) {
       const target = path.join(
@@ -155,6 +178,113 @@ function clearFileSession(sessionDir) {
 }
 
 /* ============================================================
+ * GET WHATSAPP WEB VERSION
+ *
+ * Priority:
+ *
+ * 1. Live WhatsApp Web version
+ * 2. Baileys published version
+ * 3. Last-resort fallback
+ *
+ * The live WhatsApp Web version is preferred because
+ * Baileys' own fetched version can sometimes lag behind
+ * Meta's current Web revision.
+ * ============================================================ */
+
+async function getWhatsAppVersion() {
+  try {
+    if (
+      typeof fetchLatestWaWebVersion ===
+      'function'
+    ) {
+      log.info(
+        'Fetching current WhatsApp Web version...'
+      )
+
+      const result =
+        await fetchLatestWaWebVersion()
+
+      if (
+        result?.version &&
+        Array.isArray(result.version) &&
+        result.version.length === 3
+      ) {
+        log.info(
+          'Using live WhatsApp Web version: ' +
+          result.version.join('.')
+        )
+
+        return result.version
+      }
+    }
+  } catch (e) {
+    log.warn(
+      'Could not fetch live WhatsApp Web version: ' +
+      (
+        e?.message ||
+        e
+      )
+    )
+  }
+
+  /* ========================================================
+   * BAILEYS FALLBACK
+   * ======================================================== */
+
+  try {
+    log.info(
+      'Trying Baileys WhatsApp Web version...'
+    )
+
+    const result =
+      await fetchLatestBaileysVersion()
+
+    if (
+      result?.version &&
+      Array.isArray(result.version) &&
+      result.version.length === 3
+    ) {
+      log.info(
+        'Using Baileys version: ' +
+        result.version.join('.') +
+        (
+          result.isLatest
+            ? ' (latest according to Baileys)'
+            : ''
+        )
+      )
+
+      return result.version
+    }
+  } catch (e) {
+    log.warn(
+      'Could not fetch Baileys version: ' +
+      (
+        e?.message ||
+        e
+      )
+    )
+  }
+
+  /* ========================================================
+   * LAST RESORT
+   * ======================================================== */
+
+  const fallback = [
+    2,
+    3000,
+    1034074495
+  ]
+
+  log.warn(
+    'Using fallback WhatsApp Web version: ' +
+    fallback.join('.')
+  )
+
+  return fallback
+}
+
+/* ============================================================
  * START SOCKET
  * ============================================================ */
 
@@ -175,10 +305,19 @@ export async function startSocket() {
 
   try {
     /* ========================================================
+     * RESET PAIRING STATE FOR NEW SOCKET
+     * ======================================================== */
+
+    clearPairingTimer()
+    pairingRequested = false
+
+    /* ========================================================
      * SESSION DIRECTORY
      * ======================================================== */
 
-    if (config.sessionStore !== 'mongo') {
+    if (
+      config.sessionStore !== 'mongo'
+    ) {
       fs.mkdirSync(
         config.sessionDir,
         {
@@ -186,31 +325,36 @@ export async function startSocket() {
         }
       )
 
-      const credsPath = path.join(
-        config.sessionDir,
-        'creds.json'
-      )
+      const credsPath =
+        path.join(
+          config.sessionDir,
+          'creds.json'
+        )
 
-      if (!fs.existsSync(credsPath)) {
-        if (config.sessionId?.trim()) {
+      if (
+        !fs.existsSync(credsPath)
+      ) {
+        if (
+          config.sessionId?.trim()
+        ) {
           try {
-            const raw = Buffer
-              .from(
-                config.sessionId.trim(),
-                'base64'
-              )
-              .toString('utf8')
+            const raw =
+              Buffer
+                .from(
+                  config.sessionId.trim(),
+                  'base64'
+                )
+                .toString('utf8')
 
-            const parsed = JSON.parse(raw)
+            const parsed =
+              JSON.parse(raw)
 
             if (
               !parsed ||
-              typeof parsed !== 'object' ||
-              !parsed.noiseKey ||
-              !parsed.signedIdentityKey
+              typeof parsed !== 'object'
             ) {
               throw new Error(
-                'SESSION_ID does not contain valid WhatsApp credentials'
+                'Invalid SESSION_ID data'
               )
             }
 
@@ -246,14 +390,16 @@ export async function startSocket() {
     }
 
     /* ========================================================
-     * SESSION STORE
+     * AUTH STATE
      * ======================================================== */
 
     if (
       config.sessionStore === 'mongo'
     ) {
       const auth =
-        await useMongoAuthState('default')
+        await useMongoAuthState(
+          'default'
+        )
 
       state = auth.state
       saveCreds = auth.saveCreds
@@ -293,28 +439,27 @@ export async function startSocket() {
 
     /* ========================================================
      * WHATSAPP VERSION
-     *
-     * Fixed version for pairing diagnostics.
      * ======================================================== */
 
-    const version = [
-      2,
-      3000,
-      1033897725
-    ]
-
-    log.info(
-      'Using fixed WhatsApp Web version: ' +
-      version.join('.')
-    )
+    const version =
+      await getWhatsAppVersion()
 
     /* ========================================================
-     * PAIRING
+     * PAIRING MODE
      * ======================================================== */
 
     const usePairing =
       config.authMethod === 'pair' &&
       !state.creds.registered
+
+    if (usePairing) {
+      log.info(
+        'Pairing mode enabled for +' +
+        cleanPhoneNumber(
+          config.pairNumber
+        )
+      )
+    }
 
     /* ========================================================
      * SOCKET
@@ -336,16 +481,13 @@ export async function startSocket() {
             )
         },
 
-        /*
-         * Use the same browser identity for
-         * pairing and normal connection.
-         */
-
         browser:
           Browsers.ubuntu('Chrome'),
 
         markOnlineOnConnect:
-          getVar('ALWAYS_ONLINE') ?? false,
+          getVar(
+            'ALWAYS_ONLINE'
+          ) ?? false,
 
         generateHighQualityLinkPreview:
           true,
@@ -358,10 +500,6 @@ export async function startSocket() {
         cachedGroupMetadata:
           async (jid) =>
             groupCache.get(jid),
-
-        /* ====================================================
-         * MESSAGE RECOVERY
-         * ==================================================== */
 
         getMessage:
           async (key) => {
@@ -381,7 +519,354 @@ export async function startSocket() {
     reconnecting = false
 
     /* ========================================================
+     * CREDENTIAL SAVE
+     * ======================================================== */
+
+    sock.ev.on(
+      'creds.update',
+      async (...args) => {
+        try {
+          await saveCreds(
+            ...args
+          )
+        } catch (e) {
+          log.error(
+            'Failed to save WhatsApp credentials: ' +
+            (
+              e?.message ||
+              e
+            )
+          )
+        }
+      }
+    )
+
+    /* ========================================================
+     * CONNECTION UPDATE
+     * ======================================================== */
+
+    sock.ev.on(
+      'connection.update',
+      async (update) => {
+        try {
+          const {
+            connection,
+            lastDisconnect,
+            qr
+          } = update
+
+          /* ==================================================
+           * QR
+           * ================================================== */
+
+          if (
+            qr &&
+            !usePairing &&
+            !state.creds.registered
+          ) {
+            log.info(
+              'Scan this QR with WhatsApp > Linked devices:'
+            )
+
+            qrcode.generate(
+              qr,
+              {
+                small: true
+              }
+            )
+          }
+
+          /* ==================================================
+           * CONNECTING
+           * ================================================== */
+
+          if (
+            connection === 'connecting'
+          ) {
+            log.info(
+              'Connecting to WhatsApp...'
+            )
+          }
+
+          /* ==================================================
+           * OPEN
+           * ================================================== */
+
+          if (
+            connection === 'open'
+          ) {
+            reconnectAttempts = 0
+
+            clearReconnectTimer()
+            clearPairingTimer()
+
+            pairingRequested = false
+
+            const me =
+              jidNormalizedUser(
+                sock.user?.id || ''
+              )
+
+            log.ok(
+              'Connected as ' +
+              (
+                sock.user?.name ||
+                'bot'
+              ) +
+              ' (' +
+              me.split('@')[0] +
+              ')'
+            )
+
+            log.ok(
+              pluginCount() +
+              ' plugins ready | prefix "' +
+              config.prefix +
+              '" | mode ' +
+              getVar('MODE')
+            )
+
+            log.ok(
+              'Anti-delete handlers: ' +
+              deleteHandlers.length
+            )
+
+            /* ==================================================
+             * STARTUP MESSAGE
+             * ================================================== */
+
+            if (
+              getVar(
+                'STARTUP_MESSAGE'
+              )
+            ) {
+              const owner =
+                config.ownerNumbers?.[0]
+
+              if (owner) {
+                const ownerJid =
+                  String(owner).includes('@')
+                    ? String(owner)
+                    : cleanPhoneNumber(
+                        owner
+                      ) +
+                      '@s.whatsapp.net'
+
+                await sock
+                  .sendMessage(
+                    ownerJid,
+                    {
+                      text:
+                        '╭━━━〔 *' +
+                        config.botName +
+                        '* 〕━━━╮\n' +
+                        '┃ ✅ Bot is online\n' +
+                        '┃ 🔌 Plugins: ' +
+                        pluginCount() +
+                        '\n' +
+                        '┃ ⚙️ Prefix: ' +
+                        config.prefix +
+                        '\n' +
+                        '┃ 🌐 Mode: ' +
+                        getVar('MODE') +
+                        '\n' +
+                        '┃ 📦 Version: ' +
+                        config.version +
+                        '\n' +
+                        '╰━━━━━━━━━━━━━━━━━━━╯'
+                    }
+                  )
+                  .catch(
+                    () => {}
+                  )
+              }
+            }
+          }
+
+          /* ==================================================
+           * CLOSED
+           * ================================================== */
+
+          if (
+            connection === 'close'
+          ) {
+            clearPairingTimer()
+
+            pairingRequested = false
+
+            const disconnectError =
+              lastDisconnect?.error
+
+            const boomError =
+              disconnectError
+                ? new Boom(
+                    disconnectError
+                  )
+                : null
+
+            const code =
+              boomError?.output?.statusCode
+
+            log.error(
+              '[WHATSAPP DISCONNECT] Code: ' +
+              String(code)
+            )
+
+            log.error(
+              '[WHATSAPP DISCONNECT] Error: ' +
+              (
+                disconnectError?.stack ||
+                disconnectError?.message ||
+                String(disconnectError)
+              )
+            )
+
+            const reason =
+              Object.keys(
+                DisconnectReason
+              ).find(
+                (key) =>
+                  DisconnectReason[key] ===
+                  code
+              ) ||
+              code
+
+            log.error(
+              '[WHATSAPP DISCONNECT] Reason: ' +
+              String(reason)
+            )
+
+            /* ==================================================
+             * LOGGED OUT
+             * ================================================== */
+
+            if (
+              code ===
+              DisconnectReason.loggedOut
+            ) {
+              log.error(
+                'Logged out from WhatsApp. Clearing session - you must re-link.'
+              )
+
+              clearReconnectTimer()
+
+              await deleteSession()
+
+              currentSocket = null
+
+              log.warn(
+                'Session cleared. Railway will restart the bot for fresh pairing.'
+              )
+
+              process.exit(1)
+
+              return
+            }
+
+            /* ==================================================
+             * BAD SESSION
+             * ================================================== */
+
+            if (
+              code ===
+              DisconnectReason.badSession
+            ) {
+              log.error(
+                'Bad session reported by WhatsApp. Clearing session - you must re-link.'
+              )
+
+              clearReconnectTimer()
+
+              await deleteSession()
+
+              currentSocket = null
+
+              log.warn(
+                'Bad session cleared. Railway will restart the bot for fresh pairing.'
+              )
+
+              process.exit(1)
+
+              return
+            }
+
+            /* ==================================================
+             * RECONNECT
+             * ================================================== */
+
+            if (
+              reconnectTimer
+            ) {
+              return
+            }
+
+            reconnectAttempts++
+
+            const delay =
+              Math.min(
+                5000 *
+                  reconnectAttempts,
+                30000
+              )
+
+            log.warn(
+              'Connection closed (' +
+              reason +
+              '). Reconnecting in ' +
+              (
+                delay / 1000
+              ) +
+              's...'
+            )
+
+            reconnectTimer =
+              setTimeout(
+                async () => {
+                  reconnectTimer =
+                    null
+
+                  try {
+                    await startSocket()
+                  } catch (e) {
+                    reconnecting = false
+
+                    log.error(
+                      'Reconnect failed: ' +
+                      (
+                        e?.stack ||
+                        e?.message ||
+                        e
+                      )
+                    )
+                  }
+                },
+                delay
+              )
+          }
+        } catch (e) {
+          log.error(
+            '[CONNECTION] Update handler error: ' +
+            (
+              e?.stack ||
+              e?.message ||
+              e
+            )
+          )
+        }
+      }
+    )
+
+    /* ========================================================
      * PAIRING CODE
+     *
+     * IMPORTANT:
+     * We wait for the socket to actually reach
+     * "open" before requesting the code.
+     *
+     * This prevents:
+     *
+     * Connection Closed
+     * requestPairingCode()
      * ======================================================== */
 
     if (usePairing) {
@@ -404,32 +889,42 @@ export async function startSocket() {
           'No WhatsApp number was provided for pairing.'
         )
       } else {
-        log.info(
-          'Pairing mode enabled for +' +
-          number
-        )
-
-        let pairingRequested = false
-
         const requestPairingCode =
           async () => {
-            if (pairingRequested) {
+            if (
+              pairingRequested
+            ) {
               return
             }
 
             if (
-              !sock ||
+              !currentSocket ||
+              currentSocket !== sock
+            ) {
+              log.warn(
+                'Pairing skipped because this socket is no longer active.'
+              )
+
+              return
+            }
+
+            if (
               state.creds.registered
             ) {
               return
             }
 
             try {
-              pairingRequested = true
+              /*
+               * Check whether the socket is still usable.
+               */
 
               log.info(
-                'Requesting fresh WhatsApp pairing code...'
+                'Preparing WhatsApp pairing code for +' +
+                number
               )
+
+              pairingRequested = true
 
               const custom =
                 config.pairCustomCode &&
@@ -494,363 +989,41 @@ export async function startSocket() {
           }
 
         /*
-         * Wait for the socket to initialize.
+         * Pairing code should be requested after the
+         * initial WebSocket handshake has had time to
+         * settle.
+         *
+         * If the socket dies before this timer fires,
+         * connection.update will cancel the timer.
          */
 
-        setTimeout(
-          requestPairingCode,
-          8000
-        )
+        pairingTimer =
+          setTimeout(
+            async () => {
+              pairingTimer = null
+
+              /*
+               * Do NOT request pairing if the socket
+               * is already gone.
+               */
+
+              if (
+                !currentSocket ||
+                currentSocket !== sock
+              ) {
+                log.warn(
+                  'Pairing code request cancelled because socket is no longer active.'
+                )
+
+                return
+              }
+
+              await requestPairingCode()
+            },
+            12000
+          )
       }
     }
-
-    /* ========================================================
-     * SAVE CREDENTIALS
-     * ======================================================== */
-
-    sock.ev.on(
-      'creds.update',
-      async (...args) => {
-        try {
-          await saveCreds(
-            ...args
-          )
-        } catch (e) {
-          log.error(
-            'Failed to save WhatsApp credentials: ' +
-            (
-              e?.message ||
-              e
-            )
-          )
-        }
-      }
-    )
-
-    /* ========================================================
-     * CONNECTION EVENTS
-     * ======================================================== */
-
-    sock.ev.on(
-      'connection.update',
-      async (update) => {
-        try {
-          const {
-            connection,
-            lastDisconnect,
-            qr
-          } = update
-
-          /* ==================================================
-           * QR
-           * ================================================== */
-
-          if (
-            qr &&
-            !usePairing &&
-            !state.creds.registered
-          ) {
-            log.info(
-              'Scan this QR with WhatsApp > Linked devices:\n'
-            )
-
-            qrcode.generate(
-              qr,
-              {
-                small: true
-              }
-            )
-          }
-
-          /* ==================================================
-           * CONNECTING
-           * ================================================== */
-
-          if (
-            connection === 'connecting'
-          ) {
-            log.info(
-              'Connecting to WhatsApp...'
-            )
-          }
-
-          /* ==================================================
-           * OPEN
-           * ================================================== */
-
-          if (
-            connection === 'open'
-          ) {
-            reconnectAttempts = 0
-            clearReconnectTimer()
-
-            const me =
-              jidNormalizedUser(
-                sock.user?.id || ''
-              )
-
-            log.ok(
-              'Connected as ' +
-              (
-                sock.user?.name ||
-                'bot'
-              ) +
-              ' (' +
-              me.split('@')[0] +
-              ')'
-            )
-
-            log.ok(
-              pluginCount() +
-              ' plugins ready | prefix "' +
-              config.prefix +
-              '" | mode ' +
-              getVar('MODE')
-            )
-
-            log.ok(
-              'Anti-delete handlers available: ' +
-              deleteHandlers.length
-            )
-
-            if (
-              deleteHandlers.length
-            ) {
-              log.ok(
-                'Anti-delete handlers: ' +
-                deleteHandlers
-                  .map(
-                    (handler) =>
-                      handler.name ||
-                      'unnamed'
-                  )
-                  .join(', ')
-              )
-            }
-
-            /* ==============================================
-             * STARTUP MESSAGE
-             * ============================================== */
-
-            if (
-              getVar(
-                'STARTUP_MESSAGE'
-              )
-            ) {
-              const owner =
-                config.ownerNumbers?.[0]
-
-              if (owner) {
-                const ownerJid =
-                  String(owner).includes('@')
-                    ? String(owner)
-                    : cleanPhoneNumber(owner) +
-                      '@s.whatsapp.net'
-
-                await sock
-                  .sendMessage(
-                    ownerJid,
-                    {
-                      text:
-                        '╭━━━〔 *' +
-                        config.botName +
-                        '* 〕━━━╮\n' +
-                        '┃ ✅ Bot is online\n' +
-                        '┃ 🔌 Plugins: ' +
-                        pluginCount() +
-                        '\n' +
-                        '┃ ⚙️ Prefix: ' +
-                        config.prefix +
-                        '\n' +
-                        '┃ 🌐 Mode: ' +
-                        getVar('MODE') +
-                        '\n' +
-                        '┃ 📦 Version: ' +
-                        config.version +
-                        '\n' +
-                        '╰━━━━━━━━━━━━━━━━━━━╯'
-                    }
-                  )
-                  .catch(
-                    () => {}
-                  )
-              }
-            }
-          }
-
-          /* ==================================================
-           * CONNECTION CLOSED
-           * ================================================== */
-
-          if (
-            connection === 'close'
-          ) {
-            const disconnectError =
-              lastDisconnect?.error
-
-            const boomError =
-              disconnectError
-                ? new Boom(
-                    disconnectError
-                  )
-                : null
-
-            const code =
-              boomError?.output?.statusCode
-
-            /*
-             * IMPORTANT:
-             * Log the exact WhatsApp disconnect reason.
-             */
-
-            log.error(
-              '[WHATSAPP DISCONNECT] Code: ' +
-              String(code)
-            )
-
-            log.error(
-              '[WHATSAPP DISCONNECT] Error: ' +
-              (
-                disconnectError?.stack ||
-                disconnectError?.message ||
-                String(disconnectError)
-              )
-            )
-
-            const reason =
-              Object.keys(
-                DisconnectReason
-              ).find(
-                (key) =>
-                  DisconnectReason[key] ===
-                  code
-              ) ||
-              code
-
-            log.error(
-              '[WHATSAPP DISCONNECT] Reason: ' +
-              String(reason)
-            )
-
-            /* ==============================================
-             * LOGGED OUT
-             * ============================================== */
-
-            if (
-              code ===
-              DisconnectReason.loggedOut
-            ) {
-              log.error(
-                'Logged out from WhatsApp. Clearing session - you must re-link.'
-              )
-
-              clearReconnectTimer()
-
-              await deleteSession()
-
-              currentSocket = null
-
-              log.warn(
-                'Session cleared. Railway will restart the bot for fresh pairing.'
-              )
-
-              process.exit(1)
-
-              return
-            }
-
-            /* ==============================================
-             * BAD SESSION
-             * ============================================== */
-
-            if (
-              code ===
-              DisconnectReason.badSession
-            ) {
-              log.error(
-                'Bad session reported by WhatsApp. Clearing session - you must re-link.'
-              )
-
-              clearReconnectTimer()
-
-              await deleteSession()
-
-              currentSocket = null
-
-              log.warn(
-                'Bad session cleared. Railway will restart the bot for fresh pairing.'
-              )
-
-              process.exit(1)
-
-              return
-            }
-
-            /* ==============================================
-             * RECONNECT
-             * ============================================== */
-
-            if (
-              reconnectTimer
-            ) {
-              return
-            }
-
-            reconnectAttempts++
-
-            const delay =
-              Math.min(
-                5000 *
-                  reconnectAttempts,
-                30000
-              )
-
-            log.warn(
-              'Connection closed (' +
-              reason +
-              '). Reconnecting in ' +
-              (
-                delay / 1000
-              ) +
-              's...'
-            )
-
-            reconnectTimer =
-              setTimeout(
-                async () => {
-                  reconnectTimer =
-                    null
-
-                  try {
-                    await startSocket()
-                  } catch (e) {
-                    reconnecting = false
-
-                    log.error(
-                      'Reconnect failed: ' +
-                      (
-                        e?.stack ||
-                        e?.message ||
-                        e
-                      )
-                    )
-                  }
-                },
-                delay
-              )
-          }
-        } catch (e) {
-          log.error(
-            '[CONNECTION] Update handler error: ' +
-            (
-              e?.stack ||
-              e?.message ||
-              e
-            )
-          )
-        }
-      }
-    )
 
     /* ========================================================
      * GROUP CACHE
@@ -934,9 +1107,7 @@ export async function startSocket() {
     )
 
     /* ========================================================
-     * NORMAL MESSAGES
-     *
-     * STATUS MESSAGES ARE NOT STORED FOR ANTI-DELETE.
+     * MESSAGES
      * ======================================================== */
 
     sock.ev.on(
@@ -1020,123 +1191,124 @@ export async function startSocket() {
     )
 
     /* ========================================================
-     * ANTI-DELETE PROCESSOR
+     * ANTI DELETE
      * ======================================================== */
 
-    const processDeletedMessage = async (
-      key,
-      update = {},
-      source = 'unknown'
-    ) => {
-      try {
-        if (!key?.id) {
-          return
-        }
+    const processDeletedMessage =
+      async (
+        key,
+        update = {},
+        source = 'unknown'
+      ) => {
+        try {
+          if (!key?.id) {
+            return
+          }
 
-        if (
-          key?.remoteJid ===
-          'status@broadcast'
-        ) {
-          return
-        }
+          if (
+            key.remoteJid ===
+            'status@broadcast'
+          ) {
+            return
+          }
 
-        const messageId =
-          String(
-            key.id
+          const messageId =
+            String(
+              key.id
+            )
+
+          if (
+            processedDeletes.has(
+              messageId
+            )
+          ) {
+            return
+          }
+
+          const storedMessage =
+            messageStore.get(
+              messageId
+            )
+
+          if (!storedMessage) {
+            return
+          }
+
+          if (
+            storedMessage?.key?.remoteJid ===
+            'status@broadcast'
+          ) {
+            messageStore.delete(
+              messageId
+            )
+
+            return
+          }
+
+          if (
+            deleteHandlers.length === 0
+          ) {
+            return
+          }
+
+          processedDeletes.set(
+            messageId,
+            true
           )
 
-        if (
-          processedDeletes.has(
-            messageId
-          )
-        ) {
-          return
-        }
+          for (
+            const handler of deleteHandlers
+          ) {
+            if (
+              typeof handler.onDelete !==
+              'function'
+            ) {
+              continue
+            }
 
-        const storedMessage =
-          messageStore.get(
-            messageId
-          )
+            try {
+              await handler.onDelete({
+                sock,
+                key,
+                update,
+                messageStore,
+                message:
+                  storedMessage
+              })
+            } catch (e) {
+              log.error(
+                '[ANTI-DELETE] Handler ' +
+                (
+                  handler.name ||
+                  'unknown'
+                ) +
+                ' failed: ' +
+                (
+                  e?.stack ||
+                  e?.message ||
+                  e
+                )
+              )
+            }
+          }
 
-        if (!storedMessage) {
-          return
-        }
-
-        if (
-          storedMessage?.key?.remoteJid ===
-          'status@broadcast'
-        ) {
           messageStore.delete(
             messageId
           )
-
-          return
-        }
-
-        if (
-          deleteHandlers.length === 0
-        ) {
-          return
-        }
-
-        processedDeletes.set(
-          messageId,
-          true
-        )
-
-        for (
-          const handler of deleteHandlers
-        ) {
-          if (
-            typeof handler.onDelete !==
-            'function'
-          ) {
-            continue
-          }
-
-          try {
-            await handler.onDelete({
-              sock,
-              key,
-              update,
-              messageStore,
-              message:
-                storedMessage
-            })
-          } catch (e) {
-            log.error(
-              '[ANTI-DELETE] Handler ' +
-              (
-                handler.name ||
-                'unknown'
-              ) +
-              ' failed: ' +
-              (
-                e?.stack ||
-                e?.message ||
-                e
-              )
+        } catch (e) {
+          log.error(
+            '[ANTI-DELETE] Delete processing error: ' +
+            (
+              e?.stack ||
+              e?.message ||
+              e
             )
-          }
-        }
-
-        messageStore.delete(
-          messageId
-        )
-      } catch (e) {
-        log.error(
-          '[ANTI-DELETE] Delete processing error: ' +
-          (
-            e?.stack ||
-            e?.message ||
-            e
           )
-        )
+        }
       }
-    }
 
     /* ========================================================
-     * MESSAGES.DELETE
+     * DELETE EVENTS
      * ======================================================== */
 
     sock.ev.on(
@@ -1175,7 +1347,7 @@ export async function startSocket() {
     )
 
     /* ========================================================
-     * MESSAGES.UPDATE
+     * MESSAGE UPDATES
      * ======================================================== */
 
     sock.ev.on(
@@ -1206,7 +1378,7 @@ export async function startSocket() {
               }
 
               if (
-                key?.remoteJid ===
+                key.remoteJid ===
                 'status@broadcast'
               ) {
                 continue
@@ -1248,7 +1420,7 @@ export async function startSocket() {
               }
             } catch (e) {
               log.error(
-                '[ANTI-DELETE] Individual messages.update error: ' +
+                '[ANTI-DELETE] Individual update error: ' +
                 (
                   e?.message ||
                   e
@@ -1270,7 +1442,7 @@ export async function startSocket() {
     )
 
     /* ========================================================
-     * CALLS
+     * CALL REJECTION
      * ======================================================== */
 
     sock.ev.on(
@@ -1326,7 +1498,7 @@ export async function startSocket() {
     )
 
     /* ========================================================
-     * RETURN SOCKET
+     * RETURN
      * ======================================================== */
 
     return sock
@@ -1334,6 +1506,8 @@ export async function startSocket() {
   } catch (e) {
     reconnecting = false
     currentSocket = null
+
+    clearPairingTimer()
 
     log.error(
       '[SOCKET] Failed to start: ' +
