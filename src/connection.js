@@ -418,65 +418,102 @@ export async function startSocket() {
           'No WhatsApp number was provided for pairing.'
         )
       } else {
-        setTimeout(
-          async () => {
-            try {
-              if (
-                !sock ||
-                state.creds.registered
-              ) {
-                return
-              }
+        log.info(
+          'Pairing mode enabled for +' +
+          number
+        )
 
-              const custom =
-                config.pairCustomCode &&
-                /^[A-Z0-9]{8}$/.test(
-                  String(
+        let pairingRequested = false
+
+        const requestPairingCode = async () => {
+          if (pairingRequested) {
+            return
+          }
+
+          if (
+            !sock ||
+            state.creds.registered
+          ) {
+            return
+          }
+
+          try {
+            pairingRequested = true
+
+            log.info(
+              'Requesting fresh WhatsApp pairing code...'
+            )
+
+            const custom =
+              config.pairCustomCode &&
+              /^[A-Z0-9]{8}$/.test(
+                String(
+                  config.pairCustomCode
+                ).toUpperCase()
+              )
+                ? String(
                     config.pairCustomCode
                   ).toUpperCase()
-                )
-                  ? String(
-                      config.pairCustomCode
-                    ).toUpperCase()
-                  : undefined
+                : undefined
 
-              const code =
-                await sock.requestPairingCode(
-                  number,
-                  custom
-                )
-
-              const pretty =
-                code
-                  ?.match(/.{1,4}/g)
-                  ?.join('-') ||
-                code
-
-              log.banner(
-                '\n' +
-                '╔══════════════════════════════════════╗\n' +
-                '║   PAIRING CODE:  ' +
-                String(pretty).padEnd(20) +
-                '║\n' +
-                '╚══════════════════════════════════════╝\n' +
-                'WhatsApp > Settings > Linked devices > Link with phone number\n'
+            const code =
+              await sock.requestPairingCode(
+                number,
+                custom
               )
 
-              log.info(
-                'Pairing requested for +' +
-                number
-              )
-            } catch (e) {
+            if (!code) {
+              pairingRequested = false
+
               log.error(
-                'Could not get a pairing code: ' +
-                (
-                  e?.message ||
-                  e
-                )
+                'WhatsApp returned an empty pairing code.'
               )
+
+              return
             }
-          },
-          3000
+
+            const pretty =
+              String(code)
+                .match(/.{1,4}/g)
+                ?.join('-') ||
+              String(code)
+
+            log.banner(
+              '\n' +
+              '╔══════════════════════════════════════╗\n' +
+              '║   PAIRING CODE:  ' +
+              String(pretty).padEnd(20) +
+              '║\n' +
+              '╚══════════════════════════════════════╝\n' +
+              'WhatsApp > Settings > Linked devices > Link with phone number\n'
+            )
+
+            log.info(
+              'Pairing code generated for +' +
+              number
+            )
+          } catch (e) {
+            pairingRequested = false
+
+            log.error(
+              'Could not get a pairing code: ' +
+              (
+                e?.stack ||
+                e?.message ||
+                e
+              )
+            )
+          }
+        }
+
+        /*
+         * Give WhatsApp/Baileys enough time to initialize
+         * before requesting the pairing code.
+         */
+
+        setTimeout(
+          requestPairingCode,
+          8000
         )
       }
     }
@@ -697,12 +734,15 @@ export async function startSocket() {
 
               currentSocket = null
 
+              log.warn(
+                'Session cleared. Railway will restart the bot for fresh pairing.'
+              )
+
               /*
                * Exit with code 1 so Railway restarts
-               * the container automatically.
+               * the container.
                *
-               * The session directory itself is preserved.
-               * Only its contents were cleared above.
+               * The Railway Volume itself is preserved.
                */
 
               process.exit(1)
@@ -728,9 +768,13 @@ export async function startSocket() {
 
               currentSocket = null
 
+              log.warn(
+                'Bad session cleared. Railway will restart the bot for fresh pairing.'
+              )
+
               /*
                * Exit with code 1 so Railway restarts
-               * the container automatically.
+               * the container.
                */
 
               process.exit(1)
