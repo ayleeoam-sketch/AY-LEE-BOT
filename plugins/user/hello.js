@@ -2,15 +2,15 @@ export default {
   name: 'hello',
   alias: ['hi', 'hey'],
   category: 'USER',
-  desc: 'Ask the user to save the bot contact',
+  desc: 'Send a personal welcome message',
   usage: '.hello',
   cooldown: 5,
 
   async run({ m }) {
     await m.reply(
-      `Good Day\n` +
-      `Kindly save this number as:\n` +
-      `*AY-LEE*`
+      `👋 *Hello, good day!*\n\n` +
+      `Kindly save this number as *AYLEE*.\n\n` +
+      `How can I assist you? 🤝`
     )
   }
 }
