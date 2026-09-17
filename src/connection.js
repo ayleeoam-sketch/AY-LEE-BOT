@@ -1,10 +1,4 @@
-```js
-import makeWASocket, {
-  DisconnectReason,
-  fetchLatestBaileysVersion,
-  makeCacheableSignalKeyStore,
-  useMultiFileAuthState,
-  Browsers,
+
   jidNormalizedUser
 } from 'baileys'
 
