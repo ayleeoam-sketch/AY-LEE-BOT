@@ -1,3 +1,4 @@
+```js
 import makeWASocket, {
   DisconnectReason,
   fetchLatestBaileysVersion,
@@ -39,12 +40,6 @@ const msgRetryCounterCache = new NodeCache()
 
 /* ============================================================
  * MESSAGE STORE
- *
- * Stores original messages so anti-delete handlers can recover
- * them after WhatsApp sends a revoke/delete event.
- *
- * IMPORTANT:
- * WhatsApp Status messages are intentionally NOT stored.
  * ============================================================ */
 
 const messageStore = new Map()
@@ -103,6 +98,69 @@ function clearReconnectTimer() {
   if (reconnectTimer) {
     clearTimeout(reconnectTimer)
     reconnectTimer = null
+  }
+}
+
+/* ============================================================
+ * CLEAR FILE SESSION SAFELY
+ *
+ * IMPORTANT:
+ * /app/session may be a Railway Volume mount.
+ *
+ * NEVER delete the /app/session directory itself.
+ * Only delete the contents inside it.
+ * ============================================================ */
+
+function clearFileSession(sessionDir) {
+  try {
+    fs.mkdirSync(
+      sessionDir,
+      {
+        recursive: true
+      }
+    )
+
+    const entries =
+      fs.readdirSync(
+        sessionDir,
+        {
+          withFileTypes: true
+        }
+      )
+
+    for (const entry of entries) {
+      const target =
+        path.join(
+          sessionDir,
+          entry.name
+        )
+
+      try {
+        fs.rmSync(
+          target,
+          {
+            recursive: true,
+            force: true
+          }
+        )
+      } catch (e) {
+        log.warn(
+          `Could not remove session item ${entry.name}: ${e.message}`
+        )
+      }
+    }
+
+    log.warn(
+      `File session contents cleared: ${sessionDir}`
+    )
+
+    return true
+  } catch (e) {
+    log.error(
+      `Could not clear file session: ${e.message}`
+    )
+
+    return false
   }
 }
 
@@ -243,31 +301,16 @@ export async function startSocket() {
       state = auth.state
       saveCreds = auth.saveCreds
 
+      /*
+       * Railway Volume-safe session deletion.
+       *
+       * Do NOT remove config.sessionDir itself.
+       * Only remove the contents inside it.
+       */
       deleteSession = async () => {
-        try {
-          fs.rmSync(
-            config.sessionDir,
-            {
-              recursive: true,
-              force: true
-            }
-          )
-
-          fs.mkdirSync(
-            config.sessionDir,
-            {
-              recursive: true
-            }
-          )
-
-          log.warn(
-            `File session cleared: ${config.sessionDir}`
-          )
-        } catch (e) {
-          log.error(
-            `Could not clear file session: ${e.message}`
-          )
-        }
+        clearFileSession(
+          config.sessionDir
+        )
       }
 
       log.info(
@@ -811,10 +854,7 @@ WhatsApp > Settings > Linked devices > Link with phone number
     /* ============================================================
      * NORMAL MESSAGES
      *
-     * IMPORTANT:
-     * Store the complete raw message BEFORE handleMessage().
-     *
-     * STATUS MESSAGES ARE NOT STORED.
+     * STATUS MESSAGES ARE NOT STORED FOR ANTI-DELETE.
      * ============================================================ */
 
     sock.ev.on(
@@ -841,22 +881,9 @@ WhatsApp > Settings > Linked devices > Link with phone number
           const messageId =
             raw.key?.id
 
-          /* ====================================================
-           * STATUS PROTECTION
-           *
-           * WhatsApp Status uses status@broadcast.
-           *
-           * Do not store Status messages in the anti-delete
-           * message store.
-           * ==================================================== */
-
           const isStatus =
             raw.key?.remoteJid ===
             'status@broadcast'
-
-          /* ====================================================
-           * STORE MESSAGE
-           * ==================================================== */
 
           if (
             messageId &&
@@ -867,10 +894,6 @@ WhatsApp > Settings > Linked devices > Link with phone number
               raw
             )
           }
-
-          /* ====================================================
-           * LIMIT STORE
-           * ==================================================== */
 
           while (
             messageStore.size >
@@ -890,13 +913,6 @@ WhatsApp > Settings > Linked devices > Link with phone number
               oldest
             )
           }
-
-          /* ====================================================
-           * NORMAL MESSAGE HANDLER
-           *
-           * Status messages are still passed to the normal
-           * handler. Only the anti-delete store ignores them.
-           * ==================================================== */
 
           try {
             await handleMessage(
@@ -934,12 +950,6 @@ WhatsApp > Settings > Linked devices > Link with phone number
           return
         }
 
-        /* ======================================================
-         * STATUS PROTECTION
-         *
-         * Never process deleted WhatsApp Status messages.
-         * ====================================================== */
-
         if (
           key?.remoteJid ===
           'status@broadcast'
@@ -952,10 +962,6 @@ WhatsApp > Settings > Linked devices > Link with phone number
             key.id
           )
 
-        /* ======================================================
-         * DEDUPLICATE DELETE EVENTS
-         * ====================================================== */
-
         if (
           processedDeletes.has(
             messageId
@@ -963,10 +969,6 @@ WhatsApp > Settings > Linked devices > Link with phone number
         ) {
           return
         }
-
-        /* ======================================================
-         * FIND ORIGINAL MESSAGE
-         * ====================================================== */
 
         const storedMessage =
           messageStore.get(
@@ -976,10 +978,6 @@ WhatsApp > Settings > Linked devices > Link with phone number
         if (!storedMessage) {
           return
         }
-
-        /* ======================================================
-         * EXTRA STATUS SAFETY
-         * ====================================================== */
 
         if (
           storedMessage?.key?.remoteJid ===
@@ -992,28 +990,16 @@ WhatsApp > Settings > Linked devices > Link with phone number
           return
         }
 
-        /* ======================================================
-         * CHECK HANDLERS
-         * ====================================================== */
-
         if (
           deleteHandlers.length === 0
         ) {
           return
         }
 
-        /* ======================================================
-         * MARK BEFORE RUNNING HANDLERS
-         * ====================================================== */
-
         processedDeletes.set(
           messageId,
           true
         )
-
-        /* ======================================================
-         * RUN DELETE HANDLERS
-         * ====================================================== */
 
         for (
           const handler of deleteHandlers
@@ -1048,10 +1034,6 @@ WhatsApp > Settings > Linked devices > Link with phone number
           }
         }
 
-        /* ======================================================
-         * CLEANUP
-         * ====================================================== */
-
         messageStore.delete(
           messageId
         )
@@ -1068,8 +1050,6 @@ WhatsApp > Settings > Linked devices > Link with phone number
 
     /* ============================================================
      * MESSAGES.DELETE
-     *
-     * Primary revoke/delete listener.
      * ============================================================ */
 
     sock.ev.on(
@@ -1108,8 +1088,6 @@ WhatsApp > Settings > Linked devices > Link with phone number
 
     /* ============================================================
      * MESSAGES.UPDATE
-     *
-     * Some Baileys versions can expose revoke/delete activity here.
      * ============================================================ */
 
     sock.ev.on(
@@ -1139,20 +1117,12 @@ WhatsApp > Settings > Linked devices > Link with phone number
                 continue
               }
 
-              /* ================================================
-               * STATUS PROTECTION
-               * ================================================ */
-
               if (
                 key?.remoteJid ===
                 'status@broadcast'
               ) {
                 continue
               }
-
-              /* ================================================
-               * EXPLICIT REVOKE INDICATORS
-               * ================================================ */
 
               const explicitRevoke =
                 update?.message === null ||
@@ -1170,10 +1140,6 @@ WhatsApp > Settings > Linked devices > Link with phone number
 
                 continue
               }
-
-              /* ================================================
-               * EMPTY UPDATE
-               * ================================================ */
 
               const isEmptyUpdate =
                 Object.keys(
@@ -1298,3 +1264,24 @@ WhatsApp > Settings > Linked devices > Link with phone number
  * ============================================================ */
 
 export default startSocket
+```
+
+After replacing the file, **commit/push it to GitHub and let Railway deploy**.
+
+Your Railway Volume should remain mounted at:
+
+```text
+/app/session
+```
+
+And keep:
+
+```env
+AUTH_METHOD=pair
+PAIR_NUMBER=2347036177100
+SESSION_STORE=file
+```
+
+Because the old session was already logged out, this deployment should clear the **contents** of the Volume and give you a fresh pairing code. Once you pair it, the credentials will remain in the Volume instead of being deleted with `/app/session`.
+
+**Don't delete or recreate the Volume during this process.**
