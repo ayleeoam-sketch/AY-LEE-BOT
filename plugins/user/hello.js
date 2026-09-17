@@ -9,7 +9,7 @@ export default {
   async run({ m }) {
     await m.reply(
       `👋 *Hello, good day!*\n\n` +
-      `Kindly save this number as *AYLEE*.\n\n` +
+      `Kindly save this number as *AY-LEE*.\n\n` +
       `How can I assist you? 🤝`
     )
   }
