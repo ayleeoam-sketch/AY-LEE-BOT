@@ -1,4 +1,3 @@
-```js
 import makeWASocket, {
   DisconnectReason,
   fetchLatestBaileysVersion,
@@ -105,59 +104,51 @@ function clearReconnectTimer() {
  * CLEAR FILE SESSION SAFELY
  *
  * IMPORTANT:
- * /app/session may be a Railway Volume mount.
+ * /app/session may be a Railway Volume.
  *
- * NEVER delete the /app/session directory itself.
- * Only delete the contents inside it.
+ * NEVER delete /app/session itself.
+ * Only delete files/folders inside it.
  * ============================================================ */
 
 function clearFileSession(sessionDir) {
   try {
-    fs.mkdirSync(
-      sessionDir,
-      {
-        recursive: true
-      }
-    )
+    fs.mkdirSync(sessionDir, {
+      recursive: true
+    })
 
-    const entries =
-      fs.readdirSync(
-        sessionDir,
-        {
-          withFileTypes: true
-        }
-      )
+    const entries = fs.readdirSync(sessionDir, {
+      withFileTypes: true
+    })
 
     for (const entry of entries) {
-      const target =
-        path.join(
-          sessionDir,
-          entry.name
-        )
+      const target = path.join(
+        sessionDir,
+        entry.name
+      )
 
       try {
-        fs.rmSync(
-          target,
-          {
-            recursive: true,
-            force: true
-          }
-        )
+        fs.rmSync(target, {
+          recursive: true,
+          force: true
+        })
       } catch (e) {
         log.warn(
-          `Could not remove session item ${entry.name}: ${e.message}`
+          'Could not remove session item: ' +
+          entry.name
         )
       }
     }
 
     log.warn(
-      `File session contents cleared: ${sessionDir}`
+      'File session contents cleared: ' +
+      sessionDir
     )
 
     return true
   } catch (e) {
     log.error(
-      `Could not clear file session: ${e.message}`
+      'Could not clear file session: ' +
+      e.message
     )
 
     return false
@@ -169,9 +160,6 @@ function clearFileSession(sessionDir) {
  * ============================================================ */
 
 export async function startSocket() {
-  /*
-   * Prevent accidental duplicate reconnect attempts.
-   */
   if (reconnecting) {
     log.warn(
       'Socket startup already in progress. Skipping duplicate start.'
@@ -199,33 +187,28 @@ export async function startSocket() {
         }
       )
 
-      const credsPath =
-        path.join(
-          config.sessionDir,
-          'creds.json'
-        )
+      const credsPath = path.join(
+        config.sessionDir,
+        'creds.json'
+      )
 
       /*
-       * Bootstrap a file session from SESSION_ID when supplied.
+       * Bootstrap a file session from SESSION_ID
+       * when supplied.
        */
+
       if (!fs.existsSync(credsPath)) {
         if (config.sessionId?.trim()) {
           try {
-            const raw =
-              Buffer
-                .from(
-                  config.sessionId.trim(),
-                  'base64'
-                )
-                .toString('utf8')
+            const raw = Buffer
+              .from(
+                config.sessionId.trim(),
+                'base64'
+              )
+              .toString('utf8')
 
-            const parsed =
-              JSON.parse(raw)
+            const parsed = JSON.parse(raw)
 
-            /*
-             * A normal Baileys creds object should contain
-             * registration / account information.
-             */
             if (
               !parsed ||
               typeof parsed !== 'object' ||
@@ -251,7 +234,8 @@ export async function startSocket() {
             )
           } catch (e) {
             log.warn(
-              `SESSION_ID bootstrap skipped: ${e.message}`
+              'SESSION_ID bootstrap skipped: ' +
+              e.message
             )
           }
         } else {
@@ -261,7 +245,8 @@ export async function startSocket() {
         }
       } else {
         log.info(
-          `Existing WhatsApp file session found in ${config.sessionDir}`
+          'Existing WhatsApp file session found in ' +
+          config.sessionDir
         )
       }
     }
@@ -274,9 +259,7 @@ export async function startSocket() {
       config.sessionStore === 'mongo'
     ) {
       const auth =
-        await useMongoAuthState(
-          'default'
-        )
+        await useMongoAuthState('default')
 
       state = auth.state
       saveCreds = auth.saveCreds
@@ -304,9 +287,10 @@ export async function startSocket() {
       /*
        * Railway Volume-safe session deletion.
        *
-       * Do NOT remove config.sessionDir itself.
-       * Only remove the contents inside it.
+       * Do NOT remove /app/session itself.
+       * Only remove its contents.
        */
+
       deleteSession = async () => {
         clearFileSession(
           config.sessionDir
@@ -314,7 +298,9 @@ export async function startSocket() {
       }
 
       log.info(
-        `Session store: files (${config.sessionDir})`
+        'Session store: files (' +
+        config.sessionDir +
+        ')'
       )
     }
 
@@ -329,11 +315,14 @@ export async function startSocket() {
       await fetchLatestBaileysVersion()
 
     log.info(
-      `WhatsApp Web v${version.join('.')} ${
+      'WhatsApp Web v' +
+      version.join('.') +
+      ' ' +
+      (
         isLatest
           ? '(latest)'
           : '(outdated)'
-      }`
+      )
     )
 
     /* ========================================================
@@ -405,9 +394,9 @@ export async function startSocket() {
     currentSocket = sock
     reconnecting = false
 
-    /* ============================================================
+    /* ========================================================
      * PAIRING CODE
-     * ============================================================ */
+     * ======================================================== */
 
     if (usePairing) {
       let number =
@@ -432,9 +421,6 @@ export async function startSocket() {
         setTimeout(
           async () => {
             try {
-              /*
-               * Make sure the socket is still usable.
-               */
               if (
                 !sock ||
                 state.creds.registered
@@ -466,22 +452,27 @@ export async function startSocket() {
                   ?.join('-') ||
                 code
 
-              log.banner(`
-╔══════════════════════════════════════╗
-║   PAIRING CODE:  ${String(pretty).padEnd(20)}║
-╚══════════════════════════════════════╝
-WhatsApp > Settings > Linked devices > Link with phone number
-`)
+              log.banner(
+                '\n' +
+                '╔══════════════════════════════════════╗\n' +
+                '║   PAIRING CODE:  ' +
+                String(pretty).padEnd(20) +
+                '║\n' +
+                '╚══════════════════════════════════════╝\n' +
+                'WhatsApp > Settings > Linked devices > Link with phone number\n'
+              )
 
               log.info(
-                `Pairing requested for +${number}`
+                'Pairing requested for +' +
+                number
               )
             } catch (e) {
               log.error(
-                `Could not get a pairing code: ${
+                'Could not get a pairing code: ' +
+                (
                   e?.message ||
                   e
-                }`
+                )
               )
             }
           },
@@ -490,9 +481,9 @@ WhatsApp > Settings > Linked devices > Link with phone number
       }
     }
 
-    /* ============================================================
+    /* ========================================================
      * SAVE CREDENTIALS
-     * ============================================================ */
+     * ======================================================== */
 
     sock.ev.on(
       'creds.update',
@@ -503,18 +494,19 @@ WhatsApp > Settings > Linked devices > Link with phone number
           )
         } catch (e) {
           log.error(
-            `Failed to save WhatsApp credentials: ${
+            'Failed to save WhatsApp credentials: ' +
+            (
               e?.message ||
               e
-            }`
+            )
           )
         }
       }
     )
 
-    /* ============================================================
+    /* ========================================================
      * CONNECTION EVENTS
-     * ============================================================ */
+     * ======================================================== */
 
     sock.ev.on(
       'connection.update',
@@ -526,9 +518,9 @@ WhatsApp > Settings > Linked devices > Link with phone number
             qr
           } = update
 
-          /* ======================================================
+          /* ==================================================
            * QR
-           * ====================================================== */
+           * ================================================== */
 
           if (
             qr &&
@@ -547,9 +539,9 @@ WhatsApp > Settings > Linked devices > Link with phone number
             )
           }
 
-          /* ======================================================
+          /* ==================================================
            * CONNECTING
-           * ====================================================== */
+           * ================================================== */
 
           if (
             connection === 'connecting'
@@ -559,9 +551,9 @@ WhatsApp > Settings > Linked devices > Link with phone number
             )
           }
 
-          /* ======================================================
+          /* ==================================================
            * OPEN
-           * ====================================================== */
+           * ================================================== */
 
           if (
             connection === 'open'
@@ -575,39 +567,47 @@ WhatsApp > Settings > Linked devices > Link with phone number
               )
 
             log.ok(
-              `Connected as ${
+              'Connected as ' +
+              (
                 sock.user?.name ||
                 'bot'
-              } (${me.split('@')[0]})`
+              ) +
+              ' (' +
+              me.split('@')[0] +
+              ')'
             )
 
             log.ok(
-              `${pluginCount()} plugins ready | prefix "${config.prefix}" | mode ${getVar('MODE')}`
+              pluginCount() +
+              ' plugins ready | prefix "' +
+              config.prefix +
+              '" | mode ' +
+              getVar('MODE')
             )
 
             log.ok(
-              `Anti-delete handlers available: ${deleteHandlers.length}`
+              'Anti-delete handlers available: ' +
+              deleteHandlers.length
             )
 
             if (
               deleteHandlers.length
             ) {
               log.ok(
-                `Anti-delete handlers: ${
-                  deleteHandlers
-                    .map(
-                      (handler) =>
-                        handler.name ||
-                        'unnamed'
-                    )
-                    .join(', ')
-                }`
+                'Anti-delete handlers: ' +
+                deleteHandlers
+                  .map(
+                    (handler) =>
+                      handler.name ||
+                      'unnamed'
+                  )
+                  .join(', ')
               )
             }
 
-            /* ==================================================
+            /* ==============================================
              * STARTUP MESSAGE
-             * ================================================== */
+             * ============================================== */
 
             if (
               getVar(
@@ -621,20 +621,31 @@ WhatsApp > Settings > Linked devices > Link with phone number
                 const ownerJid =
                   String(owner).includes('@')
                     ? String(owner)
-                    : `${cleanPhoneNumber(owner)}@s.whatsapp.net`
+                    : cleanPhoneNumber(owner) +
+                      '@s.whatsapp.net'
 
                 await sock
                   .sendMessage(
                     ownerJid,
                     {
                       text:
-                        `╭━━━〔 *${config.botName}* 〕━━━╮\n` +
-                        `┃ ✅ Bot is online\n` +
-                        `┃ 🔌 Plugins: ${pluginCount()}\n` +
-                        `┃ ⚙️ Prefix: ${config.prefix}\n` +
-                        `┃ 🌐 Mode: ${getVar('MODE')}\n` +
-                        `┃ 📦 Version: ${config.version}\n` +
-                        `╰━━━━━━━━━━━━━━━━━━━╯`
+                        '╭━━━〔 *' +
+                        config.botName +
+                        '* 〕━━━╮\n' +
+                        '┃ ✅ Bot is online\n' +
+                        '┃ 🔌 Plugins: ' +
+                        pluginCount() +
+                        '\n' +
+                        '┃ ⚙️ Prefix: ' +
+                        config.prefix +
+                        '\n' +
+                        '┃ 🌐 Mode: ' +
+                        getVar('MODE') +
+                        '\n' +
+                        '┃ 📦 Version: ' +
+                        config.version +
+                        '\n' +
+                        '╰━━━━━━━━━━━━━━━━━━━╯'
                     }
                   )
                   .catch(
@@ -644,9 +655,9 @@ WhatsApp > Settings > Linked devices > Link with phone number
             }
           }
 
-          /* ======================================================
+          /* ==================================================
            * CONNECTION CLOSED
-           * ====================================================== */
+           * ================================================== */
 
           if (
             connection === 'close'
@@ -668,9 +679,9 @@ WhatsApp > Settings > Linked devices > Link with phone number
               ) ||
               code
 
-            /* ==================================================
+            /* ==============================================
              * LOGGED OUT
-             * ================================================== */
+             * ============================================== */
 
             if (
               code ===
@@ -691,9 +702,9 @@ WhatsApp > Settings > Linked devices > Link with phone number
               return
             }
 
-            /* ==================================================
+            /* ==============================================
              * BAD SESSION
-             * ================================================== */
+             * ============================================== */
 
             if (
               code ===
@@ -714,9 +725,9 @@ WhatsApp > Settings > Linked devices > Link with phone number
               return
             }
 
-            /* ==================================================
-             * DO NOT RECONNECT IF ALREADY SCHEDULED
-             * ================================================== */
+            /* ==============================================
+             * RECONNECT
+             * ============================================== */
 
             if (
               reconnectTimer
@@ -734,9 +745,13 @@ WhatsApp > Settings > Linked devices > Link with phone number
               )
 
             log.warn(
-              `Connection closed (${reason}). Reconnecting in ${
+              'Connection closed (' +
+              reason +
+              '). Reconnecting in ' +
+              (
                 delay / 1000
-              }s...`
+              ) +
+              's...'
             )
 
             reconnectTimer =
@@ -751,11 +766,12 @@ WhatsApp > Settings > Linked devices > Link with phone number
                     reconnecting = false
 
                     log.error(
-                      `Reconnect failed: ${
+                      'Reconnect failed: ' +
+                      (
                         e?.stack ||
                         e?.message ||
                         e
-                      }`
+                      )
                     )
                   }
                 },
@@ -764,19 +780,20 @@ WhatsApp > Settings > Linked devices > Link with phone number
           }
         } catch (e) {
           log.error(
-            `[CONNECTION] Update handler error: ${
+            '[CONNECTION] Update handler error: ' +
+            (
               e?.stack ||
               e?.message ||
               e
-            }`
+            )
           )
         }
       }
     )
 
-    /* ============================================================
+    /* ========================================================
      * GROUP CACHE
-     * ============================================================ */
+     * ======================================================== */
 
     sock.ev.on(
       'groups.update',
@@ -796,9 +813,9 @@ WhatsApp > Settings > Linked devices > Link with phone number
       }
     )
 
-    /* ============================================================
+    /* ========================================================
      * GROUP PARTICIPANTS
-     * ============================================================ */
+     * ======================================================== */
 
     sock.ev.on(
       'group-participants.update',
@@ -829,33 +846,37 @@ WhatsApp > Settings > Linked devices > Link with phone number
                 })
               } catch (e) {
                 log.error(
-                  `[GROUP] Middleware ${
+                  '[GROUP] Middleware ' +
+                  (
                     mw.name ||
                     'unknown'
-                  } failed: ${
+                  ) +
+                  ' failed: ' +
+                  (
                     e?.message ||
                     e
-                  }`
+                  )
                 )
               }
             }
           }
         } catch (e) {
           log.error(
-            `[GROUP] Update failed: ${
+            '[GROUP] Update failed: ' +
+            (
               e?.message ||
               e
-            }`
+            )
           )
         }
       }
     )
 
-    /* ============================================================
+    /* ========================================================
      * NORMAL MESSAGES
      *
      * STATUS MESSAGES ARE NOT STORED FOR ANTI-DELETE.
-     * ============================================================ */
+     * ======================================================== */
 
     sock.ev.on(
       'messages.upsert',
@@ -925,20 +946,21 @@ WhatsApp > Settings > Linked devices > Link with phone number
             )
           } catch (e) {
             log.error(
-              `[MESSAGE] Handler error: ${
+              '[MESSAGE] Handler error: ' +
+              (
                 e?.stack ||
                 e?.message ||
                 e
-              }`
+              )
             )
           }
         }
       }
     )
 
-    /* ============================================================
+    /* ========================================================
      * ANTI-DELETE PROCESSOR
-     * ============================================================ */
+     * ======================================================== */
 
     const processDeletedMessage = async (
       key,
@@ -1022,14 +1044,17 @@ WhatsApp > Settings > Linked devices > Link with phone number
             })
           } catch (e) {
             log.error(
-              `[ANTI-DELETE] Handler ${
+              '[ANTI-DELETE] Handler ' +
+              (
                 handler.name ||
                 'unknown'
-              } failed: ${
+              ) +
+              ' failed: ' +
+              (
                 e?.stack ||
                 e?.message ||
                 e
-              }`
+              )
             )
           }
         }
@@ -1039,18 +1064,19 @@ WhatsApp > Settings > Linked devices > Link with phone number
         )
       } catch (e) {
         log.error(
-          `[ANTI-DELETE] Delete processing error: ${
+          '[ANTI-DELETE] Delete processing error: ' +
+          (
             e?.stack ||
             e?.message ||
             e
-          }`
+          )
         )
       }
     }
 
-    /* ============================================================
+    /* ========================================================
      * MESSAGES.DELETE
-     * ============================================================ */
+     * ======================================================== */
 
     sock.ev.on(
       'messages.delete',
@@ -1076,19 +1102,20 @@ WhatsApp > Settings > Linked devices > Link with phone number
           }
         } catch (e) {
           log.error(
-            `[ANTI-DELETE] messages.delete error: ${
+            '[ANTI-DELETE] messages.delete error: ' +
+            (
               e?.stack ||
               e?.message ||
               e
-            }`
+            )
           )
         }
       }
     )
 
-    /* ============================================================
+    /* ========================================================
      * MESSAGES.UPDATE
-     * ============================================================ */
+     * ======================================================== */
 
     sock.ev.on(
       'messages.update',
@@ -1160,29 +1187,31 @@ WhatsApp > Settings > Linked devices > Link with phone number
               }
             } catch (e) {
               log.error(
-                `[ANTI-DELETE] Individual messages.update error: ${
+                '[ANTI-DELETE] Individual messages.update error: ' +
+                (
                   e?.stack ||
                   e?.message ||
                   e
-                }`
+                )
               )
             }
           }
         } catch (e) {
           log.error(
-            `[ANTI-DELETE] messages.update error: ${
+            '[ANTI-DELETE] messages.update error: ' +
+            (
               e?.stack ||
               e?.message ||
               e
-            }`
+            )
           )
         }
       }
     )
 
-    /* ============================================================
+    /* ========================================================
      * CALLS
-     * ============================================================ */
+     * ======================================================== */
 
     sock.ev.on(
       'call',
@@ -1219,12 +1248,14 @@ WhatsApp > Settings > Linked devices > Link with phone number
               call.from,
               {
                 text:
-                  `📵 Calls are not accepted by this bot.\n` +
-                  `Your ${
+                  '📵 Calls are not accepted by this bot.\n' +
+                  'Your ' +
+                  (
                     call.isVideo
                       ? 'video'
                       : 'voice'
-                  } call was rejected automatically.`
+                  ) +
+                  ' call was rejected automatically.'
               }
             )
             .catch(
@@ -1234,25 +1265,22 @@ WhatsApp > Settings > Linked devices > Link with phone number
       }
     )
 
-    /* ============================================================
+    /* ========================================================
      * RETURN SOCKET
-     * ============================================================ */
+     * ======================================================== */
 
     return sock
   } catch (e) {
-    /*
-     * Make sure a failed startup doesn't permanently block
-     * future reconnect attempts.
-     */
     reconnecting = false
     currentSocket = null
 
     log.error(
-      `[SOCKET] Failed to start: ${
+      '[SOCKET] Failed to start: ' +
+      (
         e?.stack ||
         e?.message ||
         e
-      }`
+      )
     )
 
     throw e
@@ -1264,24 +1292,3 @@ WhatsApp > Settings > Linked devices > Link with phone number
  * ============================================================ */
 
 export default startSocket
-```
-
-After replacing the file, **commit/push it to GitHub and let Railway deploy**.
-
-Your Railway Volume should remain mounted at:
-
-```text
-/app/session
-```
-
-And keep:
-
-```env
-AUTH_METHOD=pair
-PAIR_NUMBER=2347036177100
-SESSION_STORE=file
-```
-
-Because the old session was already logged out, this deployment should clear the **contents** of the Volume and give you a fresh pairing code. Once you pair it, the credentials will remain in the Volume instead of being deleted with `/app/session`.
-
-**Don't delete or recreate the Volume during this process.**
