@@ -1,4 +1,3 @@
-```js
 export default {
   name: 'aza',
   category: 'BOT',
@@ -34,7 +33,9 @@ export default {
       }
 
       if (amount !== null && amount >= 0) {
-        amountText = '\n💰 *Amount:* ₦' + amount.toLocaleString('en-NG')
+        amountText =
+          '\n💰 *Amount:* ₦' +
+          amount.toLocaleString('en-NG')
       } else {
         amountText = '\n💰 *Amount:* ' + input
       }
@@ -52,4 +53,3 @@ export default {
     await m.reply(message)
   }
 }
-```
