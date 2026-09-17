@@ -697,7 +697,15 @@ export async function startSocket() {
 
               currentSocket = null
 
-              process.exit(0)
+              /*
+               * Exit with code 1 so Railway restarts
+               * the container automatically.
+               *
+               * The session directory itself is preserved.
+               * Only its contents were cleared above.
+               */
+
+              process.exit(1)
 
               return
             }
@@ -720,7 +728,12 @@ export async function startSocket() {
 
               currentSocket = null
 
-              process.exit(0)
+              /*
+               * Exit with code 1 so Railway restarts
+               * the container automatically.
+               */
+
+              process.exit(1)
 
               return
             }
@@ -1270,6 +1283,7 @@ export async function startSocket() {
      * ======================================================== */
 
     return sock
+
   } catch (e) {
     reconnecting = false
     currentSocket = null
