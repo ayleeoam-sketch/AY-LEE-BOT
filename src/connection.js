@@ -1,15 +1,18 @@
-```js
 import makeWASocket, {
   DisconnectReason,
   useMultiFileAuthState,
   Browsers,
   fetchLatestWaWebVersion
 } from 'baileys'
+
 import fs from 'fs'
 import path from 'path'
 import { Boom } from '@hapi/boom'
 import qrcode from 'qrcode-terminal'
+
 import { config } from './config.js'
+
+console.log('AY-LEE CONNECTION.JS LOADED - QR/PPAIR VERSION')
 
 let currentSocket = null
 let reconnectTimer = null
@@ -18,7 +21,7 @@ let isStarting = false
 let isShuttingDown = false
 
 const RECONNECT_DELAY = 5000
-const PAIRING_DELAY = 8000
+const PAIRING_DELAY = 10000
 
 const log = {
   info: (...args) => console.log('[INFO]', ...args),
@@ -27,6 +30,10 @@ const log = {
   ok: (...args) => console.log('[OK]', ...args)
 }
 
+/* ================================
+   SESSION
+================================ */
+
 function ensureSessionDir() {
   fs.mkdirSync(config.sessionDir, {
     recursive: true
@@ -34,38 +41,57 @@ function ensureSessionDir() {
 }
 
 function hasFileSession() {
-  if (!fs.existsSync(config.sessionDir)) {
+  ensureSessionDir()
+
+  try {
+    return fs.readdirSync(config.sessionDir).length > 0
+  } catch {
     return false
   }
-
-  const files = fs.readdirSync(config.sessionDir)
-
-  return files.length > 0
 }
 
+/*
+ * IMPORTANT:
+ * Never delete /app/session itself.
+ * Railway Volume is mounted there.
+ * Only delete the contents.
+ */
 function clearFileSession() {
   ensureSessionDir()
 
-  for (const entry of fs.readdirSync(config.sessionDir)) {
-    const fullPath = path.join(config.sessionDir, entry)
+  try {
+    const entries = fs.readdirSync(config.sessionDir)
 
-    try {
-      fs.rmSync(fullPath, {
-        recursive: true,
-        force: true
-      })
-    } catch (error) {
-      log.warn(
-        'Could not remove session item ' +
-        entry +
-        ': ' +
-        error.message
-      )
+    for (const entry of entries) {
+      const target = path.join(config.sessionDir, entry)
+
+      try {
+        fs.rmSync(target, {
+          recursive: true,
+          force: true
+        })
+      } catch (error) {
+        log.warn(
+          'Could not remove session item ' +
+          entry +
+          ': ' +
+          error.message
+        )
+      }
     }
-  }
 
-  log.warn('WhatsApp session files cleared.')
+    log.warn('WhatsApp session contents cleared.')
+  } catch (error) {
+    log.error(
+      'Could not clear session contents: ' +
+      error.message
+    )
+  }
 }
+
+/* ================================
+   TIMERS
+================================ */
 
 function clearReconnectTimer() {
   if (reconnectTimer) {
@@ -80,6 +106,10 @@ function clearPairingTimer() {
     pairingTimer = null
   }
 }
+
+/* ================================
+   WHATSAPP VERSION
+================================ */
 
 async function getWhatsAppVersion() {
   try {
@@ -100,20 +130,32 @@ async function getWhatsAppVersion() {
     )
   }
 
-  const fallback = [2, 3000, 1047824257]
+  const fallbackVersion = [2, 3000, 1047824257]
 
   log.warn(
     'Using fallback WhatsApp Web version: ' +
-    fallback.join('.')
+    fallbackVersion.join('.')
   )
 
-  return fallback
+  return fallbackVersion
 }
 
-function normalizePairNumber(number) {
+/* ================================
+   HELPERS
+================================ */
+
+function normalizePhoneNumber(number) {
   return String(number || '')
     .replace(/\D/g, '')
     .trim()
+}
+
+function getAuthMethod() {
+  return String(
+    process.env.AUTH_METHOD ||
+    config.authMethod ||
+    'qr'
+  ).toLowerCase()
 }
 
 function getDisconnectCode(error) {
@@ -122,20 +164,24 @@ function getDisconnectCode(error) {
       return error.output?.statusCode
     }
 
-    return error?.output?.statusCode || error?.statusCode
+    return (
+      error?.output?.statusCode ||
+      error?.statusCode ||
+      undefined
+    )
   } catch {
     return undefined
   }
 }
 
+/* ================================
+   PAIRING CODE
+================================ */
+
 function schedulePairing(sock) {
   clearPairingTimer()
 
-  const method = String(
-    process.env.AUTH_METHOD || config.authMethod || 'qr'
-  ).toLowerCase()
-
-  if (method !== 'pair') {
+  if (getAuthMethod() !== 'pair') {
     return
   }
 
@@ -148,42 +194,69 @@ function schedulePairing(sock) {
       }
 
       if (sock.authState?.creds?.registered) {
-        log.info('WhatsApp session is already registered.')
         return
       }
 
-      const number = normalizePairNumber(
-        process.env.PAIR_NUMBER || config.pairNumber
+      const phoneNumber = normalizePhoneNumber(
+        process.env.PAIR_NUMBER ||
+        config.pairNumber
       )
 
-      if (!number) {
+      if (!phoneNumber) {
         log.error(
-          'PAIR_NUMBER is missing. Set PAIR_NUMBER in Railway Variables.'
+          'PAIR_NUMBER is empty. Set PAIR_NUMBER in Railway Variables.'
         )
         return
       }
 
       log.info(
-        'Requesting WhatsApp pairing code for +' + number
+        'Requesting WhatsApp pairing code for +' +
+        phoneNumber
       )
 
-      const code = await sock.requestPairingCode(number)
-
-      log.ok('WhatsApp pairing code: ' + code)
-      log.info(
-        'WhatsApp → Linked Devices → Link a Device → Link with phone number instead'
+      const code = await sock.requestPairingCode(
+        phoneNumber
       )
+
+      console.log('')
+      console.log(
+        '╔══════════════════════════════════════════════╗'
+      )
+      console.log(
+        '║        WHATSAPP PAIRING CODE                ║'
+      )
+      console.log(
+        '╚══════════════════════════════════════════════╝'
+      )
+      console.log('')
+      console.log('PAIRING CODE: ' + code)
+      console.log('')
+      console.log(
+        'WhatsApp → Linked Devices → Link a Device'
+      )
+      console.log(
+        '→ Link with phone number instead'
+      )
+      console.log('')
     } catch (error) {
       log.error(
-        'Could not get a pairing code: ' +
+        'Could not get pairing code: ' +
         error.message
       )
     }
   }, PAIRING_DELAY)
 }
 
+/* ================================
+   RECONNECT
+================================ */
+
 function scheduleReconnect() {
-  if (isShuttingDown || reconnectTimer) {
+  if (isShuttingDown) {
+    return
+  }
+
+  if (reconnectTimer) {
     return
   }
 
@@ -207,6 +280,10 @@ function scheduleReconnect() {
   )
 }
 
+/* ================================
+   START SOCKET
+================================ */
+
 async function startSocket() {
   if (isShuttingDown) {
     return null
@@ -216,10 +293,7 @@ async function startSocket() {
     return currentSocket
   }
 
-  if (
-    currentSocket &&
-    currentSocket.ws?.isOpen
-  ) {
+  if (currentSocket) {
     return currentSocket
   }
 
@@ -242,7 +316,7 @@ async function startSocket() {
       )
     } else {
       log.info(
-        'No WhatsApp session found. A new authentication is required.'
+        'No WhatsApp session found.'
       )
     }
 
@@ -254,29 +328,36 @@ async function startSocket() {
 
     const version = await getWhatsAppVersion()
 
-    const sock = makeWASocket({
+    const socket = makeWASocket({
       version,
+
       auth: state,
+
       browser: Browsers.ubuntu('Chrome'),
 
       markOnlineOnConnect: false,
+
       syncFullHistory: false,
+
       generateHighQualityLinkPreview: true,
 
       connectTimeoutMs: 60000,
+
       defaultQueryTimeoutMs: 60000,
+
       keepAliveIntervalMs: 25000,
+
       retryRequestDelayMs: 250
     })
 
-    currentSocket = sock
+    currentSocket = socket
 
-    sock.ev.on(
+    socket.ev.on(
       'creds.update',
       saveCreds
     )
 
-    sock.ev.on(
+    socket.ev.on(
       'connection.update',
       async (update) => {
         const {
@@ -285,37 +366,39 @@ async function startSocket() {
           qr
         } = update
 
-        if (qr) {
-          const method = String(
-            process.env.AUTH_METHOD ||
-            config.authMethod ||
-            'qr'
-          ).toLowerCase()
+        /* ============================
+           QR CODE
+        ============================ */
 
-          if (method === 'qr') {
-            clearPairingTimer()
+        if (qr && getAuthMethod() === 'qr') {
+          clearPairingTimer()
 
-            console.log('')
-            console.log(
-              '╔══════════════════════════════════════════════╗'
-            )
-            console.log(
-              '║          SCAN THIS QR CODE                  ║'
-            )
-            console.log(
-              '╚══════════════════════════════════════════════╝'
-            )
+          console.log('')
+          console.log(
+            '╔══════════════════════════════════════════════╗'
+          )
+          console.log(
+            '║              SCAN QR CODE                   ║'
+          )
+          console.log(
+            '╚══════════════════════════════════════════════╝'
+          )
+          console.log('')
 
-            qrcode.generate(qr, {
-              small: true
-            })
+          qrcode.generate(qr, {
+            small: true
+          })
 
-            console.log(
-              'WhatsApp → Linked Devices → Link a Device'
-            )
-            console.log('')
-          }
+          console.log('')
+          console.log(
+            'Open WhatsApp → Linked Devices → Link a Device'
+          )
+          console.log('')
         }
+
+        /* ============================
+           CONNECTING
+        ============================ */
 
         if (connection === 'connecting') {
           log.info(
@@ -323,26 +406,34 @@ async function startSocket() {
           )
         }
 
+        /* ============================
+           CONNECTED
+        ============================ */
+
         if (connection === 'open') {
           clearReconnectTimer()
           clearPairingTimer()
 
           log.ok(
-            'Connected to WhatsApp.'
+            'WhatsApp connection established.'
           )
 
-          if (sock.user) {
+          if (socket.user) {
             log.ok(
               'Connected as ' +
-              (sock.user.name || 'WhatsApp User') +
+              (socket.user.name || 'WhatsApp User') +
               ' (' +
-              sock.user.id +
+              socket.user.id +
               ')'
             )
           }
 
-          currentSocket = sock
+          currentSocket = socket
         }
+
+        /* ============================
+           DISCONNECTED
+        ============================ */
 
         if (connection === 'close') {
           clearPairingTimer()
@@ -356,111 +447,152 @@ async function startSocket() {
             String(code)
           )
 
-          if (currentSocket === sock) {
+          if (currentSocket === socket) {
             currentSocket = null
           }
 
+          /* Logged out */
+
           if (code === DisconnectReason.loggedOut) {
             log.error(
-              'WhatsApp logged out. Clearing session files.'
+              'WhatsApp logged out.'
+            )
+
+            log.warn(
+              'Clearing session contents and creating a fresh session.'
             )
 
             clearReconnectTimer()
+
             clearFileSession()
 
             scheduleReconnect()
+
             return
           }
+
+          /* Bad session */
 
           if (code === DisconnectReason.badSession) {
             log.error(
-              'Bad WhatsApp session. Clearing session files.'
+              'WhatsApp reported a bad session.'
             )
 
             clearReconnectTimer()
+
             clearFileSession()
 
             scheduleReconnect()
+
             return
           }
 
+          /* Another device replaced this connection */
+
           if (
-            code === DisconnectReason.connectionReplaced
+            code ===
+            DisconnectReason.connectionReplaced
           ) {
             log.warn(
-              'WhatsApp session was replaced by another connection.'
+              'WhatsApp connection was replaced by another device.'
             )
 
             scheduleReconnect()
+
             return
           }
 
+          /* Restart requested */
+
           if (
-            code === DisconnectReason.restartRequired
+            code ===
+            DisconnectReason.restartRequired
           ) {
             log.info(
               'WhatsApp requested a restart.'
             )
 
             scheduleReconnect()
+
             return
           }
+
+          /* Temporary connection failure */
 
           scheduleReconnect()
         }
 
+        /* ============================
+           PAIRING CODE
+        ============================ */
+
         if (
           !state.creds.registered &&
+          getAuthMethod() === 'pair' &&
           connection !== 'open'
         ) {
-          const method = String(
-            process.env.AUTH_METHOD ||
-            config.authMethod ||
-            'qr'
-          ).toLowerCase()
-
-          if (method === 'pair') {
-            schedulePairing(sock)
-          }
+          schedulePairing(socket)
         }
       }
     )
 
-    const method = String(
-      process.env.AUTH_METHOD ||
-      config.authMethod ||
-      'qr'
-    ).toLowerCase()
+    /* ================================
+       AUTH METHOD
+    ================================= */
 
-    if (
-      method !== 'pair' &&
-      !state.creds.registered
-    ) {
+    if (!state.creds.registered) {
+      if (getAuthMethod() === 'pair') {
+        log.info(
+          'Authentication method: PAIRING CODE'
+        )
+
+        schedulePairing(socket)
+      } else {
+        log.info(
+          'Authentication method: QR CODE'
+        )
+
+        log.info(
+          'Waiting for QR code...'
+        )
+      }
+    } else {
       log.info(
-        'Authentication method: QR code'
+        'Saved WhatsApp session detected.'
+      )
+
+      log.info(
+        'Reusing saved session from ' +
+        config.sessionDir
       )
     }
 
-    if (
-      method === 'pair' &&
-      !state.creds.registered
-    ) {
-      log.info(
-        'Authentication method: pairing code'
-      )
+    return socket
+  } catch (error) {
+    currentSocket = null
 
-      schedulePairing(sock)
-    }
+    log.error(
+      'Failed to start WhatsApp socket: ' +
+      error.message
+    )
 
-    return sock
+    throw error
   } finally {
     isStarting = false
   }
 }
 
+/* ================================
+   GET SOCKET
+================================ */
+
 function getSocket() {
   return currentSocket
 }
+
+/* ================================
+   STOP SOCKET
+================================ */
 
 async function stopSocket() {
   isShuttingDown = true
@@ -482,6 +614,10 @@ async function stopSocket() {
   currentSocket = null
 }
 
+/* ================================
+   EXPORTS
+================================ */
+
 export {
   startSocket,
   getSocket,
@@ -489,4 +625,3 @@ export {
 }
 
 export default startSocket
-```
