@@ -16,7 +16,6 @@ import config from './config.js'
 |--------------------------------------------------------------------------
 | SIMPLE INTERNAL LOGGER
 |--------------------------------------------------------------------------
-| No external logger.js required.
 */
 
 const log = {
@@ -47,7 +46,18 @@ let isStarting = false
 let isShuttingDown = false
 
 const RECONNECT_DELAY = 5000
-const PAIRING_DELAY = 12000
+
+/*
+|--------------------------------------------------------------------------
+| PAIRING SETTINGS
+|--------------------------------------------------------------------------
+|
+| We don't request a pairing code immediately.
+| The socket needs a little time to establish the connection first.
+|
+*/
+
+const PAIRING_DELAY = 8000
 
 /*
 |--------------------------------------------------------------------------
@@ -95,12 +105,10 @@ function hasFileSession() {
 | CLEAR SESSION CONTENTS
 |--------------------------------------------------------------------------
 |
-| Used ONLY when WhatsApp reports:
+| IMPORTANT:
+| This deletes only the files INSIDE the Railway Volume.
 |
-| - loggedOut
-| - badSession
-|
-| This preserves the Railway Volume mount.
+| /app/session itself is preserved.
 |
 */
 
@@ -178,9 +186,7 @@ function clearPairingTimer() {
 | WHATSAPP WEB VERSION
 |--------------------------------------------------------------------------
 |
-| Fetch live version first.
-| This avoids the previous 405 issue caused by an outdated
-| hardcoded WhatsApp Web version.
+| Always try the current WhatsApp Web version first.
 |
 */
 
@@ -191,7 +197,7 @@ async function getWhatsAppVersion() {
 
   /*
   |--------------------------------------------------------------------------
-  | LIVE WA WEB VERSION
+  | LIVE WHATSAPP WEB VERSION
   |--------------------------------------------------------------------------
   */
 
@@ -203,7 +209,10 @@ async function getWhatsAppVersion() {
       const result =
         await fetchLatestWaWebVersion()
 
-      if (result?.version) {
+      if (
+        result?.version &&
+        Array.isArray(result.version)
+      ) {
         log.info(
           'Using live WhatsApp Web version: ' +
           result.version.join('.')
@@ -233,7 +242,10 @@ async function getWhatsAppVersion() {
       const result =
         await fetchLatestBaileysVersion()
 
-      if (result?.version) {
+      if (
+        result?.version &&
+        Array.isArray(result.version)
+      ) {
         log.info(
           'Using Baileys version: ' +
           result.version.join('.')
@@ -298,12 +310,43 @@ function getDisconnectCode(error) {
 
 /*
 |--------------------------------------------------------------------------
-| PAIRING CODE
+| REQUEST PAIRING CODE
 |--------------------------------------------------------------------------
+|
+| This version:
+|
+| - checks that the socket is still active
+| - checks that the account isn't already registered
+| - waits for the socket to be usable
+| - supports custom pairing code
+| - retries if WhatsApp rejects the request
+| - never deletes the Railway Volume
+|
 */
 
-function schedulePairing(sock) {
-  clearPairingTimer()
+async function requestPairingCode(sock) {
+  if (
+    isShuttingDown ||
+    currentSocket !== sock
+  ) {
+    return
+  }
+
+  /*
+  |--------------------------------------------------------------------------
+  | Check credentials
+  |--------------------------------------------------------------------------
+  */
+
+  if (
+    sock.authState?.creds?.registered
+  ) {
+    log.info(
+      '[PAIRING] Account is already registered.'
+    )
+
+    return
+  }
 
   const pairNumber =
     normalizePairNumber(
@@ -311,10 +354,150 @@ function schedulePairing(sock) {
     )
 
   if (!pairNumber) {
-    log.warn(
+    log.error(
       '[PAIRING] PAIR_NUMBER is empty.'
     )
 
+    return
+  }
+
+  try {
+    /*
+    |--------------------------------------------------------------------------
+    | Make sure the socket connection is alive.
+    |--------------------------------------------------------------------------
+    */
+
+    if (
+      sock.ws?.readyState !== undefined &&
+      sock.ws.readyState !== 1
+    ) {
+      log.info(
+        '[PAIRING] WhatsApp socket is not ready yet. Retrying...'
+      )
+
+      schedulePairing(sock)
+
+      return
+    }
+
+    log.info(
+      '[PAIRING] Preparing WhatsApp pairing code for +' +
+      pairNumber
+    )
+
+    let code
+
+    /*
+    |--------------------------------------------------------------------------
+    | CUSTOM PAIRING CODE
+    |--------------------------------------------------------------------------
+    |
+    | Only use it if configured.
+    |
+    */
+
+    const customCode =
+      String(
+        config.pairCustomCode || ''
+      )
+        .replace(/[^a-zA-Z0-9]/g, '')
+        .toUpperCase()
+
+    if (customCode) {
+      if (
+        customCode.length < 8
+      ) {
+        log.warn(
+          '[PAIRING] PAIR_CUSTOM_CODE must contain at least 8 characters.'
+        )
+
+        code =
+          await sock.requestPairingCode(
+            pairNumber
+          )
+      } else {
+        code =
+          await sock.requestPairingCode(
+            pairNumber,
+            customCode
+          )
+      }
+    } else {
+      code =
+        await sock.requestPairingCode(
+          pairNumber
+        )
+    }
+
+    if (!code) {
+      log.warn(
+        '[PAIRING] WhatsApp returned an empty pairing code.'
+      )
+
+      schedulePairing(sock)
+
+      return
+    }
+
+    log.info(
+      '[PAIRING] Pairing code: ' +
+      code
+    )
+
+    log.info(
+      '[PAIRING] Enter this code in WhatsApp > Settings > Linked Devices > Link a Device > Link with phone number instead.'
+    )
+
+    log.info(
+      '[PAIRING] Waiting for WhatsApp to complete the link...'
+    )
+  } catch (error) {
+    log.error(
+      '[PAIRING] Could not get pairing code:'
+    )
+
+    log.error(
+      error?.stack ||
+      error?.message ||
+      String(error)
+    )
+
+    /*
+    |--------------------------------------------------------------------------
+    | Do NOT destroy the session directory.
+    |
+    | Just try again with the same socket if it is still alive.
+    |--------------------------------------------------------------------------
+    */
+
+    if (
+      currentSocket === sock &&
+      !isShuttingDown &&
+      !sock.authState?.creds?.registered
+    ) {
+      log.warn(
+        '[PAIRING] Pairing request failed. A new code will be attempted.'
+      )
+
+      schedulePairing(sock)
+    }
+  }
+}
+
+/*
+|--------------------------------------------------------------------------
+| SCHEDULE PAIRING
+|--------------------------------------------------------------------------
+*/
+
+function schedulePairing(sock) {
+  clearPairingTimer()
+
+  if (
+    isShuttingDown ||
+    currentSocket !== sock
+  ) {
     return
   }
 
@@ -322,95 +505,7 @@ function schedulePairing(sock) {
     async () => {
       pairingTimer = null
 
-      try {
-        /*
-        |--------------------------------------------------------------------------
-        | Make sure this is still the active socket.
-        |--------------------------------------------------------------------------
-        */
-
-        if (
-          currentSocket !== sock
-        ) {
-          log.info(
-            '[PAIRING] Socket is no longer current. Skipping pairing.'
-          )
-
-          return
-        }
-
-        /*
-        |--------------------------------------------------------------------------
-        | Already registered?
-        |--------------------------------------------------------------------------
-        */
-
-        if (
-          sock.authState?.creds
-            ?.registered
-        ) {
-          log.info(
-            '[PAIRING] Account already registered.'
-          )
-
-          return
-        }
-
-        /*
-        |--------------------------------------------------------------------------
-        | Request pairing code.
-        |--------------------------------------------------------------------------
-        */
-
-        log.info(
-          '[PAIRING] Requesting pairing code for +' +
-          pairNumber
-        )
-
-        let code
-
-        if (
-          config.pairCustomCode
-        ) {
-          code =
-            await sock.requestPairingCode(
-              pairNumber,
-              config.pairCustomCode
-            )
-        } else {
-          code =
-            await sock.requestPairingCode(
-              pairNumber
-            )
-        }
-
-        if (!code) {
-          log.warn(
-            '[PAIRING] No pairing code returned.'
-          )
-
-          return
-        }
-
-        log.info(
-          '[PAIRING] Pairing code: ' +
-          code
-        )
-
-        log.info(
-          '[PAIRING] Enter this code in WhatsApp > Linked Devices.'
-        )
-      } catch (error) {
-        log.error(
-          '[PAIRING] Could not get pairing code:'
-        )
-
-        log.error(
-          error?.stack ||
-          error?.message ||
-          String(error)
-        )
-      }
+      await requestPairingCode(sock)
     },
     PAIRING_DELAY
   )
@@ -428,12 +523,6 @@ function scheduleReconnect(
   if (isShuttingDown) {
     return
   }
-
-  /*
-  |--------------------------------------------------------------------------
-  | Don't create multiple reconnect timers.
-  |--------------------------------------------------------------------------
-  */
 
   if (reconnectTimer) {
     return
@@ -501,6 +590,24 @@ export async function startSocket() {
     return currentSocket
   }
 
+  /*
+  |--------------------------------------------------------------------------
+  | If a healthy socket already exists, don't create another one.
+  |--------------------------------------------------------------------------
+  */
+
+  if (
+    currentSocket &&
+    currentSocket.ws &&
+    currentSocket.ws.readyState === 1
+  ) {
+    log.info(
+      '[SOCKET] Existing WhatsApp socket is already active.'
+    )
+
+    return currentSocket
+  }
+
   isStarting = true
 
   try {
@@ -513,9 +620,6 @@ export async function startSocket() {
     |--------------------------------------------------------------------------
     | FILE AUTH
     |--------------------------------------------------------------------------
-    |
-    | This is what makes Railway Volume persistence work.
-    |
     */
 
     const {
@@ -574,9 +678,18 @@ export async function startSocket() {
 
         auth: state,
 
+        /*
+        |--------------------------------------------------------------------------
+        | Browser identity
+        |--------------------------------------------------------------------------
+        |
+        | This is kept stable for pairing and reconnects.
+        |--------------------------------------------------------------------------
+        */
+
         browser:
-          Browsers.ubuntu(
-            'Chrome'
+          Browsers.macOS(
+            'Safari'
           ),
 
         markOnlineOnConnect: false,
@@ -606,16 +719,22 @@ export async function startSocket() {
     | SAVE CREDENTIALS
     |--------------------------------------------------------------------------
     |
-    | VERY IMPORTANT.
-    |
-    | Without this, Railway cannot reuse the WhatsApp
-    | authentication after restart.
-    |
+    | This is what makes the Railway Volume persistent.
+    |--------------------------------------------------------------------------
     */
 
     sock.ev.on(
       'creds.update',
-      saveCreds
+      async () => {
+        try {
+          await saveCreds()
+        } catch (error) {
+          log.error(
+            '[AUTH] Failed to save credentials: ' +
+            error.message
+          )
+        }
+      }
     )
 
     /*
@@ -645,6 +764,18 @@ export async function startSocket() {
           log.info(
             'Connecting to WhatsApp...'
           )
+
+          /*
+          |--------------------------------------------------------------------------
+          | If this is a fresh account, prepare pairing.
+          |--------------------------------------------------------------------------
+          */
+
+          if (
+            !sock.authState?.creds?.registered
+          ) {
+            schedulePairing(sock)
+          }
         }
 
         /*
@@ -745,15 +876,10 @@ export async function startSocket() {
         | LOGGED OUT
         |--------------------------------------------------------------------------
         |
-        | THIS IS THE IMPORTANT FIX.
+        | Clear authentication files only.
         |
-        | When the WhatsApp account is manually logged out,
-        | the saved credentials are invalid.
-        |
-        | We clear ONLY the contents of /app/session.
-        |
-        | We DO NOT delete /app/session itself.
-        |
+        | NEVER remove /app/session itself.
+        |--------------------------------------------------------------------------
         */
 
         if (
@@ -769,14 +895,9 @@ export async function startSocket() {
           )
 
           clearReconnectTimer()
+          clearPairingTimer()
 
           clearFileSession()
-
-          /*
-          |--------------------------------------------------------------------------
-          | Start completely fresh pairing.
-          |--------------------------------------------------------------------------
-          */
 
           setTimeout(
             async () => {
@@ -818,9 +939,6 @@ export async function startSocket() {
         |--------------------------------------------------------------------------
         | BAD SESSION
         |--------------------------------------------------------------------------
-        |
-        | Same treatment as loggedOut.
-        |
         */
 
         if (
@@ -836,6 +954,7 @@ export async function startSocket() {
           )
 
           clearReconnectTimer()
+          clearPairingTimer()
 
           clearFileSession()
 
@@ -880,10 +999,8 @@ export async function startSocket() {
         | CONNECTION REPLACED
         |--------------------------------------------------------------------------
         |
-        | Another WhatsApp Web session replaced this one.
-        |
-        | DO NOT delete the session.
-        |
+        | Don't destroy credentials.
+        |--------------------------------------------------------------------------
         */
 
         if (
@@ -905,9 +1022,6 @@ export async function startSocket() {
         |--------------------------------------------------------------------------
         | TEMPORARY CONNECTION LOSS
         |--------------------------------------------------------------------------
-        |
-        | Keep the existing session.
-        |
         */
 
         log.warn(
@@ -926,7 +1040,7 @@ export async function startSocket() {
 
     /*
     |--------------------------------------------------------------------------
-    | PAIR ONLY IF NOT REGISTERED
+    | AUTHENTICATION STATUS
     |--------------------------------------------------------------------------
     */
 
@@ -935,6 +1049,10 @@ export async function startSocket() {
     ) {
       log.info(
         '[AUTH] No registered WhatsApp account found.'
+      )
+
+      log.info(
+        '[AUTH] Pairing code authentication required.'
       )
 
       schedulePairing(sock)
@@ -992,10 +1110,10 @@ export function getSocket() {
 |--------------------------------------------------------------------------
 |
 | IMPORTANT:
-| We do NOT delete the session here.
+| DO NOT DELETE SESSION.
 |
-| This allows Railway restarts/redeploys to reuse
-| the existing WhatsApp login.
+| Railway restarts/redeploys can therefore reuse
+| the saved WhatsApp authentication.
 |
 */
 
