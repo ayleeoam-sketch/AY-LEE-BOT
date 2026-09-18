@@ -24,12 +24,6 @@ const PAIRING_NUMBER = String(
   process.env.PAIRING_NUMBER || ''
 ).replace(/\D/g, '')
 
-/*
-|--------------------------------------------------------------------------
-| Ensure Railway Volume directory exists
-|--------------------------------------------------------------------------
-*/
-
 function ensureSessionDirectory() {
   if (!fs.existsSync(SESSION_DIR)) {
     fs.mkdirSync(SESSION_DIR, {
@@ -38,62 +32,33 @@ function ensureSessionDirectory() {
   }
 }
 
-/*
-|--------------------------------------------------------------------------
-| Start WhatsApp
-|--------------------------------------------------------------------------
-*/
-
 export async function startSocket() {
   console.log('[WA] startSocket() loaded')
 
   if (sock) {
-    console.log(
-      '[WA] WhatsApp socket already running.'
-    )
-
+    console.log('[WA] WhatsApp socket already running')
     return sock
   }
 
   ensureSessionDirectory()
 
-  const authState = await useMultiFileAuthState(
-    SESSION_DIR
-  )
-
-  const state = authState.state
-  const saveCreds = authState.saveCreds
+  const {
+    state,
+    saveCreds
+  } = await useMultiFileAuthState(SESSION_DIR)
 
   console.log('')
-  console.log(
-    '=============================================='
-  )
-  console.log(
-    '          AY-LEE BOT WHATSAPP'
-  )
-  console.log(
-    '=============================================='
-  )
-  console.log(
-    '[WA] Authentication: ' + AUTH_METHOD
-  )
-  console.log(
-    '[WA] Session directory: ' + SESSION_DIR
-  )
+  console.log('==============================================')
+  console.log('          AY-LEE BOT WHATSAPP')
+  console.log('==============================================')
+  console.log('[WA] Authentication: ' + AUTH_METHOD)
+  console.log('[WA] Session directory: ' + SESSION_DIR)
   console.log('')
-
-  /*
-  |--------------------------------------------------------------------------
-  | Create WhatsApp socket
-  |--------------------------------------------------------------------------
-  */
 
   sock = makeWASocket({
     auth: state,
 
-    browser: Browsers.ubuntu(
-      'AY-LEE BOT'
-    ),
+    browser: Browsers.ubuntu('AY-LEE BOT'),
 
     logger: P({
       level: 'silent'
@@ -108,36 +73,23 @@ export async function startSocket() {
     generateHighQualityLinkPreview: false
   })
 
-  /*
-  |--------------------------------------------------------------------------
-  | Save credentials
-  |--------------------------------------------------------------------------
-  */
-
   sock.ev.on(
     'creds.update',
     saveCreds
   )
 
-  /*
-  |--------------------------------------------------------------------------
-  | Connection updates
-  |--------------------------------------------------------------------------
-  */
-
   sock.ev.on(
     'connection.update',
     async (update) => {
-      const connection = update.connection
-      const qr = update.qr
-      const lastDisconnect =
-        update.lastDisconnect
+      const {
+        connection,
+        qr,
+        lastDisconnect
+      } = update
 
-      /*
-      |--------------------------------------------------------------------------
-      | QR AUTHENTICATION
-      |--------------------------------------------------------------------------
-      */
+      // ==========================================
+      // QR CODE
+      // ==========================================
 
       if (
         qr &&
@@ -145,24 +97,14 @@ export async function startSocket() {
         !state.creds.registered
       ) {
         console.log('')
-        console.log(
-          '=============================================='
-        )
-        console.log(
-          '              SCAN QR CODE'
-        )
-        console.log(
-          '=============================================='
-        )
+        console.log('==============================================')
+        console.log('              SCAN QR CODE')
+        console.log('==============================================')
         console.log('')
         console.log(
           'Open WhatsApp > Linked Devices > Link a Device'
         )
         console.log('')
-
-        /*
-        | Save QR as PNG
-        */
 
         try {
           await QRCode.toFile(
@@ -176,8 +118,7 @@ export async function startSocket() {
           )
 
           console.log(
-            '[WA] QR image created: ' +
-            QR_FILE
+            '[WA] QR image created: ' + QR_FILE
           )
         } catch (error) {
           console.log(
@@ -186,15 +127,9 @@ export async function startSocket() {
           )
         }
 
-        /*
-        | Also display QR in Railway logs
-        */
-
         try {
           const terminalQR =
-            await import(
-              'qrcode-terminal'
-            )
+            await import('qrcode-terminal')
 
           terminalQR.default.generate(
             qr,
@@ -210,11 +145,9 @@ export async function startSocket() {
         }
       }
 
-      /*
-      |--------------------------------------------------------------------------
-      | PAIRING CODE AUTHENTICATION
-      |--------------------------------------------------------------------------
-      */
+      // ==========================================
+      // PAIRING CODE
+      // ==========================================
 
       if (
         AUTH_METHOD === 'pairing' &&
@@ -225,21 +158,17 @@ export async function startSocket() {
 
         if (!PAIRING_NUMBER) {
           console.log(
-            '[WA] PAIRING_NUMBER is missing.'
+            '[WA] PAIRING_NUMBER is missing'
           )
 
           pairingRequested = false
-
           return
         }
 
         try {
           await new Promise(
             (resolve) => {
-              setTimeout(
-                resolve,
-                3000
-              )
+              setTimeout(resolve, 3000)
             }
           )
 
@@ -249,25 +178,14 @@ export async function startSocket() {
             )
 
           console.log('')
-          console.log(
-            '=============================================='
-          )
-          console.log(
-            '             PAIRING CODE'
-          )
-          console.log(
-            '=============================================='
-          )
+          console.log('==============================================')
+          console.log('             PAIRING CODE')
+          console.log('==============================================')
+          console.log('')
+          console.log('CODE: ' + code)
           console.log('')
           console.log(
-            'CODE: ' + code
-          )
-          console.log('')
-          console.log(
-            'WhatsApp > Linked Devices >'
-          )
-          console.log(
-            'Link with phone number instead'
+            'WhatsApp > Linked Devices > Link with phone number instead'
           )
           console.log('')
 
@@ -281,41 +199,28 @@ export async function startSocket() {
         }
       }
 
-      /*
-      |--------------------------------------------------------------------------
-      | WHATSAPP CONNECTED
-      |--------------------------------------------------------------------------
-      */
+      // ==========================================
+      // CONNECTED
+      // ==========================================
 
       if (connection === 'open') {
         pairingRequested = false
 
         console.log('')
-        console.log(
-          '=============================================='
-        )
-        console.log(
-          '          WHATSAPP CONNECTED'
-        )
-        console.log(
-          '=============================================='
-        )
+        console.log('==============================================')
+        console.log('          WHATSAPP CONNECTED')
+        console.log('==============================================')
         console.log('')
+        console.log('[WA] AY-LEE BOT is connected.')
         console.log(
-          '[WA] AY-LEE BOT is connected.'
-        )
-        console.log(
-          '[WA] Session saved to ' +
-          SESSION_DIR
+          '[WA] Session saved to ' + SESSION_DIR
         )
         console.log('')
       }
 
-      /*
-      |--------------------------------------------------------------------------
-      | WHATSAPP DISCONNECTED
-      |--------------------------------------------------------------------------
-      */
+      // ==========================================
+      // DISCONNECTED
+      // ==========================================
 
       if (connection === 'close') {
         sock = null
@@ -325,36 +230,24 @@ export async function startSocket() {
           lastDisconnect?.error?.output?.statusCode
 
         console.log('')
-        console.log(
-          '[WA] Connection closed.'
-        )
+        console.log('[WA] Connection closed.')
         console.log(
           '[WA] Status code: ' +
           String(statusCode)
         )
 
-        /*
-        | Logged out
-        */
-
+        // Do NOT delete Railway Volume/session files
         if (
           statusCode ===
           DisconnectReason.loggedOut
         ) {
-          console.log(
-            '[WA] WhatsApp logged out.'
-          )
-
+          console.log('[WA] WhatsApp logged out.')
           console.log(
             '[WA] Session files were NOT deleted.'
           )
 
           return
         }
-
-        /*
-        | Reconnect
-        */
 
         if (!reconnectTimer) {
           console.log(
@@ -384,21 +277,9 @@ export async function startSocket() {
   return sock
 }
 
-/*
-|--------------------------------------------------------------------------
-| Get current WhatsApp socket
-|--------------------------------------------------------------------------
-*/
-
 export function getSocket() {
   return sock
 }
-
-/*
-|--------------------------------------------------------------------------
-| Stop WhatsApp socket
-|--------------------------------------------------------------------------
-*/
 
 export async function stopSocket() {
   if (!sock) {
@@ -416,12 +297,6 @@ export async function stopSocket() {
 
   sock = null
 }
-
-/*
-|--------------------------------------------------------------------------
-| Default export
-|--------------------------------------------------------------------------
-*/
 
 export default startSocket
 ```
