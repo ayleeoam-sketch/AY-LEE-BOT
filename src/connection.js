@@ -7,7 +7,6 @@ import makeWASocket, {
 
 import QRCode from 'qrcode'
 import fs from 'fs'
-import path from 'path'
 import P from 'pino'
 
 import config from '../config.js'
@@ -18,27 +17,16 @@ let reconnecting = false
 const sessionDir = config.sessionDir || '/app/session'
 const qrFile = '/app/qr.png'
 
-/* ----------------------------------------
-   Ensure Railway Volume exists
------------------------------------------ */
 function ensureSessionDir() {
   if (!fs.existsSync(sessionDir)) {
-    fs.mkdirSync(sessionDir, {
-      recursive: true
-    })
+    fs.mkdirSync(sessionDir, { recursive: true })
   }
 }
 
-/* ----------------------------------------
-   Clean phone number
------------------------------------------ */
 function cleanNumber(number) {
   return String(number || '').replace(/\D/g, '')
 }
 
-/* ----------------------------------------
-   Start WhatsApp Socket
------------------------------------------ */
 async function startSocket() {
   if (sock) {
     console.log('[WA] Socket already exists.')
@@ -47,14 +35,18 @@ async function startSocket() {
 
   ensureSessionDir()
 
-  const {
-    state,
-    saveCreds
-  } = await useMultiFileAuthState(sessionDir)
+  const auth = await useMultiFileAuthState(sessionDir)
+  const state = auth.state
+  const saveCreds = auth.saveCreds
+
+  const authMethod =
+    config.authMethod ||
+    process.env.AUTH_METHOD ||
+    'qr'
 
   console.log('[WA] Starting WhatsApp connection...')
-  console.log(`[WA] Session directory: ${sessionDir}`)
-  console.log(`[WA] Authentication method: ${config.authMethod || process.env.AUTH_METHOD || 'qr'}`)
+  console.log('[WA] Session directory: ' + sessionDir)
+  console.log('[WA] Authentication method: ' + authMethod)
 
   sock = makeWASocket({
     auth: state,
@@ -74,74 +66,58 @@ async function startSocket() {
     generateHighQualityLinkPreview: false
   })
 
-  /* ----------------------------------------
-     Save authentication credentials
-  ----------------------------------------- */
   sock.ev.on('creds.update', saveCreds)
 
-  /* ----------------------------------------
-     Connection updates
-  ----------------------------------------- */
-  sock.ev.on('connection.update', async (update) => {
-    const {
-      connection,
-      lastDisconnect,
-      qr
-    } = update
+  sock.ev.on('connection.update', async function (update) {
+    const connection = update.connection
+    const lastDisconnect = update.lastDisconnect
+    const qr = update.qr
 
-    /* --------------------------------------
-       QR CODE
-    --------------------------------------- */
-    if (qr) {
-      const authMethod =
-        config.authMethod ||
-        process.env.AUTH_METHOD ||
-        'qr'
+    /*
+     * QR CODE
+     */
+    if (qr && authMethod.toLowerCase() === 'qr') {
+      console.log('')
+      console.log('==============================================')
+      console.log('           AY-LEE BOT QR CODE')
+      console.log('==============================================')
+      console.log('')
+      console.log('Open WhatsApp')
+      console.log('Go to Linked Devices')
+      console.log('Choose Link a Device')
+      console.log('')
 
-      if (authMethod.toLowerCase() === 'qr') {
-        console.log('')
-        console.log('╔══════════════════════════════════════════════╗')
-        console.log('║              SCAN QR CODE                   ║')
-        console.log('╚══════════════════════════════════════════════╝')
-        console.log('')
-        console.log('Open WhatsApp → Linked Devices → Link a Device')
-        console.log('')
+      try {
+        await QRCode.toFile(qrFile, qr, {
+          width: 1000,
+          margin: 4,
+          errorCorrectionLevel: 'H'
+        })
 
-        try {
-          await QRCode.toFile(qrFile, qr, {
-            width: 1000,
-            margin: 4,
-            errorCorrectionLevel: 'H'
-          })
+        console.log('[WA] QR image saved to: ' + qrFile)
+      } catch (error) {
+        console.log('[WA] QR image error: ' + error.message)
+      }
 
-          console.log(`[WA] QR image saved to: ${qrFile}`)
-        } catch (error) {
-          console.log('[WA] Could not save QR image:', error.message)
-        }
+      /*
+       * Terminal QR
+       */
+      try {
+        const terminalQR = await import('qrcode-terminal')
 
-        /* ----------------------------------
-           Also print terminal QR
-        ----------------------------------- */
-        try {
-          const qrcodeTerminal = await import('qrcode-terminal')
-
-          qrcodeTerminal.default.generate(qr, {
-            small: true
-          })
-        } catch (error) {
-          console.log('[WA] Terminal QR unavailable:', error.message)
-        }
+        terminalQR.default.generate(qr, {
+          small: true
+        })
+      } catch (error) {
+        console.log(
+          '[WA] Terminal QR error: ' + error.message
+        )
       }
     }
 
-    /* --------------------------------------
-       PAIRING CODE
-    --------------------------------------- */
-    const authMethod =
-      config.authMethod ||
-      process.env.AUTH_METHOD ||
-      'qr'
-
+    /*
+     * PAIRING CODE
+     */
     if (
       authMethod.toLowerCase() === 'pairing' &&
       !state.creds.registered
@@ -152,79 +128,95 @@ async function startSocket() {
       )
 
       if (!phoneNumber) {
-        console.log('')
-        console.log('[WA] ERROR: PAIRING_NUMBER is not configured.')
-        console.log('[WA] Add your WhatsApp number to Railway Variables.')
-        console.log('')
+        console.log(
+          '[WA] ERROR: PAIRING_NUMBER is not configured.'
+        )
       } else {
         try {
-          await new Promise(resolve => setTimeout(resolve, 3000))
+          await new Promise(function (resolve) {
+            setTimeout(resolve, 3000)
+          })
 
-          const code = await sock.requestPairingCode(phoneNumber)
+          const code =
+            await sock.requestPairingCode(phoneNumber)
 
           console.log('')
-          console.log('╔══════════════════════════════════════════════╗')
-          console.log('║             PAIRING CODE                    ║')
-          console.log('╚══════════════════════════════════════════════╝')
+          console.log('==============================================')
+          console.log('           AY-LEE BOT PAIRING CODE')
+          console.log('==============================================')
           console.log('')
-          console.log(`          ${code}`)
+          console.log('PAIRING CODE: ' + code)
           console.log('')
-          console.log('WhatsApp → Linked Devices → Link a Device')
-          console.log('Then choose "Link with phone number instead".')
+          console.log(
+            'WhatsApp -> Linked Devices -> Link with phone number instead'
+          )
           console.log('')
         } catch (error) {
-          console.log('[WA] Pairing code error:', error.message)
+          console.log(
+            '[WA] Pairing code error: ' + error.message
+          )
         }
       }
     }
 
-    /* --------------------------------------
-       Connected
-    --------------------------------------- */
+    /*
+     * CONNECTED
+     */
     if (connection === 'open') {
       reconnecting = false
 
       console.log('')
-      console.log('╔══════════════════════════════════════════════╗')
-      console.log('║          WHATSAPP CONNECTED                 ║')
-      console.log('╚══════════════════════════════════════════════╝')
+      console.log('==============================================')
+      console.log('          WHATSAPP CONNECTED')
+      console.log('==============================================')
       console.log('')
       console.log('[WA] AY-LEE BOT is now connected.')
-      console.log(`[WA] Session: ${sessionDir}`)
+      console.log('[WA] Session saved in: ' + sessionDir)
       console.log('')
     }
 
-    /* --------------------------------------
-       Disconnected
-    --------------------------------------- */
+    /*
+     * DISCONNECTED
+     */
     if (connection === 'close') {
       sock = null
 
       const statusCode =
-        lastDisconnect?.error?.output?.statusCode
+        lastDisconnect &&
+        lastDisconnect.error &&
+        lastDisconnect.error.output
+          ? lastDisconnect.error.output.statusCode
+          : undefined
 
-      const shouldReconnect =
-        statusCode !== DisconnectReason.loggedOut
-
-      console.log('')
-      console.log(`[WA] Connection closed. Code: ${statusCode}`)
+      console.log(
+        '[WA] Connection closed. Code: ' +
+        String(statusCode)
+      )
 
       if (statusCode === DisconnectReason.loggedOut) {
         console.log('[WA] WhatsApp logged out.')
-        console.log('[WA] Delete the SESSION FILES only if you want to link again.')
-        console.log('')
+        console.log(
+          '[WA] Session was not automatically deleted.'
+        )
+
         return
       }
 
-      if (shouldReconnect && !reconnecting) {
+      if (!reconnecting) {
         reconnecting = true
 
-        console.log('[WA] Reconnecting in 5 seconds...')
+        console.log(
+          '[WA] Reconnecting in 5 seconds...'
+        )
 
-        setTimeout(() => {
+        setTimeout(function () {
           reconnecting = false
-          startSocket().catch(error => {
-            console.error('[WA] Reconnect failed:', error)
+
+          startSocket().catch(function (error) {
+            console.error(
+              '[WA] Reconnect failed:',
+              error
+            )
           })
         }, 5000)
       }
@@ -234,16 +226,10 @@ async function startSocket() {
   return sock
 }
 
-/* ----------------------------------------
-   Get current socket
------------------------------------------ */
 function getSocket() {
   return sock
 }
 
-/* ----------------------------------------
-   Stop socket safely
------------------------------------------ */
 async function stopSocket() {
   if (!sock) {
     return
@@ -252,15 +238,15 @@ async function stopSocket() {
   try {
     sock.end(undefined)
   } catch (error) {
-    console.log('[WA] Socket close error:', error.message)
+    console.log(
+      '[WA] Socket close error: ' +
+      error.message
+    )
   }
 
   sock = null
 }
 
-/* ----------------------------------------
-   Exports
------------------------------------------ */
 export {
   startSocket,
   getSocket,
