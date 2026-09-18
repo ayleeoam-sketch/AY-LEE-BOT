@@ -1,3 +1,4 @@
+```js
 import makeWASocket, {
   DisconnectReason,
   useMultiFileAuthState,
@@ -8,11 +9,11 @@ import makeWASocket, {
 import fs from 'fs'
 import path from 'path'
 import { Boom } from '@hapi/boom'
-import qrcode from 'qrcode-terminal'
+import QRCode from 'qrcode'
 
 import { config } from './config.js'
 
-console.log('AY-LEE CONNECTION.JS LOADED - QR/PPAIR VERSION')
+console.log('AY-LEE CONNECTION.JS LOADED - QR IMAGE VERSION')
 
 let currentSocket = null
 let reconnectTimer = null
@@ -23,6 +24,8 @@ let isShuttingDown = false
 const RECONNECT_DELAY = 5000
 const PAIRING_DELAY = 10000
 
+const QR_FILE = '/app/qr.png'
+
 const log = {
   info: (...args) => console.log('[INFO]', ...args),
   warn: (...args) => console.warn('[WARN]', ...args),
@@ -30,9 +33,9 @@ const log = {
   ok: (...args) => console.log('[OK]', ...args)
 }
 
-/* ================================
+/* =========================================
    SESSION
-================================ */
+========================================= */
 
 function ensureSessionDir() {
   fs.mkdirSync(config.sessionDir, {
@@ -54,7 +57,6 @@ function hasFileSession() {
  * IMPORTANT:
  * Never delete /app/session itself.
  * Railway Volume is mounted there.
- * Only delete the contents.
  */
 function clearFileSession() {
   ensureSessionDir()
@@ -63,7 +65,10 @@ function clearFileSession() {
     const entries = fs.readdirSync(config.sessionDir)
 
     for (const entry of entries) {
-      const target = path.join(config.sessionDir, entry)
+      const target = path.join(
+        config.sessionDir,
+        entry
+      )
 
       try {
         fs.rmSync(target, {
@@ -89,9 +94,74 @@ function clearFileSession() {
   }
 }
 
-/* ================================
+/* =========================================
+   QR FILE
+========================================= */
+
+async function saveQRCode(qr) {
+  try {
+    await QRCode.toFile(
+      QR_FILE,
+      qr,
+      {
+        width: 1000,
+        margin: 4,
+        errorCorrectionLevel: 'H'
+      }
+    )
+
+    log.ok(
+      'QR code image created: ' +
+      QR_FILE
+    )
+
+    console.log('')
+    console.log(
+      '╔══════════════════════════════════════════════╗'
+    )
+    console.log(
+      '║              QR CODE READY                  ║'
+    )
+    console.log(
+      '╚══════════════════════════════════════════════╝'
+    )
+    console.log('')
+    console.log(
+      'QR image: ' + QR_FILE
+    )
+    console.log('')
+    console.log(
+      'You can also use the terminal QR below:'
+    )
+    console.log('')
+  } catch (error) {
+    log.error(
+      'Could not create QR image: ' +
+      error.message
+    )
+  }
+}
+
+function removeQRCode() {
+  try {
+    if (fs.existsSync(QR_FILE)) {
+      fs.rmSync(QR_FILE, {
+        force: true
+      })
+
+      log.info('Old QR code removed.')
+    }
+  } catch (error) {
+    log.warn(
+      'Could not remove old QR code: ' +
+      error.message
+    )
+  }
+}
+
+/* =========================================
    TIMERS
-================================ */
+========================================= */
 
 function clearReconnectTimer() {
   if (reconnectTimer) {
@@ -107,9 +177,9 @@ function clearPairingTimer() {
   }
 }
 
-/* ================================
+/* =========================================
    WHATSAPP VERSION
-================================ */
+========================================= */
 
 async function getWhatsAppVersion() {
   try {
@@ -130,7 +200,11 @@ async function getWhatsAppVersion() {
     )
   }
 
-  const fallbackVersion = [2, 3000, 1047824257]
+  const fallbackVersion = [
+    2,
+    3000,
+    1047824257
+  ]
 
   log.warn(
     'Using fallback WhatsApp Web version: ' +
@@ -140,9 +214,9 @@ async function getWhatsAppVersion() {
   return fallbackVersion
 }
 
-/* ================================
+/* =========================================
    HELPERS
-================================ */
+========================================= */
 
 function normalizePhoneNumber(number) {
   return String(number || '')
@@ -174,9 +248,9 @@ function getDisconnectCode(error) {
   }
 }
 
-/* ================================
+/* =========================================
    PAIRING CODE
-================================ */
+========================================= */
 
 function schedulePairing(sock) {
   clearPairingTimer()
@@ -204,8 +278,9 @@ function schedulePairing(sock) {
 
       if (!phoneNumber) {
         log.error(
-          'PAIR_NUMBER is empty. Set PAIR_NUMBER in Railway Variables.'
+          'PAIR_NUMBER is empty.'
         )
+
         return
       }
 
@@ -214,28 +289,28 @@ function schedulePairing(sock) {
         phoneNumber
       )
 
-      const code = await sock.requestPairingCode(
-        phoneNumber
-      )
+      const code =
+        await sock.requestPairingCode(
+          phoneNumber
+        )
 
       console.log('')
       console.log(
         '╔══════════════════════════════════════════════╗'
       )
       console.log(
-        '║        WHATSAPP PAIRING CODE                ║'
+        '║          WHATSAPP PAIRING CODE              ║'
       )
       console.log(
         '╚══════════════════════════════════════════════╝'
       )
       console.log('')
-      console.log('PAIRING CODE: ' + code)
+      console.log(
+        'PAIRING CODE: ' + code
+      )
       console.log('')
       console.log(
-        'WhatsApp → Linked Devices → Link a Device'
-      )
-      console.log(
-        '→ Link with phone number instead'
+        'WhatsApp → Linked Devices → Link with phone number instead'
       )
       console.log('')
     } catch (error) {
@@ -247,9 +322,9 @@ function schedulePairing(sock) {
   }, PAIRING_DELAY)
 }
 
-/* ================================
+/* =========================================
    RECONNECT
-================================ */
+========================================= */
 
 function scheduleReconnect() {
   if (isShuttingDown) {
@@ -280,9 +355,9 @@ function scheduleReconnect() {
   )
 }
 
-/* ================================
+/* =========================================
    START SOCKET
-================================ */
+========================================= */
 
 async function startSocket() {
   if (isShuttingDown) {
@@ -326,7 +401,8 @@ async function startSocket() {
       ')'
     )
 
-    const version = await getWhatsAppVersion()
+    const version =
+      await getWhatsAppVersion()
 
     const socket = makeWASocket({
       version,
@@ -366,39 +442,22 @@ async function startSocket() {
           qr
         } = update
 
-        /* ============================
-           QR CODE
-        ============================ */
+        /* =================================
+           NEW QR CODE
+        ================================= */
 
-        if (qr && getAuthMethod() === 'qr') {
+        if (
+          qr &&
+          getAuthMethod() === 'qr'
+        ) {
           clearPairingTimer()
 
-          console.log('')
-          console.log(
-            '╔══════════════════════════════════════════════╗'
-          )
-          console.log(
-            '║              SCAN QR CODE                   ║'
-          )
-          console.log(
-            '╚══════════════════════════════════════════════╝'
-          )
-          console.log('')
-
-          qrcode.generate(qr, {
-            small: true
-          })
-
-          console.log('')
-          console.log(
-            'Open WhatsApp → Linked Devices → Link a Device'
-          )
-          console.log('')
+          await saveQRCode(qr)
         }
 
-        /* ============================
+        /* =================================
            CONNECTING
-        ============================ */
+        ================================= */
 
         if (connection === 'connecting') {
           log.info(
@@ -406,13 +465,15 @@ async function startSocket() {
           )
         }
 
-        /* ============================
-           CONNECTED
-        ============================ */
+        /* =================================
+           OPEN
+        ================================= */
 
         if (connection === 'open') {
           clearReconnectTimer()
           clearPairingTimer()
+
+          removeQRCode()
 
           log.ok(
             'WhatsApp connection established.'
@@ -421,7 +482,10 @@ async function startSocket() {
           if (socket.user) {
             log.ok(
               'Connected as ' +
-              (socket.user.name || 'WhatsApp User') +
+              (
+                socket.user.name ||
+                'WhatsApp User'
+              ) +
               ' (' +
               socket.user.id +
               ')'
@@ -431,16 +495,17 @@ async function startSocket() {
           currentSocket = socket
         }
 
-        /* ============================
-           DISCONNECTED
-        ============================ */
+        /* =================================
+           CLOSE
+        ================================= */
 
         if (connection === 'close') {
           clearPairingTimer()
 
-          const code = getDisconnectCode(
-            lastDisconnect?.error
-          )
+          const code =
+            getDisconnectCode(
+              lastDisconnect?.error
+            )
 
           log.warn(
             'WhatsApp connection closed. Code: ' +
@@ -451,15 +516,12 @@ async function startSocket() {
             currentSocket = null
           }
 
-          /* Logged out */
-
-          if (code === DisconnectReason.loggedOut) {
+          if (
+            code ===
+            DisconnectReason.loggedOut
+          ) {
             log.error(
               'WhatsApp logged out.'
-            )
-
-            log.warn(
-              'Clearing session contents and creating a fresh session.'
             )
 
             clearReconnectTimer()
@@ -471,9 +533,10 @@ async function startSocket() {
             return
           }
 
-          /* Bad session */
-
-          if (code === DisconnectReason.badSession) {
+          if (
+            code ===
+            DisconnectReason.badSession
+          ) {
             log.error(
               'WhatsApp reported a bad session.'
             )
@@ -487,22 +550,18 @@ async function startSocket() {
             return
           }
 
-          /* Another device replaced this connection */
-
           if (
             code ===
             DisconnectReason.connectionReplaced
           ) {
             log.warn(
-              'WhatsApp connection was replaced by another device.'
+              'WhatsApp connection was replaced.'
             )
 
             scheduleReconnect()
 
             return
           }
-
-          /* Restart requested */
 
           if (
             code ===
@@ -517,14 +576,12 @@ async function startSocket() {
             return
           }
 
-          /* Temporary connection failure */
-
           scheduleReconnect()
         }
 
-        /* ============================
-           PAIRING CODE
-        ============================ */
+        /* =================================
+           PAIRING
+        ================================= */
 
         if (
           !state.creds.registered &&
@@ -536,7 +593,7 @@ async function startSocket() {
       }
     )
 
-    /* ================================
+    /* =================================
        AUTH METHOD
     ================================= */
 
@@ -582,17 +639,17 @@ async function startSocket() {
   }
 }
 
-/* ================================
+/* =========================================
    GET SOCKET
-================================ */
+========================================= */
 
 function getSocket() {
   return currentSocket
 }
 
-/* ================================
+/* =========================================
    STOP SOCKET
-================================ */
+========================================= */
 
 async function stopSocket() {
   isShuttingDown = true
@@ -614,9 +671,9 @@ async function stopSocket() {
   currentSocket = null
 }
 
-/* ================================
+/* =========================================
    EXPORTS
-================================ */
+========================================= */
 
 export {
   startSocket,
@@ -625,3 +682,4 @@ export {
 }
 
 export default startSocket
+```
